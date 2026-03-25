@@ -61,6 +61,8 @@ PRIORITY_1_MOMENTUM = [
     # 30-min heatmap gainers (Mar 25)
     "CODX", "PESI", "GDXD", "LWLG", "GO", "BZUN", "PLAY", "EVTL", "FWRG", "RGTZ",
     "QNRX", "RMBS", "RZLT",
+    # Trade-Ideas PRIORITY_1_MOMENTUM update 2026-03-25 17:32
+    "MKDW", "PAYS", "CAST", "ARMG", "VIVO", "LUD", "KSCP", "CHNR", "RKLX", "MPTI", "BRZE", "CORT", "FBYD", "JFB", "RKLZ", "SMCZ", "CNTX", "ADMA", "NPT", "SKYQ", "DAMD", "YDDL", "DAVE", "PELI", "ONON", "VCIC", "LABD", "DWTX", "FRMI", "ZEPP",
 ]
 
 
@@ -72,6 +74,8 @@ PRIORITY_2_ESTABLISHED = [
     "FOSL", "ANAB", "DOCN", "TERN",
     # Original momentum
     "SWMR", "INDO", "DULL", "UCO", "SOXS",
+    # Trade-Ideas PRIORITY_2_ESTABLISHED update 2026-03-25 17:32
+    "DJI", "SRPT", "SMMT", "JBLU", "SHMD", "BNAI", "HCTI", "WOLF", "TSHA", "SLNH", "ASTS", "EVMN", "BETR", "QNCX", "ASST", "KIDZ", "XTIA", "AQST", "HYPD", "REPL", "NDRA", "AIRS", "AVXL", "NOTE", "DPRO", "ABTS", "FUBO", "SKIN", "SEZL", "RIME", "CNXC", "AEHL", "RXT", "EDSA", "LASE", "XWEL", "HPK", "SNBR", "KLAR", "ASTI", "TEM", "KPTI",
 ]
 
 PRIORITY_3_MARKET = ["SPY", "QQQ", "IWM", "^VIX"]
@@ -184,6 +188,15 @@ FINNHUB_API_KEY            = os.getenv("FINNHUB_API_KEY", "")
 USE_SENTIMENT_GATE         = False
 SENTIMENT_BULLISH_THRESHOLD = 0.6
 
+# Trade Ideas Discovery
+# Scrapes TIPro highshortfloat + marketscope360 with Selenium.
+# Requires: pip install selenium webdriver-manager pillow
+USE_TRADEIDEAS_DISCOVERY      = __import__('os').getenv('USE_TRADEIDEAS_DISCOVERY', 'false').lower() == 'true'
+TRADEIDEAS_SCAN_INTERVAL_MIN  = 30
+TRADEIDEAS_HEADLESS           = True
+TRADEIDEAS_CHROME_PROFILE     = __import__('os').getenv('TRADEIDEAS_CHROME_PROFILE', '')
+TRADEIDEAS_UPDATE_CONFIG_FILE = False
+
 # ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
 # Daily Limits
 # ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
@@ -220,6 +233,10 @@ LONG_ONLY_MODE        = True   # Disable all short entries — eliminates margin
 MIN_SIGNAL_CONFIDENCE = 0.50   # Execute signals with confidence >= this
 MAX_SIGNALS_PER_CYCLE = 3      # Execute at most this many signals per scan cycle
 
+# Parallel Scanning
+SCAN_WORKERS        = 12   # Threads scanning symbols concurrently
+SCAN_SYMBOL_TIMEOUT = 15   # Max seconds per symbol before it is skipped
+
 # ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
 # Strategy Parameters
 # ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
@@ -245,4 +262,41 @@ TECHNICAL = {
 MOMENTUM = {
     "min_momentum": 4.0,   # 4%+ move required (was 5 — too tight)
     "volume_surge": 2.5,   # 2.5x volume confirmation (was 3 — too tight)
+}
+
+# ─────────────────────────────────────────────────────────────────
+# Gap Breakout Strategy
+# ─────────────────────────────────────────────────────────────────
+GAP_BREAKOUT = {
+    "min_gap_pct":       5.0,   # Minimum gap-up % from prior close
+    "volume_multiplier": 1.5,   # Recent vol must be > X * session avg
+    "entry_window_min":  90,    # Only enter within first 90 min of open
+}
+
+# ─────────────────────────────────────────────────────────────────
+# Opening Range Breakout (ORB) Strategy
+# ─────────────────────────────────────────────────────────────────
+ORB = {
+    "range_minutes":       15,   # ORB formed in first 15 min (9:30-9:45)
+    "entry_start_min":     15,   # Start looking for breakouts after ORB forms
+    "entry_end_min":       120,  # Stop entering after 2 hrs into session
+    "breakout_buffer_pct": 0.1,  # Require 0.1% above ORB high to confirm
+    "volume_surge":        1.5,  # Post-ORB vol must be > 1.5x ORB avg
+}
+
+# ─────────────────────────────────────────────────────────────────
+# VWAP Reclaim Strategy
+# ─────────────────────────────────────────────────────────────────
+VWAP_RECLAIM = {
+    "volume_surge": 2.0,   # Volume in last 3 bars vs session avg
+    "rsi_max":      72,    # Don't enter if already overbought
+}
+
+# ─────────────────────────────────────────────────────────────────
+# Float Rotation Strategy
+# ─────────────────────────────────────────────────────────────────
+FLOAT_ROTATION = {
+    "max_float_shares":   15_000_000,  # Only stocks with float < 15M shares
+    "volume_float_ratio": 0.25,        # Today's volume already > 25% of float
+    "min_price_up_pct":   5.0,         # Price must be up >5% on the day
 }

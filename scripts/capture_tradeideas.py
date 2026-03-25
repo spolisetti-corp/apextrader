@@ -1,0 +1,360 @@
+"""
+Trade Ideas — Screenshot + Universe Updater
+============================================
+Navigates to two Trade Ideas TIPro scan pages with Selenium Chrome,
+captures screenshots, extracts ticker symbols, and optionally patches
+engine/config.py so the universe is kept current.
+
+Pages scraped
+-------------
+  HIGH_SHORT_FLOAT  https://www.trade-ideas.com/TIPro/highshortfloat/
+  MARKET_SCOPE_360  https://www.trade-ideas.com/TIPro/marketscope360/
+
+Usage
+-----
+  # Single run — screenshot + show extracted tickers
+  python scripts/capture_tradeideas.py
+
+  # Single run AND patch config.py
+  python scripts/capture_tradeideas.py --update-config
+
+  # Loop every 5 minutes AND patch config
+  python scripts/capture_tradeideas.py --loop 300 --update-config
+
+  # Use your existing Chrome profile (already logged in to Trade-Ideas)
+  python scripts/capture_tradeideas.py --chrome-profile "Default" --update-config
+
+Requirements
+------------
+  pip install selenium webdriver-manager pillow
+"""
+
+from __future__ import annotations
+
+import argparse
+import re
+import sys
+import time
+from datetime import datetime
+from pathlib import Path
+from typing import Optional
+
+# ── optional PIL for timestamp overlay ──────────────────────────
+try:
+    from PIL import Image, ImageDraw
+    PIL_OK = True
+except ImportError:
+    PIL_OK = False
+
+# ── Selenium ─────────────────────────────────────────────────────
+try:
+    from selenium import webdriver
+    from selenium.webdriver.chrome.options import Options as ChromeOptions
+    from selenium.webdriver.chrome.service import Service as ChromeService
+    from selenium.webdriver.common.by import By
+    from selenium.webdriver.support.ui import WebDriverWait
+    from selenium.webdriver.support import expected_conditions as EC
+    from webdriver_manager.chrome import ChromeDriverManager
+    SELENIUM_OK = True
+except ImportError:
+    SELENIUM_OK = False
+
+# ── Paths ────────────────────────────────────────────────────────
+SCRIPT_DIR = Path(__file__).parent
+REPO_ROOT   = SCRIPT_DIR.parent
+OUTPUT_DIR  = REPO_ROOT / "screenshots"
+CONFIG_FILE = REPO_ROOT / "engine" / "config.py"
+
+# ── Trade Ideas scan URLs ────────────────────────────────────────
+SCANS: dict[str, dict] = {
+    "highshortfloat": {
+        "url":    "https://www.trade-ideas.com/TIPro/highshortfloat/",
+        "label":  "high_short_float",
+        "target": "PRIORITY_2_ESTABLISHED",   # squeeze / short-float candidates
+    },
+    "marketscope360": {
+        "url":    "https://www.trade-ideas.com/TIPro/marketscope360/",
+        "label":  "market_scope_360",
+        "target": "PRIORITY_1_MOMENTUM",      # momentum leaders
+    },
+}
+
+# Words to exclude from ticker extraction (common UI/nav/HTML words)
+_IGNORE = {
+    "A", "AN", "AND", "OR", "NOT", "THE", "FOR", "ALL", "NEW", "NO", "PM", "AM",
+    "NA", "GO", "BE", "IN", "ON", "TO", "AT", "BY", "IF", "IS", "IT", "AS", "OF",
+    "MY", "US", "UP", "DO", "SO", "ME", "HE", "WE", "VS",
+    # UI / nav words visible on Trade Ideas pages
+    "MIN", "RACE", "PRE", "POST", "EST", "USD", "ETF", "ETH", "BTC",
+    "HIGH", "LOW", "BUY", "SELL", "OPEN", "CLOSE", "MARKET", "PRICE",
+    "FLOAT", "SHORT", "CHANGE", "VOLUME", "SCAN", "TRADE", "IDEAS", "SCOPE",
+    "MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN",
+    "JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC",
+    "NAS", "DOW", "EPS", "RSI", "SMA", "EMA", "ATR", "ADX", "MACD",
+    "HOLLY", "PRO", "MY", "COPY", "WAVE", "DEEP", "DIVE", "PLAY",
+    "UNUSUAL", "OPTIONS", "SECTORS", "EXPLORE", "GROUPS", "TRADING",
+    "COMPETITION", "WATCHLISTS", "SETTINGS", "DASHBOARDS", "CHANNELS",
+    "MOMENTUM", "WAVES", "STOCK", "SCOPE", "BIGGEST", "GAINERS", "LOSERS",
+    "DELAYED", "LIVE", "ALERT", "ALERTS", "FILTER", "FILTERS",
+}
+
+_TICKER_RE = re.compile(r'\b([A-Z]{2,5})\b')
+
+# How long to wait (seconds) for page to render
+TABLE_WAIT_SEC = 20
+PAGE_LOAD_SEC  = 15
+
+
+# ── Selenium driver ───────────────────────────────────────────────
+def _build_driver(headless: bool = False, chrome_profile: Optional[str] = None) -> "webdriver.Chrome":
+    opts = ChromeOptions()
+    if headless:
+        opts.add_argument("--headless=new")
+        opts.add_argument("--window-size=1600,900")
+    else:
+        opts.add_argument("--start-maximized")
+
+    opts.add_argument("--no-sandbox")
+    opts.add_argument("--disable-dev-shm-usage")
+    opts.add_argument("--disable-blink-features=AutomationControlled")
+    opts.add_experimental_option("excludeSwitches", ["enable-automation"])
+    opts.add_experimental_option("useAutomationExtension", False)
+
+    if chrome_profile:
+        import os
+        user_data = os.path.expandvars(r"%LOCALAPPDATA%\Google\Chrome\User Data")
+        opts.add_argument(f"--user-data-dir={user_data}")
+        opts.add_argument(f"--profile-directory={chrome_profile}")
+
+    service = ChromeService(ChromeDriverManager().install())
+    driver  = webdriver.Chrome(service=service, options=opts)
+    driver.execute_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
+    return driver
+
+
+# ── Ticker extraction ─────────────────────────────────────────────
+def _extract_tickers(driver: "webdriver.Chrome") -> list[str]:
+    """
+    Extract ticker symbols from the loaded Trade Ideas heatmap page.
+    Primary: body.innerText scan (works for React/JS-rendered heatmaps).
+    Fallback: href link pattern + data-symbol attributes.
+    Returns a de-duped ordered list of up to 50 tickers.
+    """
+    found: list[str] = []
+
+    # Strategy 1: body.innerText — most reliable for JS-rendered heatmap tiles
+    try:
+        body_text = driver.execute_script("return document.body.innerText;") or ""
+        for m in _TICKER_RE.finditer(body_text):
+            t = m.group(1)
+            if t not in _IGNORE:
+                found.append(t)
+    except Exception:
+        pass
+
+    # Strategy 2: data-symbol / data-ticker / data-code attributes
+    try:
+        attrs = driver.execute_script("""
+            var r = [];
+            document.querySelectorAll('[data-symbol],[data-ticker],[data-code]').forEach(function(el){
+                var v = el.getAttribute('data-symbol') || el.getAttribute('data-ticker') || el.getAttribute('data-code');
+                if (v) r.push(v.toUpperCase().trim());
+            });
+            return r;
+        """) or []
+        for t in attrs:
+            if _TICKER_RE.fullmatch(t) and t not in _IGNORE:
+                found.append(t)
+    except Exception:
+        pass
+
+    # Strategy 3: href links containing /stock/TICKER
+    try:
+        for anchor in driver.find_elements(By.TAG_NAME, "a"):
+            href = anchor.get_attribute("href") or ""
+            m = re.search(r'/stock/([A-Z]{1,5})(?:[/?]|$)', href)
+            if m:
+                found.append(m.group(1))
+    except Exception:
+        pass
+
+    # De-dup preserving order, max 50
+    seen: set[str] = set()
+    clean: list[str] = []
+    for t in found:
+        if t not in seen and t not in _IGNORE:
+            seen.add(t)
+            clean.append(t)
+    return clean[:50]
+
+
+# ── Screenshot helper ─────────────────────────────────────────────
+def _save_screenshot(driver: "webdriver.Chrome", label: str) -> Path:
+    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+    ts       = datetime.now().strftime("%Y%m%d_%H%M%S")
+    out_path = OUTPUT_DIR / f"tradeideas_{label}_{ts}.png"
+    driver.save_screenshot(str(out_path))
+
+    if PIL_OK:
+        try:
+            img  = Image.open(out_path)
+            draw = ImageDraw.Draw(img)
+            stamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S") + f"  |  {label}"
+            draw.rectangle([(0, 0), (len(stamp) * 7 + 8, 18)], fill=(0, 0, 0, 200))
+            draw.text((4, 2), stamp, fill=(255, 255, 255))
+            img.save(out_path)
+        except Exception:
+            pass
+
+    print(f"[OK   ] screenshot → {out_path}")
+    return out_path
+
+
+# ── Config patcher ────────────────────────────────────────────────
+def _patch_config(list_name: str, new_tickers: list[str]) -> int:
+    """
+    Append *new* tickers (not already present) to `list_name` in config.py.
+    Returns the number of tickers added.
+    """
+    src = CONFIG_FILE.read_text(encoding="utf-8")
+
+    # Find existing tickers already in that list (rough parse)
+    existing: set[str] = set(re.findall(r'"([A-Z]{1,5})"', src))
+    to_add = [t for t in new_tickers if t not in existing]
+    if not to_add:
+        return 0
+
+    # Build the insertion block
+    comment  = f"    # Trade-Ideas {list_name} update {datetime.now().strftime('%Y-%m-%d %H:%M')}"
+    new_line = "    " + ", ".join(f'"{t}"' for t in to_add) + ","
+
+    # Locate the closing ] of the target list and insert before it
+    pattern = re.compile(
+        rf'({re.escape(list_name)}\s*=\s*\[.*?)(^\])',
+        re.DOTALL | re.MULTILINE,
+    )
+    m = pattern.search(src)
+    if not m:
+        print(f"[WARN ] Could not locate {list_name} in config.py — skipping patch")
+        return 0
+
+    insert_at = m.start(2)
+    new_src   = src[:insert_at] + comment + "\n" + new_line + "\n" + src[insert_at:]
+    CONFIG_FILE.write_text(new_src, encoding="utf-8")
+    return len(to_add)
+
+
+# ── Main scrape function ──────────────────────────────────────────
+def scrape_tradeideas(
+    update_config: bool = False,
+    headless: bool = False,
+    chrome_profile: Optional[str] = None,
+) -> dict[str, list[str]]:
+    """
+    Scrape both Trade Ideas scan pages.
+    Returns {scan_key: [tickers, …]}.
+    """
+    if not SELENIUM_OK:
+        print("[ERROR] selenium / webdriver-manager not installed.")
+        print("        Run:  pip install selenium webdriver-manager pillow")
+        sys.exit(1)
+
+    results: dict[str, list[str]] = {}
+    driver = _build_driver(headless=headless, chrome_profile=chrome_profile)
+
+    try:
+        for scan_key, scan in SCANS.items():
+            url   = scan["url"]
+            label = scan["label"]
+
+            print(f"\n[....] Loading {url}")
+            driver.get(url)
+
+            # Wait for any table/results container to appear
+            loaded = False
+            for sel in ["body", "div"]:
+                try:
+                    WebDriverWait(driver, TABLE_WAIT_SEC).until(
+                        EC.presence_of_element_located((By.CSS_SELECTOR, sel))
+                    )
+                    loaded = True
+                    break
+                except Exception:
+                    continue
+
+            if not loaded:
+                time.sleep(PAGE_LOAD_SEC)
+
+            # Grace period for React heatmap to fully render
+            time.sleep(14)
+
+            tickers = _extract_tickers(driver)
+            _save_screenshot(driver, label)
+
+            results[scan_key] = tickers
+            print(f"[OK   ] {scan_key}: {len(tickers)} tickers — {tickers[:10]}{'…' if len(tickers)>10 else ''}")
+
+            if update_config and tickers:
+                added = _patch_config(scan["target"], tickers)
+                if added:
+                    print(f"[OK   ] config.py: +{added} new tickers added to {scan['target']}")
+                else:
+                    print(f"[INFO ] config.py: all tickers already present in {scan['target']}")
+
+            # Navigate away so the tab goes blank immediately (no lingering TI UI)
+            try:
+                driver.get("about:blank")
+            except Exception:
+                pass
+
+    finally:
+        driver.quit()
+        print("[OK   ] Browser closed.")
+
+    return results
+
+
+# ── CLI ───────────────────────────────────────────────────────────
+def main() -> None:
+    parser = argparse.ArgumentParser(
+        description="Capture Trade Ideas scans and optionally update the stock universe"
+    )
+    parser.add_argument(
+        "--update-config", action="store_true",
+        help="Patch engine/config.py with newly discovered tickers",
+    )
+    parser.add_argument(
+        "--loop", type=int, metavar="SECONDS", default=0,
+        help="Repeat every N seconds (0 = single shot, default)",
+    )
+    parser.add_argument(
+        "--headless", action="store_true",
+        help="Run Chrome in headless mode (no visible window)",
+    )
+    parser.add_argument(
+        "--chrome-profile", metavar="PROFILE", default=None,
+        help='Use an existing Chrome profile, e.g. "Default" (keeps TI login session)',
+    )
+    args = parser.parse_args()
+
+    if args.loop > 0:
+        print(f"[INFO ] Loop mode — capturing every {args.loop}s. Ctrl+C to stop.")
+        while True:
+            scrape_tradeideas(
+                update_config=args.update_config,
+                headless=args.headless,
+                chrome_profile=args.chrome_profile,
+            )
+            print(f"[INFO ] Sleeping {args.loop}s …")
+            time.sleep(args.loop)
+    else:
+        scrape_tradeideas(
+            update_config=args.update_config,
+            headless=args.headless,
+            chrome_profile=args.chrome_profile,
+        )
+
+
+if __name__ == "__main__":
+    main()
+

@@ -4,8 +4,10 @@ Professional automated trading system.
 """
 
 import time
+import threading
 import schedule
 import yfinance as yf
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dotenv import load_dotenv
 from alpaca.trading.client import TradingClient
 
@@ -24,19 +26,25 @@ from engine.config import (
     USE_LIVE_TRENDING, TRENDING_SCAN_INTERVAL,
     TRENDING_MAX_RESULTS, TRENDING_MIN_MOMENTUM,
     USE_FINNHUB_DISCOVERY, USE_SENTIMENT_GATE,
+    USE_TRADEIDEAS_DISCOVERY, TRADEIDEAS_SCAN_INTERVAL_MIN,
+    TRADEIDEAS_HEADLESS, TRADEIDEAS_CHROME_PROFILE, TRADEIDEAS_UPDATE_CONFIG_FILE,
     USE_MARKET_HOURS_TUNING,
     PREMARKET_SCAN_INTERVAL, REGULAR_HOURS_SCAN_INTERVAL, AFTERHOURS_SCAN_INTERVAL,
     USE_POSITION_TUNING,
     HIGH_POSITION_INTERVAL, NORMAL_POSITION_INTERVAL, LOW_POSITION_INTERVAL,
     LONG_ONLY_MODE, MIN_SIGNAL_CONFIDENCE, MAX_SIGNALS_PER_CYCLE,
+    SCAN_WORKERS, SCAN_SYMBOL_TIMEOUT,
 )
 from engine.utils import (
-    setup_logging, is_market_open, get_vix,
+    setup_logging, is_market_open, get_vix, clear_bar_cache,
     get_trending_tickers, filter_trending_momentum,
     get_finnhub_trending_tickers, check_sentiment_gate,
     get_vix_interval, get_market_hours_interval, get_position_tuning_interval,
 )
-from engine.strategies import SweepeaStrategy, TechnicalStrategy, MomentumStrategy
+from engine.strategies import (
+    SweepeaStrategy, TechnicalStrategy, MomentumStrategy,
+    GapBreakoutStrategy, ORBStrategy, VWAPReclaimStrategy, FloatRotationStrategy,
+)
 from engine.executor_enhanced import EnhancedExecutor
 
 # ── Initialise ──────────────────────────────────────────────────
@@ -44,9 +52,13 @@ log      = setup_logging()
 client   = TradingClient(API_KEY, API_SECRET, paper=PAPER)
 executor = EnhancedExecutor(client, use_bracket_orders=True)
 
-sweepea   = SweepeaStrategy()
-technical = TechnicalStrategy()
-momentum  = MomentumStrategy()
+sweepea       = SweepeaStrategy()
+technical     = TechnicalStrategy()
+momentum      = MomentumStrategy()
+gap_breakout  = GapBreakoutStrategy()
+orb           = ORBStrategy()
+vwap_reclaim  = VWAPReclaimStrategy()
+float_rotation = FloatRotationStrategy()
 
 daily_pnl   = 0.0
 daily_reset = None
@@ -58,6 +70,7 @@ quarterly_reset               = None
 
 trending_stocks    = []
 last_trending_scan = 0
+last_ti_scan       = 0
 
 
 # ── Market Sentiment ────────────────────────────────────────────
@@ -149,6 +162,65 @@ def scan_trending_stocks():
                            for s in PRIORITY_1_MOMENTUM[:TRENDING_MAX_RESULTS]]
 
 
+# ── Trade Ideas Universe Refresh ───────────────────────────────
+def scan_tradeideas_universe():
+    """Scrape TIPro high-short-float + market-scope pages and expand
+    PRIORITY_1_MOMENTUM / PRIORITY_2_ESTABLISHED in memory."""
+    global last_ti_scan
+
+    if not USE_TRADEIDEAS_DISCOVERY:
+        return
+
+    if (time.time() - last_ti_scan) < (TRADEIDEAS_SCAN_INTERVAL_MIN * 60):
+        return
+
+    try:
+        import sys
+        import os
+        _scripts = str(REPO_ROOT / "scripts")
+        if _scripts not in sys.path:
+            sys.path.insert(0, _scripts)
+        from capture_tradeideas import scrape_tradeideas, SCANS
+    except ImportError as e:
+        log.warning(f"Trade Ideas scraper unavailable (selenium not installed?): {e}")
+        last_ti_scan = time.time()
+        return
+
+    log.info("Scanning Trade Ideas: highshortfloat + marketscope360 …")
+    try:
+        results = scrape_tradeideas(
+            update_config=TRADEIDEAS_UPDATE_CONFIG_FILE,
+            headless=TRADEIDEAS_HEADLESS,
+            chrome_profile=TRADEIDEAS_CHROME_PROFILE or None,
+        )
+        _target_map = {v["target"]: v["label"] for v in SCANS.values()}
+        for scan_key, tickers in results.items():
+            target_list_name = SCANS[scan_key]["target"]
+            if target_list_name == "PRIORITY_1_MOMENTUM":
+                dest = PRIORITY_1_MOMENTUM
+            else:
+                dest = PRIORITY_2_ESTABLISHED
+
+            existing = set(dest)
+            new_tickers = [t for t in tickers if t not in existing]
+            if new_tickers:
+                dest.extend(new_tickers)
+                log.info(
+                    f"Trade Ideas {SCANS[scan_key]['label']}: "
+                    f"+{len(new_tickers)} tickers added to {target_list_name} "
+                    f"→ {new_tickers[:10]}"
+                )
+            else:
+                log.info(f"Trade Ideas {SCANS[scan_key]['label']}: all {len(tickers)} tickers already in universe")
+    except Exception as e:
+        log.error(f"Trade Ideas scan failed: {e}")
+
+    last_ti_scan = time.time()
+
+
+REPO_ROOT = __import__('pathlib').Path(__file__).parent
+
+
 # ── Main Scan & Trade ───────────────────────────────────────────
 def _get_quarter_start(d):
     """Return the first date of the current calendar quarter."""
@@ -211,72 +283,79 @@ def scan_and_trade():
     log.info(f"Market sentiment: {sentiment}")
 
     scan_trending_stocks()
+    scan_tradeideas_universe()
 
-    signals = []
-    sweep_hits = tech_hits = mom_hits = scan_errors = 0
+    # ── Pre-exclude symbols already held/ordered ─────────────────────────
+    _open_positions = {p.symbol for p in client.get_all_positions()}
+    _open_orders    = {o.symbol for o in client.get_orders()
+                       if getattr(o, "status", "") in ("new", "partially_filled", "pending_new")}
+    _excluded = _open_positions | _open_orders
 
-    log.info(f"Priority1 pool: {len(PRIORITY_1_MOMENTUM)} symbols, P2 pool: {len(PRIORITY_2_ESTABLISHED)} symbols")
+    # Deduplicated scan list: P1 first, then up to 10 of P2
+    _seen: set = set()
+    scan_targets = []
+    for s in PRIORITY_1_MOMENTUM + PRIORITY_2_ESTABLISHED[:10]:
+        if s not in _seen and s not in _excluded:
+            _seen.add(s)
+            scan_targets.append(s)
 
-    # Priority 1 — full strategy sweep
-    for symbol in PRIORITY_1_MOMENTUM:
-        try:
-            sig = sweepea.scan(symbol)
+    log.info(
+        f"Scanning {len(scan_targets)} symbols "
+        f"({len(_excluded)} pre-excluded, {SCAN_WORKERS} workers)"
+    )
+
+    # ── Clear bar cache for this cycle ──────────────────────────────
+    clear_bar_cache()
+
+    # ── Per-symbol scanner (runs in thread pool) ──────────────────────
+    def _scan_one(symbol: str):
+        for scanner in [
+            gap_breakout.scan,
+            orb.scan,
+            float_rotation.scan,
+            vwap_reclaim.scan,
+            sweepea.scan,
+        ]:
+            sig = scanner(symbol)
             if sig:
-                signals.append(sig)
-                sweep_hits += 1
-                continue
-            sig = technical.scan(symbol, sentiment)
-            if sig:
-                signals.append(sig)
-                tech_hits += 1
-                continue
-            sig = momentum.scan(symbol)
-            if sig:
-                signals.append(sig)
-                mom_hits += 1
-        except KeyboardInterrupt:
-            raise
-        except Exception as e:
-            scan_errors += 1
-            log.warning(f"Scan error {symbol}: {e}")
+                return sig
+        sig = technical.scan(symbol, sentiment)
+        if sig:
+            return sig
+        return momentum.scan(symbol)
 
-    # Priority 2 — if capacity remains
-    if len(signals) < 10:
-        for symbol in PRIORITY_2_ESTABLISHED[:10]:
+    signals      = []
+    hit_counts   = {}
+    scan_errors  = 0
+    _sig_lock    = threading.Lock()
+
+    with ThreadPoolExecutor(max_workers=SCAN_WORKERS) as pool:
+        future_map = {pool.submit(_scan_one, sym): sym for sym in scan_targets}
+        for future in as_completed(future_map):
+            sym = future_map[future]
             try:
-                sig = sweepea.scan(symbol)
+                sig = future.result(timeout=SCAN_SYMBOL_TIMEOUT)
                 if sig:
-                    signals.append(sig)
-                    sweep_hits += 1
-                    continue
-                sig = technical.scan(symbol, sentiment)
-                if sig:
-                    signals.append(sig)
-                    tech_hits += 1
-            except KeyboardInterrupt:
-                raise
+                    with _sig_lock:
+                        signals.append(sig)
+                        hit_counts[sig.strategy] = hit_counts.get(sig.strategy, 0) + 1
             except Exception as e:
                 scan_errors += 1
-                log.warning(f"Scan error {symbol}: {e}")
+                log.warning(f"Scan error {sym}: {e}")
 
-    log.info(f"Signal breakdown — Sweepea: {sweep_hits}, Technical: {tech_hits}, Momentum: {mom_hits} | Errors: {scan_errors}")
-    if sweep_hits + tech_hits + mom_hits == 0:
-        log.info("No signals: market likely in downtrend (MACD negative, prices below SMA20) — waiting for setups")
+    breakdown = ", ".join(f"{k}: {v}" for k, v in sorted(hit_counts.items()))
+    log.info(f"Signal breakdown — {breakdown or 'none'} | Errors: {scan_errors}")
+    if not hit_counts:
+        log.info("No signals: market likely in downtrend — waiting for setups")
 
-    log.info(f"Total raw signals collected: {len(signals)}")
+    log.info(f"Total raw signals: {len(signals)}")
 
     if signals:
         signals.sort(key=lambda x: x.confidence, reverse=True)
 
-        # Eligible filtering example (no duplicates and not in positions/orders)
-        _open_positions = {p.symbol for p in client.get_all_positions()}
-        _open_orders = {o.symbol for o in client.get_orders() if getattr(o, 'status', '') in ('new','partially_filled','pending_new')}
-        _excluded = _open_positions | _open_orders
-        eligible = [s for s in signals if s.symbol not in _excluded]
-        skipped  = [s.symbol for s in signals if s.symbol in _excluded]
-
-        log.info(f"Excluded {len(skipped)} signals from trading (positions/orders): {', '.join(skipped[:10]) if skipped else 'none'}")
-        log.info(f"Eligible signals after exclusion: {len(eligible)}")
+        # Symbols already excluded pre-scan; apply sniper gates only
+        eligible = signals
+        log.info(f"Pre-scan excluded: {len(_excluded)} symbols | Raw eligible: {len(eligible)}")
 
         # Sniper gates: long-only mode and minimum confidence
         if LONG_ONLY_MODE:
