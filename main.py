@@ -16,6 +16,7 @@ from engine.config import (
     STOCKS, PRIORITY_1_MOMENTUM, PRIORITY_2_ESTABLISHED,
     SCAN_INTERVAL_MIN, POSITION_CHECK_MIN,
     DAILY_LOSS_LIMIT, DAILY_PROFIT_TARGET,
+    USE_QUARTERLY_TARGET, QUARTERLY_PROFIT_TARGET_PCT,
     ADAPTIVE_INTERVALS,
     SCAN_INTERVAL_EXTREME_VOL, SCAN_INTERVAL_HIGH_VOL,
     SCAN_INTERVAL_MODERATE_VOL, SCAN_INTERVAL_NORMAL_VOL,
@@ -49,6 +50,10 @@ momentum  = MomentumStrategy()
 daily_pnl   = 0.0
 daily_reset = None
 trades      = 0
+
+# Quarterly tracking
+quarterly_start_equity: float = 0.0
+quarterly_reset               = None
 
 trending_stocks    = []
 last_trending_scan = 0
@@ -84,7 +89,7 @@ def scan_trending_stocks():
         return
 
     try:
-        log.info("Scanning for live trending stocks…")
+        log.info("Scanning for live trending stocks...")
         all_tickers = []
 
         if USE_LIVE_TRENDING:
@@ -100,7 +105,7 @@ def scan_trending_stocks():
         unique = list(set(all_tickers))
 
         if not unique:
-            log.info("No trending tickers found — using existing universe")
+            log.info("No trending tickers found - using existing universe")
             trending_stocks    = [{"symbol": s, "momentum_pct": 0, "current_price": 0}
                                    for s in PRIORITY_1_MOMENTUM[:TRENDING_MAX_RESULTS]]
             last_trending_scan = current_time
@@ -109,7 +114,7 @@ def scan_trending_stocks():
         momentum_stocks = filter_trending_momentum(unique, TRENDING_MIN_MOMENTUM)
 
         if not momentum_stocks:
-            log.info(f"No trending stocks with >{TRENDING_MIN_MOMENTUM}% momentum — using universe")
+            log.info(f"No trending stocks with >{TRENDING_MIN_MOMENTUM}% momentum - using universe")
             trending_stocks    = [{"symbol": s, "momentum_pct": 0, "current_price": 0}
                                    for s in PRIORITY_1_MOMENTUM[:TRENDING_MAX_RESULTS]]
             last_trending_scan = current_time
@@ -144,8 +149,16 @@ def scan_trending_stocks():
 
 
 # ── Main Scan & Trade ───────────────────────────────────────────
+def _get_quarter_start(d):
+    """Return the first date of the current calendar quarter."""
+    import datetime
+    quarter_month = ((d.month - 1) // 3) * 3 + 1
+    return datetime.date(d.year, quarter_month, 1)
+
+
 def scan_and_trade():
     global daily_pnl, daily_reset, trades
+    global quarterly_start_equity, quarterly_reset
 
     import datetime
     today = datetime.date.today()
@@ -158,7 +171,7 @@ def scan_and_trade():
         log.info("=" * 70)
 
     if not is_market_open():
-        log.info("Market closed — skipping scan")
+        log.info("Market closed - skipping scan")
         return
 
     if daily_pnl <= DAILY_LOSS_LIMIT:
@@ -169,12 +182,38 @@ def scan_and_trade():
         log.info(f"Daily profit target reached: ${daily_pnl:.2f}")
         return
 
+    # Quarterly profit target gate
+    if USE_QUARTERLY_TARGET:
+        try:
+            q_start = _get_quarter_start(today)
+            _acct   = client.get_account()
+            _equity = float(_acct.equity)
+
+            if quarterly_reset != q_start:
+                quarterly_start_equity = _equity
+                quarterly_reset        = q_start
+                log.info(f"New quarter {q_start} | Starting equity: ${quarterly_start_equity:,.2f}")
+
+            if quarterly_start_equity > 0:
+                q_gain_pct = ((_equity - quarterly_start_equity) / quarterly_start_equity) * 100
+                log.info(f"Quarterly P&L: +{q_gain_pct:.1f}% (target >= {QUARTERLY_PROFIT_TARGET_PCT:.0f}%)")
+                if q_gain_pct >= QUARTERLY_PROFIT_TARGET_PCT:
+                    log.info(
+                        f"QUARTERLY TARGET HIT: +{q_gain_pct:.1f}% >= {QUARTERLY_PROFIT_TARGET_PCT:.0f}% | "
+                        f"${quarterly_start_equity:,.2f} -> ${_equity:,.2f} | Halting new entries"
+                    )
+                    return
+        except Exception as e:
+            log.warning(f"Quarterly target check error: {e}")
+
     sentiment = get_market_sentiment()
     log.info(f"Market sentiment: {sentiment}")
 
     scan_trending_stocks()
 
     signals = []
+
+    log.info(f"Priority1 pool: {len(PRIORITY_1_MOMENTUM)} symbols, P2 pool: {len(PRIORITY_2_ESTABLISHED)} symbols")
 
     # Priority 1 — full strategy sweep
     for symbol in PRIORITY_1_MOMENTUM:
@@ -201,11 +240,26 @@ def scan_and_trade():
             if sig:
                 signals.append(sig)
 
+    log.info(f"Total raw signals collected: {len(signals)}")
+
     if signals:
         signals.sort(key=lambda x: x.confidence, reverse=True)
-        log.info(f"Found {len(signals)} signal(s)")
-        for sig in signals[:3]:
-            log.info(f"{sig.action.upper()} {sig.symbol} @ ${sig.price:.2f} | {sig.strategy} | {sig.reason}")
+
+        # Eligible filtering example (no duplicates and not in positions/orders)
+        _open_positions = {p.symbol for p in client.get_all_positions()}
+        _open_orders = {o.symbol for o in client.get_orders() if getattr(o, 'status', '') in ('new','partially_filled','pending_new')}
+        _excluded = _open_positions | _open_orders
+        eligible = [s for s in signals if s.symbol not in _excluded]
+        skipped  = [s.symbol for s in signals if s.symbol in _excluded]
+
+        log.info(f"Excluded {len(skipped)} signals from trading (positions/orders): {', '.join(skipped[:10]) if skipped else 'none'}")
+        log.info(f"Eligible signals after exclusion: {len(eligible)}")
+
+        top3 = eligible[:3]
+        log.info(f"Executing top {len(top3)} eligible signal(s)")
+
+        for sig in top3:
+            log.info(f"EXECUTE: {sig.action.upper()} {sig.symbol} @ ${sig.price:.2f} | {sig.strategy} | {sig.reason}")
             executor.execute(sig)
             time.sleep(1)
             trades += 1
@@ -223,6 +277,9 @@ def log_status():
         log.info("STATUS")
         log.info(f"Equity:     ${float(account.equity):,.2f}")
         log.info(f"Daily P&L:  ${daily_pnl:.2f}  |  Trades: {trades}")
+        if USE_QUARTERLY_TARGET and quarterly_start_equity > 0:
+            q_gain = ((float(account.equity) - quarterly_start_equity) / quarterly_start_equity) * 100
+            log.info(f"Quarterly:  +{q_gain:.1f}% (target >= {QUARTERLY_PROFIT_TARGET_PCT:.0f}%)")
         log.info(f"Positions:  {len(positions)}")
 
         if positions:
@@ -292,9 +349,9 @@ def get_adaptive_interval() -> int:
 # ── Start (continuous loop for local/server deployment) ─────────
 def start():
     log.info("=" * 70)
-    log.info("APEXTRADER — Priority-Based Momentum Trading")
+    log.info("APEXTRADER - Priority-Based Momentum Trading")
     log.info("=" * 70)
-    log.info("Strategies: Sweepea · Technical · Momentum")
+    log.info("Strategies: Sweepea | Technical | Momentum")
     log.info(f"Priority 1 (Momentum): {len(PRIORITY_1_MOMENTUM)} stocks")
     log.info(f"Priority 2 (Established): {len(PRIORITY_2_ESTABLISHED)} stocks")
     log.info(f"Total Universe: {sum(len(v) for v in STOCKS.values())} stocks")

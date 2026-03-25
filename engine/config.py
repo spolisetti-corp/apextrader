@@ -73,6 +73,13 @@ PRIORITY_2_ESTABLISHED = [
 
 PRIORITY_3_MARKET = ["SPY", "QQQ", "IWM", "^VIX"]
 
+# Delisted or broken tickers — filtered out at runtime
+DELISTED_STOCKS = ["IMV", "EKV", "AMTK", "SUNE", "BTU"]
+
+# Remove delisted from live lists
+PRIORITY_1_MOMENTUM = [s for s in PRIORITY_1_MOMENTUM if s not in DELISTED_STOCKS]
+PRIORITY_2_ESTABLISHED = [s for s in PRIORITY_2_ESTABLISHED if s not in DELISTED_STOCKS]
+
 # Priority Following: heatmap/premarket gainers being monitored for entry
 PRIORITY_FOLLOWING = [
     # Heatmap gainers (Change from Close %)
@@ -179,6 +186,10 @@ SENTIMENT_BULLISH_THRESHOLD = 0.6
 POSITION_CHECK_MIN  = 5
 DAILY_LOSS_LIMIT    = -500.0
 DAILY_PROFIT_TARGET = 3500.0
+
+# Quarterly Profit Target
+USE_QUARTERLY_TARGET        = True
+QUARTERLY_PROFIT_TARGET_PCT = 50.0   # Halt new entries once +50% equity this quarter
 
 # ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
 # Extended Hours Trading
