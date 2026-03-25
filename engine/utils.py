@@ -33,14 +33,29 @@ _data_client = None
 # Logging
 # ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
 def setup_logging() -> logging.Logger:
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s [%(levelname)s] %(message)s",
-        handlers=[
-            logging.StreamHandler(),
-            logging.FileHandler("apextrader.log", mode="a", encoding="utf-8"),
-        ],
+    import logging.handlers
+    fmt = logging.Formatter("%(asctime)s [%(levelname)s] %(message)s")
+
+    # Console
+    stream_h = logging.StreamHandler()
+    stream_h.setFormatter(fmt)
+
+    # Daily rotating file — keeps last 30 days, named apextrader.log.YYYY-MM-DD
+    file_h = logging.handlers.TimedRotatingFileHandler(
+        "apextrader.log",
+        when="midnight",
+        interval=1,
+        backupCount=30,
+        encoding="utf-8",
     )
+    file_h.setFormatter(fmt)
+    file_h.suffix = "%Y-%m-%d"
+
+    root = logging.getLogger()
+    root.setLevel(logging.INFO)
+    if not root.handlers:          # avoid duplicate handlers on reload
+        root.addHandler(stream_h)
+        root.addHandler(file_h)
     return logging.getLogger("ApexTrader")
 
 
@@ -297,6 +312,31 @@ def get_twelvedata_trending_tickers(max_results: int = 20) -> list:
     except Exception as e:
         logging.getLogger("ApexTrader").warning(f"TwelveData discovery failed: {e}")
         return []
+
+
+SYMBOL_ALIASES = {
+    "CCEM": "CGEM",
+    "BKSI": "BKSY",
+}
+
+
+def normalize_symbol(symbol: str) -> str:
+    if not symbol or not isinstance(symbol, str):
+        return ""
+    symbol = symbol.strip().upper()
+    return SYMBOL_ALIASES.get(symbol, symbol)
+
+
+def is_tradeable_symbol(symbol: str) -> bool:
+    """Return False for delisted or non-tradeable tickers."""
+    symbol = normalize_symbol(symbol)
+    if not symbol:
+        return False
+    try:
+        hist = yf.Ticker(symbol).history(period="5d")
+        return not hist.empty
+    except Exception:
+        return False
 
 
 def get_trending_tickers(max_results: int = 20) -> list:

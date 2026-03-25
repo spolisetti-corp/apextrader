@@ -48,7 +48,7 @@ log      = setup_logging()
 client   = TradingClient(API_KEY, API_SECRET, paper=PAPER)
 executor = EnhancedExecutor(client, use_bracket_orders=True)
 
-sweepea  = SweepeaStrategy()
+sweepea   = SweepeaStrategy()
 technical = TechnicalStrategy()
 momentum  = MomentumStrategy()
 quarterly = QuarterlyAggressiveStrategy()
@@ -170,6 +170,7 @@ def scan_and_trade():
         log.info("=" * 70)
 
     if not is_market_open():
+        log.info("Market closed — skipping scan")
         return
 
     # Clean universe from delisted symbols and normalize aliases
@@ -477,7 +478,6 @@ def get_adaptive_interval() -> int:
     if not ADAPTIVE_INTERVALS:
         return SCAN_INTERVAL_MIN
 
-    # Get VIX-based interval
     vix = get_vix()
     vix_config = {
         "SCAN_INTERVAL_EXTREME_VOL": SCAN_INTERVAL_EXTREME_VOL,
@@ -528,7 +528,7 @@ def get_adaptive_interval() -> int:
     return interval
 
 
-# ── Start ───────────────────────────────────────────────────────
+# ── Start (continuous loop for local/server deployment) ─────────
 def start():
     global start_equity, quarterly_target
 
@@ -593,4 +593,23 @@ def start():
 
 
 if __name__ == "__main__":
-    start()
+    import argparse
+    import sys
+
+    parser = argparse.ArgumentParser(description="ApexTrader")
+    parser.add_argument(
+        "--once",
+        action="store_true",
+        help="Run a single scan cycle and exit (used by GitHub Actions scheduled workflow)",
+    )
+    args = parser.parse_args()
+
+    if args.once:
+        log.info("=" * 70)
+        log.info("APEXTRADER — Single Scan Cycle (GitHub Actions)")
+        log.info("=" * 70)
+        scan_and_trade()
+        log_status()
+        sys.exit(0)
+    else:
+        start()

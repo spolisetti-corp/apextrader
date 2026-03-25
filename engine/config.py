@@ -35,24 +35,24 @@ ETRADE_SANDBOX         = os.getenv("ETRADE_SANDBOX", "false").lower() == "true"
 # ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
 PRIORITY_1_MOMENTUM = [
     # Extreme momentum (100%+ gainers)
-    "UGRO", "VCX", "PTLE", "BIAF", "SATL", "ELAB",
+    "VCX", "PTLE", "BIAF", "SATL", "ELAB",
     # Strong momentum (50%+ gainers)
     "QNTM", "MRLN", "DMRA", "RCAX", "ALDX", "NAMM", "PAYP", "SER", "NAUT", "CGV",
     # Consistent performers (20%+ gainers)
-    "AXTI", "NTGR", "APGE", "ELPW", "ORGN", "ASPI", "FSLY", "ALLO", "SMX", "SUNE",
+    "AXTI", "NTGR", "APGE", "ORGN", "ASPI", "FSLY", "ALLO", "SMX",
     "LUNR", "RCAT", "AAOI", "BCRX", "SVCO", "YOU", "BKSY", "AEHR", "OLN",
-    "SLS", "WULF", "ADTN", "OPTX", "IMVT", "GOCO", "ORKA", "PEB",
+    "SLS", "WULF", "ADTN", "OPTX", "IMVT", "ORKA", "PEB",
     # Latest additions (5%+ gainers)
     "EPRX", "IDN", "RDGT", "MTA", "ELE", "RFIL", "OFRM", "NMRA", "BTGO",
     "OI", "NTCT", "FBRX", "BATL", "OPAL", "FPI", "VUZI", "BN", "MWH", "VMET", "TGEN",
     # 30-min momentum
-    "FLNG", "MGY", "ALMS", "DK", "KALV", "NOG", "SATS", "CNX", "NN", "AMPX", "BTU", "AMKR", "RIG",
+    "FLNG", "MGY", "ALMS", "DK", "NOG", "CNX", "NN", "AMPX", "BTU", "AMKR", "RIG",
     # Recent additions
-    "VIR", "MIRM", "PTGX", "CAPR", "CELC", "MAZE", "KORU", "LCUT",
-    "CONL", "FLY", "SIDU", "VELO", "AMTX", "SMCX", "FUFU", "MSTX", "OKLL",
-    "SPT", "RGTX", "IONL", "MRNA", "SNDX", "ABX", "CLDX", "RNG", "DNTH",
+    "VIR", "CAPR", "CELC", "MAZE", "KORU", "LCUT",
+    "CONL", "SIDU", "VELO", "AMTX", "SMCX", "MSTX", "OKLL",
+    "SPT", "RGTX", "IONL", "MRNA", "SNDX", "CLDX", "RNG", "DNTH",
     # Latest heatmap additions
-    "NKTR", "AMLX", "NUVL", "SRRK", "TYRA", "PBF", "DNLI", "BCAX", "EKV",
+    "NKTR", "NUVL", "SRRK", "TYRA", "PBF", "DNLI", "BCAX", "EKV",
     # Post-market gainers
     "RBNE", "FEED", "ANNA", "CVV", "ROMA", "NUCL", "DXST", "IONR",
     "NRXP", "CONI", "FOUR", "ASRT", "GRO",
@@ -76,10 +76,34 @@ PRIORITY_2_ESTABLISHED = [
 
 PRIORITY_3_MARKET = ["SPY", "QQQ", "IWM", "^VIX"]
 
+# Priority Following: heatmap/premarket gainers being monitored for entry
+PRIORITY_FOLLOWING = [
+    # Heatmap gainers (Change from Close %)
+    "ELVN", "VSH", "PL", "ONDS", "GPRE", "NBIS", "SEI", "NXE",
+    # Premarket biggest gainers
+    "DXYZ", "ARM", "CIFR", "CRCG", "AGQ", "UGL", "CHWY", "ARTL",
+    "BITU", "SCO", "AG", "GDX", "SOXL", "SLV", "CRWG", "AMDL",
+    "CRCL", "INTC", "IREN", "GLD", "BMNR",
+]
+
+# TI Universe (technical indicator-driven stock subset)
+DELISTED_STOCKS = ["IMV", "EKV", "AMTK"]  # Add any known delisted symbols here
+
+TI_UNIVERSE = [
+    "ELVN", "HZO", "SATS", "TERN", "TXG", "BKSY", "CGEM",  # bkSI/ccEM alias to BKSY/CGEM
+    "DXYZ", "ARM", "CRCG", "CONL", "BABA", "ETHA", "STLA",
+    "NVDA", "BMRN", "JD", "SOXL", "SLV", "CRCL", "GDX", "ONDS", "VSH",
+]
+
+# Remove blacklist from TI universe
+TI_UNIVERSE = [s for s in TI_UNIVERSE if s not in DELISTED_STOCKS]
+
 STOCKS = {
     "priority_1": PRIORITY_1_MOMENTUM,
     "priority_2": PRIORITY_2_ESTABLISHED,
     "priority_3": PRIORITY_3_MARKET,
+    "following":  PRIORITY_FOLLOWING,
+    "priority_ti": TI_UNIVERSE,
 }
 
 # ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
