@@ -207,6 +207,11 @@ AFTERHOURS_END   = "20:00"
 PDT_ACCOUNT_MIN = 25000.0
 PDT_MAX_TRADES  = 3
 
+# Enterprise Risk Controls
+MIN_BUYING_POWER_PCT  = 10.0   # Reserve this % of equity as free buffer (never spend it)
+MIN_POSITION_DOLLARS  = 500.0  # Minimum trade size in $ — skip if downsized below this
+PDT_WARN_AT_REMAINING = 1      # Warn log when PDT trades remaining falls to this level
+
 # ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
 # Strategy Parameters
 # ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ

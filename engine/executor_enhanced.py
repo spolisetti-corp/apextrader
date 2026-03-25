@@ -29,6 +29,7 @@ from .config import (
     USE_DYNAMIC_TIERS,
     USE_RISK_EQUALIZED_SIZING,
     USE_VIX_ROC_FILTER,
+    MIN_BUYING_POWER_PCT, MIN_POSITION_DOLLARS, PDT_WARN_AT_REMAINING,
 )
 from .strategies import Signal
 from .utils import is_regular_hours, calculate_risk_adjusted_size, check_vix_roc_filter
@@ -46,7 +47,7 @@ class OrderType(Enum):
 
 @dataclass
 class PDTTracker:
-    """Pattern Day Trader tracking with rolling 7-day window."""
+    """Pattern Day Trader tracking — syncs with live Alpaca daytrade_count."""
     trades: list = field(default_factory=list)
 
     def add(self, date: datetime.date) -> None:
@@ -54,10 +55,15 @@ class PDTTracker:
         cutoff = date - datetime.timedelta(days=7)
         self.trades = [d for d in self.trades if d > cutoff]
 
-    def can_trade(self, equity: float) -> bool:
+    def remaining(self, equity: float, live_count: int) -> int:
+        """Returns day trades remaining. 999 = exempt (equity >= $25k)."""
         if equity >= PDT_ACCOUNT_MIN:
-            return True
-        return len(self.trades) < PDT_MAX_TRADES
+            return 999
+        used = max(live_count, len(self.trades))
+        return max(0, PDT_MAX_TRADES - used)
+
+    def can_trade(self, equity: float, live_count: int = 0) -> bool:
+        return self.remaining(equity, live_count) > 0
 
 
 @dataclass
@@ -76,6 +82,15 @@ class PositionInfo:
         return self.has_position(symbol) and float(self.positions_dict[symbol].qty) < 0
 
 
+@dataclass
+class AccountSnapshot:
+    """Cached Alpaca account state — equity, buying power, live PDT count."""
+    equity:         float
+    buying_power:   float
+    daytrade_count: int
+    timestamp:      float = field(default=0.0)
+
+
 # ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
 # Executor
 # ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
@@ -87,12 +102,14 @@ class EnhancedExecutor:
         self.use_bracket_orders  = use_bracket_orders
         self.pdt                 = PDTTracker()
         self.order_cache:  Dict[str, str] = {}
-        self._position_cache: Optional[PositionInfo] = None
+        self._position_cache: Optional[PositionInfo]    = None
         self._cache_timestamp: float = 0
         self._cache_ttl:       float = 5.0
-        self._htb_cache:       set   = set()   # hard-to-borrow symbols — skip for rest of session
+        self._account_cache:  Optional[AccountSnapshot] = None
+        self._account_ttl:    float = 10.0
+        self._htb_cache:      set   = set()   # hard-to-borrow symbols — skip shorts this session
 
-    # ΓöÇΓöÇ Position Cache ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
+    # -- Position Cache ----------------------------------------------------
     def _get_positions(self, force_refresh: bool = False) -> PositionInfo:
         import time
         now = time.time()
@@ -105,15 +122,33 @@ class EnhancedExecutor:
             self._cache_timestamp = now
         return self._position_cache
 
-    # ΓöÇΓöÇ Validation ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
-    def _validate_trade(self, signal: Signal, equity: float, order_type: OrderType) -> Tuple[bool, Optional[str]]:
+    # -- Account Cache -----------------------------------------------------
+    def _get_account(self, force_refresh: bool = False) -> AccountSnapshot:
+        import time
+        now = time.time()
+        if force_refresh or self._account_cache is None or (now - self._account_cache.timestamp) > self._account_ttl:
+            raw = self.client.get_account()
+            self._account_cache = AccountSnapshot(
+                equity=float(raw.equity),
+                buying_power=float(raw.buying_power),
+                daytrade_count=int(raw.daytrade_count),
+                timestamp=now,
+            )
+        return self._account_cache
+
+    # -- Validation --------------------------------------------------------
+    def _validate_trade(self, signal: Signal, acct: AccountSnapshot, order_type: OrderType) -> Tuple[bool, Optional[str]]:
         if USE_VIX_ROC_FILTER:
             allow, roc = check_vix_roc_filter()
             if not allow:
                 return False, f"VIX spike filter: {roc:.1f}% increase"
 
-        if not self.pdt.can_trade(equity):
-            return False, "PDT limit reached"
+        # PDT — use live broker count (survives restarts)
+        dt_left = self.pdt.remaining(acct.equity, acct.daytrade_count)
+        if dt_left == 0:
+            return False, f"PDT limit: {acct.daytrade_count}/{PDT_MAX_TRADES} day trades used this week"
+        if dt_left <= PDT_WARN_AT_REMAINING:
+            log.warning(f"PDT WARNING: only {dt_left} day trade(s) remaining (equity ${acct.equity:,.0f})")
 
         # Skip hard-to-borrow shorts cached from previous failures this session
         if order_type == OrderType.SHORT and signal.symbol in self._htb_cache:
@@ -121,8 +156,14 @@ class EnhancedExecutor:
 
         positions = self._get_positions()
 
-        if positions.total_count >= MAX_POSITIONS:
-            return False, "Max positions reached"
+        # Dynamic max positions: cap by buying power capacity
+        bp_capacity = max(1, int(acct.buying_power / MIN_POSITION_DOLLARS))
+        effective_max = min(MAX_POSITIONS, bp_capacity)
+        if positions.total_count >= effective_max:
+            return False, (
+                f"Max positions: {positions.total_count}/{effective_max} "
+                f"(config {MAX_POSITIONS}, BP ${acct.buying_power:,.0f})"
+            )
 
         if positions.has_position(signal.symbol):
             if order_type == OrderType.LONG  and positions.is_long(signal.symbol):
@@ -131,6 +172,35 @@ class EnhancedExecutor:
                 return False, f"Already short {signal.symbol}"
 
         return True, None
+
+    # -- Buying Power Sizing -----------------------------------------------
+    def _size_with_buying_power(
+        self, buying_power: float, signal: Signal,
+        risk_info: Dict, order_type: OrderType
+    ) -> Tuple[int, Optional[str]]:
+        """Returns (shares, skip_reason). Downsizes if BP constrained, skips if below min."""
+        margin  = 2.0 if order_type == OrderType.SHORT else 1.0
+        usable  = buying_power * (1.0 - MIN_BUYING_POWER_PCT / 100.0)
+        desired = int(risk_info["dollar_amount"] / signal.price)
+        max_bp  = int(usable / (signal.price * margin))
+        shares  = min(desired, max_bp)
+
+        if shares < 1:
+            return 0, (
+                f"Insufficient BP: ${buying_power:,.0f} usable ${usable:,.0f} "
+                f"for {signal.symbol} @ ${signal.price:.2f} (x{margin:.0f} margin)"
+            )
+
+        cost = shares * signal.price
+        if cost < MIN_POSITION_DOLLARS:
+            return 0, f"{signal.symbol} too small after downsize: ${cost:.0f} < min ${MIN_POSITION_DOLLARS:.0f}"
+
+        if shares < desired:
+            log.info(
+                f"  BP downsize {signal.symbol}: {desired} -> {shares} shares "
+                f"(BP ${buying_power:,.0f}, usable ${usable:,.0f}, cost ${cost:,.0f})"
+            )
+        return shares, None
 
     # ΓöÇΓöÇ Bracket Prices ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
     def _calculate_bracket_prices(self, signal: Signal, risk_info: Dict, order_type: OrderType) -> Tuple[float, float]:
@@ -233,60 +303,50 @@ class EnhancedExecutor:
                 log.error(f"{action} order error {signal.symbol}: {e}")
             return False
 
-    # ΓöÇΓöÇ Entry (unified) ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
-    def _execute_entry(self, signal: Signal, equity: float, order_type: OrderType) -> bool:
-        valid, reason = self._validate_trade(signal, equity, order_type)
+    # -- Entry (unified) ---------------------------------------------------
+    def _execute_entry(self, signal: Signal, acct: AccountSnapshot, order_type: OrderType) -> bool:
+        valid, reason = self._validate_trade(signal, acct, order_type)
         if not valid:
             if reason:
                 log.info(f"Skip {signal.symbol}: {reason}")
             return False
 
-        risk_info = calculate_risk_adjusted_size(equity, signal.symbol, signal.price)
-        shares    = int(risk_info["dollar_amount"] / signal.price)
+        risk_info = calculate_risk_adjusted_size(acct.equity, signal.symbol, signal.price)
+        shares, skip_reason = self._size_with_buying_power(acct.buying_power, signal, risk_info, order_type)
         if shares < 1:
+            log.info(f"Skip {signal.symbol}: {skip_reason}")
             return False
-
-        # Pre-check: enough buying power for shorts (need 2x margin)
-        if order_type == OrderType.SHORT:
-            try:
-                acct = self.client.get_account()
-                bp   = float(acct.buying_power)
-                cost = shares * signal.price * 2
-                if bp < cost:
-                    log.warning(f"Skip {signal.symbol} short: BP ${bp:,.0f} < required ${cost:,.0f}")
-                    return False
-            except Exception:
-                pass
 
         if self.use_bracket_orders and is_regular_hours():
             if self._create_bracket_order(signal, shares, risk_info, order_type):
                 self.pdt.add(datetime.date.today())
                 self._get_positions(force_refresh=True)
+                self._get_account(force_refresh=True)
                 return True
 
         if self._create_simple_order(signal, shares, order_type):
             self.pdt.add(datetime.date.today())
             self._get_positions(force_refresh=True)
+            self._get_account(force_refresh=True)
             return True
 
         return False
 
-    # ΓöÇΓöÇ Public: Execute ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
+    # -- Public: Execute ---------------------------------------------------
     def execute(self, signal: Signal) -> bool:
         try:
-            account = self.client.get_account()
-            equity  = float(account.equity)
+            acct      = self._get_account()
             positions = self._get_positions()
 
             if signal.action == "buy":
                 if positions.has_position(signal.symbol) and positions.is_short(signal.symbol):
-                    return self._close_short_position(signal, equity)
-                return self._execute_entry(signal, equity, OrderType.LONG)
+                    return self._close_short_position(signal, acct.equity)
+                return self._execute_entry(signal, acct, OrderType.LONG)
 
             elif signal.action == "sell":
                 if positions.has_position(signal.symbol) and positions.is_long(signal.symbol):
-                    return self._close_long_position(signal, equity)
-                return self._execute_entry(signal, equity, OrderType.SHORT)
+                    return self._close_long_position(signal, acct.equity)
+                return self._execute_entry(signal, acct, OrderType.SHORT)
 
         except Exception as e:
             log.error(f"Execute error {signal.symbol}: {e}")
@@ -324,9 +384,7 @@ class EnhancedExecutor:
         if not positions.has_position(signal.symbol):
             log.info(f"No position in {signal.symbol}")
             return False
-        if not self.pdt.can_trade(equity):
-            log.warning(f"PDT limit ΓÇö cannot sell {signal.symbol}")
-            return False
+        # Closes are ALWAYS allowed regardless of PDT — never block an exit
 
         qty = abs(int(float(positions.positions_dict[signal.symbol].qty)))
         try:
@@ -346,13 +404,15 @@ class EnhancedExecutor:
     # ΓöÇΓöÇ Health ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
     def get_health(self) -> Dict:
         try:
-            account = self.client.get_account()
+            acct = self._get_account(force_refresh=True)
+            dt_left = self.pdt.remaining(acct.equity, acct.daytrade_count)
             return {
-                "equity":        float(account.equity),
-                "cash":          float(account.cash),
-                "buying_power":  float(account.buying_power),
-                "pdt_protected": float(account.equity) >= PDT_ACCOUNT_MIN,
-                "day_trade_count": int(account.daytrade_count),
+                "equity":           acct.equity,
+                "cash":             acct.buying_power,
+                "buying_power":     acct.buying_power,
+                "pdt_protected":    acct.equity >= PDT_ACCOUNT_MIN,
+                "day_trade_count":  acct.daytrade_count,
+                "day_trades_left":  dt_left,
             }
         except Exception as e:
             log.error(f"Health check error: {e}")
