@@ -34,7 +34,7 @@ from engine.utils import (
     get_finnhub_trending_tickers, check_sentiment_gate,
     get_vix_interval, get_market_hours_interval, get_position_tuning_interval,
 )
-from engine.strategies import SweepeaStrategy, TechnicalStrategy, MomentumStrategy
+from engine.strategies import SweepeaStrategy, TechnicalStrategy, MomentumStrategy, QuarterlyAggressiveStrategy
 from engine.executor_enhanced import EnhancedExecutor
 
 # ── Initialise ──────────────────────────────────────────────────
@@ -45,9 +45,13 @@ executor = EnhancedExecutor(client, use_bracket_orders=True)
 sweepea  = SweepeaStrategy()
 technical = TechnicalStrategy()
 momentum  = MomentumStrategy()
+quarterly = QuarterlyAggressiveStrategy()
 
-daily_pnl  = 0.0
-daily_reset = None
+daily_pnl      = 0.0
+daily_reset    = None
+start_equity   = None
+quarterly_target = None
+
 trades      = 0
 
 trending_stocks    = []
@@ -168,6 +172,11 @@ def scan_and_trade():
         log.info(f"Daily profit target reached: ${daily_pnl:.2f}")
         return
 
+    quarterly_progress = get_quarterly_progress()
+    if quarterly_progress >= QUARTERLY_COOLDOWN:
+        log.info(f"Quarterly target {quarterly_progress*100:.1f}% reached, cooling down trade activity")
+        return
+
     sentiment = get_market_sentiment()
     log.info(f"Market sentiment: {sentiment}")
 
@@ -175,8 +184,13 @@ def scan_and_trade():
 
     signals = []
 
-    # Priority 1 — full strategy sweep
+    # Priority 1 — full strategy sweep (includes aggressive quarterly strategy)
     for symbol in PRIORITY_1_MOMENTUM:
+        sig = quarterly.scan(symbol, sentiment)
+        if sig:
+            signals.append(sig)
+            continue
+
         sig = sweepea.scan(symbol)
         if sig:
             signals.append(sig)
@@ -234,6 +248,20 @@ def log_status():
         log.error(f"Status error: {e}")
 
 
+def get_quarterly_progress() -> float:
+    try:
+        if start_equity is None or quarterly_target is None:
+            return 0.0
+        equity = float(client.get_account().equity)
+        quarterly_pnl = equity - start_equity
+        goal = quarterly_target - start_equity
+        if goal <= 0:
+            return 0.0
+        return max(0.0, min(1.0, quarterly_pnl / goal))
+    except Exception:
+        return 0.0
+
+
 # ── Adaptive Interval ───────────────────────────────────────────
 def get_adaptive_interval() -> int:
     if not ADAPTIVE_INTERVALS:
@@ -283,16 +311,21 @@ def get_adaptive_interval() -> int:
         except Exception:
             pos_status = "POS CHECK ERROR"
 
-    log.info(f"VIX: {vix:.2f} ({vol}) | {market_phase} | {pos_status} | Scan: {interval} min")
+    q_progress = get_quarterly_progress()
+    if q_progress >= 0.5:
+        interval = max(interval, 8)  # dial back scan frequency after 50% quarterly progress
+    log.info(f"VIX: {vix:.2f} ({vol}) | {market_phase} | {pos_status} | Quarterly {q_progress*100:.1f}% | Scan: {interval} min")
     return interval
 
 
 # ── Start ───────────────────────────────────────────────────────
 def start():
+    global start_equity, quarterly_target
+
     log.info("=" * 70)
     log.info("APEXTRADER — Priority-Based Momentum Trading")
     log.info("=" * 70)
-    log.info("Strategies: Sweepea · Technical · Momentum")
+    log.info("Strategies: Sweepea · Technical · Momentum · QuarterlyAggressive")
     log.info(f"Priority 1 (Momentum): {len(PRIORITY_1_MOMENTUM)} stocks")
     log.info(f"Priority 2 (Established): {len(PRIORITY_2_ESTABLISHED)} stocks")
     log.info(f"Total Universe: {sum(len(v) for v in STOCKS.values())} stocks")
@@ -301,10 +334,16 @@ def start():
 
     try:
         account = client.get_account()
-        log.info(f"Equity:          ${float(account.equity):,.2f}")
+        equity = float(account.equity)
+        log.info(f"Equity:          ${equity:,.2f}")
         log.info(f"Buying Power:    ${float(account.buying_power):,.2f}")
         log.info(f"PDT Status:      {'Yes' if account.pattern_day_trader else 'No'}")
         log.info(f"Day Trade Count: {account.daytrade_count}")
+
+        if start_equity is None:
+            start_equity = equity
+            quarterly_target = start_equity * (1 + QUARTERLY_TARGET_FACTOR)
+            log.info(f"Quarterly target initialized: ${quarterly_target:,.2f} ({QUARTERLY_TARGET_FACTOR*100:.0f}% gain)")
     except Exception as e:
         log.error(f"Account info error: {e}")
 

@@ -168,9 +168,15 @@ SENTIMENT_BULLISH_THRESHOLD = 0.6
 # ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
 # Daily Limits (AGGRESSIVE MODE)
 # ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
-POSITION_CHECK_MIN  = 3       # Check positions more frequently
-DAILY_LOSS_LIMIT    = -1000.0 # Increased loss limit from -500
-DAILY_PROFIT_TARGET = 5000.0  # Increased profit target from 3500
+POSITION_CHECK_MIN      = 3       # Check positions more frequently
+DAILY_LOSS_LIMIT        = -1000.0 # Increased loss limit from -500
+DAILY_PROFIT_TARGET     = 5000.0  # Increased profit target from 3500
+
+# Quarterly ambitious target settings
+QUARTERLY_TARGET_FACTOR = 0.50   # 50% quarterly equity gain target
+QUARTERLY_MAX_RISK      = 0.10   # Max 10% equity written as risk exposure at peak
+QUARTERLY_COOLDOWN      = 0.65   # Cool down trading after 65% of quarterly target realized
+QUARTERLY_MIN_HOLD_DAYS  = 1.0   # Minimum hold period in days for aggressive trades
 
 # ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
 # Extended Hours Trading

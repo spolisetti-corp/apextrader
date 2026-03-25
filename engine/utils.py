@@ -222,14 +222,10 @@ def check_vix_roc_filter() -> tuple:
 def get_trending_tickers(max_results: int = 20) -> list:
     try:
         import yfinance as yf
-        import requests_cache
-
-        session = requests_cache.CachedSession("yfinance.cache", expire_after=300)
 
         for method, fn in [
-            ("screener",    lambda: [s["symbol"] for s in yf.screen("trending_tickers", session=session)["quotes"] if s.get("quoteType") == "EQUITY"][:max_results]),
-            ("search",      lambda: [r.get("symbol") for r in yf.Search("", max_results=max_results, session=session).quotes if r.get("quoteType") == "EQUITY"]),
-            ("most_active", lambda: [s["symbol"] for s in yf.screen("day_most_active",  session=session)["quotes"] if s.get("quoteType") == "EQUITY"][:max_results]),
+            ("most_actives", lambda: [s["symbol"] for s in yf.screen("most_actives")["quotes"] if s.get("quoteType") == "EQUITY"][:max_results]),
+            ("day_gainers",  lambda: [s["symbol"] for s in yf.screen("day_gainers")["quotes"] if s.get("quoteType") == "EQUITY"][:max_results]),
         ]:
             try:
                 result = fn()

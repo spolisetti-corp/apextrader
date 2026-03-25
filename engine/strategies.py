@@ -183,3 +183,53 @@ class MomentumStrategy:
                           f"Strong momentum ({momentum:.1f}%) + volume", "Momentum")
 
         return None
+
+
+class QuarterlyAggressiveStrategy:
+    """Aggressive swing strategy designed for quarterly 50% target outcomes."""
+
+    def scan(self, symbol: str, market_sentiment: str = "neutral") -> Optional[Signal]:
+        bars = get_bars(symbol, "60d", "60m")
+        if bars.empty or len(bars) < 60:
+            return None
+
+        close = bars["close"]
+        price = float(close.iloc[-1])
+
+        rsi = calc_rsi(close)
+        macd = calc_macd(close)
+
+        sma20 = close.rolling(20).mean().iloc[-1]
+        sma50 = close.rolling(50).mean().iloc[-1]
+        volma = bars["volume"].rolling(20).mean().iloc[-1]
+
+        if pd.isna(sma20) or pd.isna(sma50) or pd.isna(rsi.iloc[-1]) or pd.isna(macd["hist"].iloc[-1]):
+            return None
+
+        if price < sma20 or sma20 < sma50:
+            return None
+
+        if not (40.0 <= rsi.iloc[-1] <= 70.0):
+            return None
+
+        if macd["hist"].iloc[-1] <= 0:
+            return None
+
+        volume_spike = bars["volume"].iloc[-1] > volma * 1.25
+        if not volume_spike:
+            return None
+
+        confidence = 0.8
+        if market_sentiment == "bullish":
+            confidence += 0.1
+        elif market_sentiment == "bearish":
+            confidence -= 0.1
+
+        return Signal(
+            symbol,
+            "buy",
+            price,
+            min(confidence, 1.0),
+            "Quarterly aggressive swing entry (RSI/MACD trend confirmation)",
+            "QuarterlyAggressive",
+        )
