@@ -103,7 +103,7 @@ STOCKS = {
 MAX_POSITIONS        = 15     # More concurrent positions for aggressive trading
 POSITION_SIZE_PCT    = 7.5    # Smaller per-trade cap to fit more positions (%)
 USE_RISK_EQUALIZED_SIZING = True
-RISK_PER_TRADE_PCT   = 1.5    # Risk 1.5% of account per trade (more aggressive)
+RISK_PER_TRADE_PCT   = 0.8    # Risk 0.8% of account per trade (sniper: protect capital)
 
 # Tiered Profit Targets — aggressive: book profits faster
 TAKE_PROFIT_EXTREME  = 35.0   # was 50
@@ -185,7 +185,7 @@ SENTIMENT_BULLISH_THRESHOLD = 0.6
 # Daily Limits
 # ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
 POSITION_CHECK_MIN  = 5
-DAILY_LOSS_LIMIT    = -500.0
+DAILY_LOSS_LIMIT    = -250.0  # Tighter daily floor — stop at $250 loss
 DAILY_PROFIT_TARGET = 3500.0
 
 # Quarterly Profit Target
@@ -212,6 +212,11 @@ MIN_BUYING_POWER_PCT  = 10.0   # Reserve this % of equity as free buffer (never 
 MIN_POSITION_DOLLARS  = 500.0  # Minimum trade size in $ — skip if downsized below this
 PDT_WARN_AT_REMAINING = 1      # Warn log when PDT trades remaining falls to this level
 
+# Sniper Mode Controls
+LONG_ONLY_MODE        = True   # Disable all short entries — eliminates margin, HTB, and 2x BP requirements
+MIN_SIGNAL_CONFIDENCE = 0.70   # Execute only high-conviction signals (confidence >= this)
+MAX_SIGNALS_PER_CYCLE = 3      # Execute at most this many signals per scan cycle
+
 # ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
 # Strategy Parameters
 # ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
@@ -231,10 +236,10 @@ SWEEPEA = {
 TECHNICAL = {
     "rsi_oversold":   30,
     "rsi_overbought": 70,
-    "volume_surge":   1.5,
+    "volume_surge":   2.0,   # was 1.5 — stronger volume required
 }
 
 MOMENTUM = {
-    "min_momentum": 3.0,
-    "volume_surge": 2.0,
+    "min_momentum": 5.0,   # was 3.0 — only strong momentum
+    "volume_surge": 3.0,   # was 2.0 — strong volume confirmation
 }

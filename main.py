@@ -28,6 +28,7 @@ from engine.config import (
     PREMARKET_SCAN_INTERVAL, REGULAR_HOURS_SCAN_INTERVAL, AFTERHOURS_SCAN_INTERVAL,
     USE_POSITION_TUNING,
     HIGH_POSITION_INTERVAL, NORMAL_POSITION_INTERVAL, LOW_POSITION_INTERVAL,
+    LONG_ONLY_MODE, MIN_SIGNAL_CONFIDENCE, MAX_SIGNALS_PER_CYCLE,
 )
 from engine.utils import (
     setup_logging, is_market_open, get_vix,
@@ -255,7 +256,14 @@ def scan_and_trade():
         log.info(f"Excluded {len(skipped)} signals from trading (positions/orders): {', '.join(skipped[:10]) if skipped else 'none'}")
         log.info(f"Eligible signals after exclusion: {len(eligible)}")
 
-        top_signals = eligible[:5]   # Execute up to 5 per cycle (was 3)
+        # Sniper gates: long-only mode and minimum confidence
+        if LONG_ONLY_MODE:
+            eligible = [s for s in eligible if s.action == "buy"]
+            log.info(f"LONG_ONLY_MODE: {len(eligible)} buy signal(s) remaining")
+        eligible = [s for s in eligible if s.confidence >= MIN_SIGNAL_CONFIDENCE]
+        log.info(f"Confidence gate ({MIN_SIGNAL_CONFIDENCE:.0%}): {len(eligible)} signal(s) qualify")
+
+        top_signals = eligible[:MAX_SIGNALS_PER_CYCLE]
         log.info(f"Executing top {len(top_signals)} eligible signal(s)")
 
         for sig in top_signals:

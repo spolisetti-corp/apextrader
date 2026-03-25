@@ -11,7 +11,7 @@ from dataclasses import dataclass
 from typing import Optional
 
 from .utils import get_bars, calc_rsi, calc_macd
-from .config import SWEEPEA, TECHNICAL, MOMENTUM
+from .config import SWEEPEA, TECHNICAL, MOMENTUM, LONG_ONLY_MODE
 
 
 @dataclass
@@ -94,7 +94,7 @@ class SweepeaStrategy:
         if bull_pin:
             return Signal(symbol, "buy",  float(cur["close"]), 0.75,
                           "Liquidity sweep + bullish pinbar", "Sweepea")
-        elif bear_pin:
+        elif bear_pin and not LONG_ONLY_MODE:
             return Signal(symbol, "sell", float(cur["close"]), 0.75,
                           "Liquidity sweep + bearish pinbar", "Sweepea")
 
@@ -130,8 +130,11 @@ class TechnicalStrategy:
             score -= 0.3
             reasons.append("Overbought")
 
-        if macd["hist"].iloc[-1] > 0:
+        if macd["hist"].iloc[-1] > 0 and macd["hist"].iloc[-1] > macd["hist"].iloc[-2]:
             score += 0.2
+            reasons.append("Bullish MACD (accelerating)")
+        elif macd["hist"].iloc[-1] > 0:
+            score += 0.1
             reasons.append("Bullish MACD")
         else:
             score -= 0.2
@@ -153,9 +156,9 @@ class TechnicalStrategy:
         elif market_sentiment == "bearish":
             score -= 0.1
 
-        if score >= 0.5:
+        if score >= 0.70:
             return Signal(symbol, "buy",  price, score,       ", ".join(reasons), "Technical")
-        elif score <= -0.3:
+        elif not LONG_ONLY_MODE and score <= -0.70:
             return Signal(symbol, "sell", price, abs(score),  ", ".join(reasons), "Technical")
 
         return None
@@ -177,9 +180,13 @@ class MomentumStrategy:
         momentum = ((price / price_30) - 1) * 100
 
         vol_ratio = bars["volume"].iloc[-10:].mean() / bars["volume"].mean()
+        sma20     = float(bars["close"].rolling(20).mean().iloc[-1])
 
-        if abs(momentum) >= MOMENTUM["min_momentum"] and vol_ratio >= MOMENTUM["volume_surge"]:
-            return Signal(symbol, "buy", price, 0.7,
-                          f"Strong momentum ({momentum:.1f}%) + volume", "Momentum")
+        if (momentum >= MOMENTUM["min_momentum"]
+                and vol_ratio >= MOMENTUM["volume_surge"]
+                and price > sma20):
+            confidence = min(0.60 + (momentum / 100), 0.95)  # scales with momentum strength
+            return Signal(symbol, "buy", price, confidence,
+                          f"Strong momentum ({momentum:.1f}%) + volume x{vol_ratio:.1f} + above SMA20", "Momentum")
 
         return None
