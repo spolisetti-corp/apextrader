@@ -1,1 +1,0 @@
-from /tmp/push_payload.json
