@@ -218,21 +218,7 @@ def scan_and_trade():
 
     # Priority 1 — full strategy sweep
     for symbol in PRIORITY_1_MOMENTUM:
-        sig = sweepea.scan(symbol)
-        if sig:
-            signals.append(sig)
-            continue
-        sig = technical.scan(symbol, sentiment)
-        if sig:
-            signals.append(sig)
-            continue
-        sig = momentum.scan(symbol)
-        if sig:
-            signals.append(sig)
-
-    # Priority 2 — if capacity remains
-    if len(signals) < 10:
-        for symbol in PRIORITY_2_ESTABLISHED[:10]:
+        try:
             sig = sweepea.scan(symbol)
             if sig:
                 signals.append(sig)
@@ -240,6 +226,30 @@ def scan_and_trade():
             sig = technical.scan(symbol, sentiment)
             if sig:
                 signals.append(sig)
+                continue
+            sig = momentum.scan(symbol)
+            if sig:
+                signals.append(sig)
+        except KeyboardInterrupt:
+            raise
+        except Exception as e:
+            log.debug(f"Scan error {symbol}: {e}")
+
+    # Priority 2 — if capacity remains
+    if len(signals) < 10:
+        for symbol in PRIORITY_2_ESTABLISHED[:10]:
+            try:
+                sig = sweepea.scan(symbol)
+                if sig:
+                    signals.append(sig)
+                    continue
+                sig = technical.scan(symbol, sentiment)
+                if sig:
+                    signals.append(sig)
+            except KeyboardInterrupt:
+                raise
+            except Exception as e:
+                log.debug(f"Scan error {symbol}: {e}")
 
     log.info(f"Total raw signals collected: {len(signals)}")
 
@@ -379,7 +389,10 @@ def start():
     log.info("Starting… Press Ctrl+C to stop")
     log.info("=" * 70)
 
-    scan_and_trade()
+    try:
+        scan_and_trade()
+    except Exception as e:
+        log.error(f"Initial scan error: {e}")
 
     last_vix_check   = time.time()
     current_interval = get_adaptive_interval()
@@ -397,7 +410,10 @@ def start():
                 last_vix_check = time.time()
 
             if (time.time() - last_scan) >= (current_interval * 60):
-                scan_and_trade()
+                try:
+                    scan_and_trade()
+                except Exception as e:
+                    log.error(f"Scan cycle error: {e}")
                 last_scan = time.time()
 
             schedule.run_pending()
