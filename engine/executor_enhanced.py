@@ -406,15 +406,15 @@ class EnhancedExecutor:
     # ─── Protect Open Positions ──────────────────────────────────────────────
     def protect_positions(self) -> None:
         """
-        For every open position that has no attached orders, place:
-          - Long : limit TP at +TAKE_PROFIT_HIGH%  + stop-market SL at -STOP_LOSS_PCT%
-          - Short: limit TP at -TAKE_PROFIT_HIGH%  + stop-market SL at +STOP_LOSS_PCT%
-        Runs at startup and every scan cycle.
+        For every open position whose shares are free (qty_available > 0),
+        place GTC limit TP + stop-market SL orders.
+        Skips positions where all shares are already held_for_orders.
+        Adjusts SL to current price if position has moved past the entry-based SL.
         """
         try:
-            positions = self.client.get_all_positions()
+            positions   = self.client.get_all_positions()
             open_orders = self.client.get_orders()
-            covered = {o.symbol for o in open_orders}
+            covered     = {o.symbol for o in open_orders}
         except Exception as e:
             log.error(f"protect_positions: failed to fetch data: {e}")
             return
@@ -422,36 +422,48 @@ class EnhancedExecutor:
         for pos in positions:
             sym = pos.symbol
             if sym in covered:
-                continue  # already has orders
+                continue  # already has pending orders
+
+            # Skip if all shares are already committed to bracket legs
+            qty_available = int(float(getattr(pos, "qty_available", pos.qty)))
+            if qty_available == 0:
+                continue
+
             try:
-                qty   = int(float(pos.qty))
-                entry = float(pos.avg_entry_price)
-                is_long_pos = qty > 0
+                qty          = int(float(pos.qty))
+                avail        = abs(qty_available)
+                entry        = float(pos.avg_entry_price)
+                current      = float(pos.current_price)
+                is_long_pos  = qty > 0
 
                 if is_long_pos:
-                    tp_price = round(entry * (1 + TAKE_PROFIT_HIGH / 100), 2)
-                    sl_price = round(entry * (1 - STOP_LOSS_PCT    / 100), 2)
+                    tp_price = round(entry   * (1 + TAKE_PROFIT_HIGH / 100), 2)
+                    sl_raw   = round(entry   * (1 - STOP_LOSS_PCT    / 100), 2)
+                    # SL must be strictly below current price for a sell-stop
+                    sl_price = sl_raw if sl_raw < current else round(current * (1 - STOP_LOSS_PCT / 100), 2)
                     self.client.submit_order(LimitOrderRequest(
-                        symbol=sym, qty=abs(qty), side=OrderSide.SELL,
+                        symbol=sym, qty=avail, side=OrderSide.SELL,
                         limit_price=tp_price, time_in_force=TimeInForce.GTC,
                     ))
                     self.client.submit_order(StopOrderRequest(
-                        symbol=sym, qty=abs(qty), side=OrderSide.SELL,
+                        symbol=sym, qty=avail, side=OrderSide.SELL,
                         stop_price=sl_price, time_in_force=TimeInForce.GTC,
                     ))
-                    log.info(f"PROTECT LONG  {sym}: TP ${tp_price:.2f} (+{TAKE_PROFIT_HIGH:.0f}%) | SL ${sl_price:.2f} (-{STOP_LOSS_PCT:.0f}%)")
+                    log.info(f"PROTECT LONG  {sym}: TP ${tp_price:.2f} (+{TAKE_PROFIT_HIGH:.0f}%) | SL ${sl_price:.2f}")
                 else:
-                    tp_price = round(entry * (1 - TAKE_PROFIT_HIGH / 100), 2)
-                    sl_price = round(entry * (1 + STOP_LOSS_PCT    / 100), 2)
+                    tp_price = round(entry   * (1 - TAKE_PROFIT_HIGH / 100), 2)
+                    sl_raw   = round(entry   * (1 + STOP_LOSS_PCT    / 100), 2)
+                    # SL must be strictly above current price for a buy-stop (short cover)
+                    sl_price = sl_raw if sl_raw > current else round(current * (1 + STOP_LOSS_PCT / 100), 2)
                     self.client.submit_order(LimitOrderRequest(
-                        symbol=sym, qty=abs(qty), side=OrderSide.BUY,
+                        symbol=sym, qty=avail, side=OrderSide.BUY,
                         limit_price=tp_price, time_in_force=TimeInForce.GTC,
                     ))
                     self.client.submit_order(StopOrderRequest(
-                        symbol=sym, qty=abs(qty), side=OrderSide.BUY,
+                        symbol=sym, qty=avail, side=OrderSide.BUY,
                         stop_price=sl_price, time_in_force=TimeInForce.GTC,
                     ))
-                    log.info(f"PROTECT SHORT {sym}: TP ${tp_price:.2f} (-{TAKE_PROFIT_HIGH:.0f}%) | SL ${sl_price:.2f} (+{STOP_LOSS_PCT:.0f}%)")
+                    log.info(f"PROTECT SHORT {sym}: TP ${tp_price:.2f} (-{TAKE_PROFIT_HIGH:.0f}%) | SL ${sl_price:.2f}")
             except Exception as e:
                 log.error(f"protect_positions {sym}: {e}")
 
