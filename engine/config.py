@@ -46,11 +46,11 @@ PRIORITY_1_MOMENTUM = [
     "EPRX", "IDN", "RDGT", "MTA", "ELE", "RFIL", "OFRM", "NMRA", "BTGO",
     "OI", "NTCT", "FBRX", "BATL", "OPAL", "FPI", "VUZI", "BN", "MWH", "VMET", "TGEN",
     # 30-min momentum
-    "FLNG", "MGY", "ALMS", "DK", "KALV", "NOG", "SATS", "CNX", "NN", "AMPX", "BTU", "AMKR", "RIG",
+    "FLNG", "MGY", "ALMS", "DK", "NOG", "CNX", "NN", "AMPX", "BTU", "AMKR", "RIG",
     # Recent additions
-    "VIR", "MIRM", "PTGX", "CAPR", "CELC", "MAZE", "KORU", "LCUT",
-    "CONL", "FLY", "SIDU", "VELO", "AMTX", "SMCX", "MSTX", "OKLL",
-    "SPT", "RGTX", "IONL", "MRNA", "SNDX", "ABX", "CLDX", "RNG", "DNTH",
+    "VIR", "CAPR", "CELC", "MAZE", "KORU", "LCUT",
+    "CONL", "SIDU", "VELO", "AMTX", "SMCX", "MSTX", "OKLL",
+    "SPT", "RGTX", "IONL", "MRNA", "SNDX", "CLDX", "RNG", "DNTH",
     # Latest heatmap additions
     "NKTR", "NUVL", "SRRK", "TYRA", "PBF", "DNLI", "BCAX", "EKV",
     # Post-market gainers
