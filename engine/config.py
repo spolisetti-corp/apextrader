@@ -34,33 +34,32 @@ ETRADE_SANDBOX         = os.getenv("ETRADE_SANDBOX", "false").lower() == "true"
 # Priority 3: Market ETFs for context
 # ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
 PRIORITY_1_MOMENTUM = [
-    # Extreme momentum (100%+ gainers)
-    "VCX", "PTLE", "BIAF", "SATL", "ELAB",
+    # Extreme momentum (100%+ gainers) - HIGHEST PRIORITY
+    "UGRO", "VCX", "PTLE", "BIAF", "SATL", "ELAB",
     # Strong momentum (50%+ gainers)
     "QNTM", "MRLN", "DMRA", "RCAX", "ALDX", "NAMM", "PAYP", "SER", "NAUT", "CGV",
     # Consistent performers (20%+ gainers)
-    "AXTI", "NTGR", "APGE", "ORGN", "ASPI", "FSLY", "ALLO", "SMX",
+    "AXTI", "NTGR", "APGE", "ELPW", "ORGN", "ASPI", "FSLY", "ALLO", "SMX", "SUNE",
     "LUNR", "RCAT", "AAOI", "BCRX", "SVCO", "YOU", "BKSY", "AEHR", "OLN",
-    "SLS", "WULF", "ADTN", "OPTX", "IMVT", "ORKA", "PEB",
-    # Latest additions (5%+ gainers)
+    "SLS", "WULF", "ADTN", "OPTX", "IMVT", "GOCO", "ORKA", "PEB",
+    # Latest additions (5%+ gainers from screenshots)
     "EPRX", "IDN", "RDGT", "MTA", "ELE", "RFIL", "OFRM", "NMRA", "BTGO",
     "OI", "NTCT", "FBRX", "BATL", "OPAL", "FPI", "VUZI", "BN", "MWH", "VMET", "TGEN",
-    # 30-min momentum
-    "FLNG", "MGY", "ALMS", "DK", "NOG", "CNX", "NN", "AMPX", "BTU", "AMKR", "RIG",
-    # Recent additions
-    "VIR", "CAPR", "CELC", "MAZE", "KORU", "LCUT",
-    "CONL", "SIDU", "VELO", "AMTX", "SMCX", "MSTX", "OKLL",
-    "SPT", "RGTX", "IONL", "MRNA", "SNDX", "CLDX", "RNG", "DNTH",
-    # Latest heatmap additions
-    "NKTR", "NUVL", "SRRK", "TYRA", "PBF", "DNLI", "BCAX", "EKV",
-    # Post-market gainers
+    # 30-min momentum additions
+    "FLNG", "MGY", "ALMS", "DK", "KALV", "NOG", "CNX", "NN", "AMPX", "BTU", "AMKR", "RIG",
+    # Recent additions from screenshots
+    "VIR", "MIRM", "PTGX", "CAPR", "CELC", "MAZE", "KORU", "LCUT",
+    "CONL", "FLY", "SIDU", "VELO", "AMTX", "SMCX", "FUFU", "MSTX", "OKLL",
+    "SPT", "RGTX", "IONL", "MRNA", "SNDX", "ABX", "CLDX", "RNG", "DNTH",
+    # Latest heatmap additions (3:58 PM)
+    "NKTR", "AMLX", "NUVL", "SRRK", "TYRA", "PBF", "DNLI", "BCAX",
+    # Post-market gainers (4:15 PM)
     "RBNE", "FEED", "ANNA", "CVV", "ROMA", "NUCL", "DXST", "IONR",
     "NRXP", "CONI", "FOUR", "ASRT", "GRO",
-    # 30-min momentum
-    "IMDX", "LICN", "HTCO", "FNUC", "VTIX", "ONEG", "RPID", "KDK", "RHLD", "IONZ",
-    # Latest additions
-    "IMV",
+    # 30-min momentum (4:21 PM)
+    "IMDX", "LICN", "HTCO", "FNUC", "VTIX", "ONEG", "RPID", "KDK", "RHLD", "IONZ"
 ]
+
 
 PRIORITY_2_ESTABLISHED = [
     # Tech giants (stable, liquid)
