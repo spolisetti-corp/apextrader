@@ -287,7 +287,7 @@ def get_adaptive_interval() -> int:
     return interval
 
 
-# ── Start ───────────────────────────────────────────────────────
+# ── Start (continuous loop for local/server deployment) ─────────
 def start():
     log.info("=" * 70)
     log.info("APEXTRADER — Priority-Based Momentum Trading")
@@ -342,4 +342,25 @@ def start():
 
 
 if __name__ == "__main__":
-    start()
+    import argparse
+    import sys
+
+    parser = argparse.ArgumentParser(description="ApexTrader")
+    parser.add_argument(
+        "--once",
+        action="store_true",
+        help="Run a single scan cycle and exit (used by GitHub Actions scheduled workflow)",
+    )
+    args = parser.parse_args()
+
+    if args.once:
+        # Single-cycle mode: scan once, log status, exit
+        # GitHub Actions cron triggers this every N minutes
+        log.info("=" * 70)
+        log.info("APEXTRADER — Single Scan Cycle (GitHub Actions)")
+        log.info("=" * 70)
+        scan_and_trade()
+        log_status()
+        sys.exit(0)
+    else:
+        start()
