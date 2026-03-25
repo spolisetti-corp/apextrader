@@ -17,6 +17,7 @@ from alpaca.trading.client import TradingClient
 from alpaca.trading.requests import (
     MarketOrderRequest,
     LimitOrderRequest,
+    StopOrderRequest,
     StopLossRequest,
     TakeProfitRequest,
 )
@@ -30,6 +31,7 @@ from .config import (
     USE_RISK_EQUALIZED_SIZING,
     USE_VIX_ROC_FILTER,
     MIN_BUYING_POWER_PCT, MIN_POSITION_DOLLARS, PDT_WARN_AT_REMAINING,
+    TAKE_PROFIT_NORMAL, TAKE_PROFIT_HIGH, STOP_LOSS_PCT,
 )
 from .strategies import Signal
 from .utils import is_regular_hours, calculate_risk_adjusted_size, check_vix_roc_filter
@@ -400,6 +402,58 @@ class EnhancedExecutor:
         except Exception as e:
             log.error(f"Sell error {signal.symbol}: {e}")
             return False
+
+    # ─── Protect Open Positions ──────────────────────────────────────────────
+    def protect_positions(self) -> None:
+        """
+        For every open position that has no attached orders, place:
+          - Long : limit TP at +TAKE_PROFIT_HIGH%  + stop-market SL at -STOP_LOSS_PCT%
+          - Short: limit TP at -TAKE_PROFIT_HIGH%  + stop-market SL at +STOP_LOSS_PCT%
+        Runs at startup and every scan cycle.
+        """
+        try:
+            positions = self.client.get_all_positions()
+            open_orders = self.client.get_orders()
+            covered = {o.symbol for o in open_orders}
+        except Exception as e:
+            log.error(f"protect_positions: failed to fetch data: {e}")
+            return
+
+        for pos in positions:
+            sym = pos.symbol
+            if sym in covered:
+                continue  # already has orders
+            try:
+                qty   = int(float(pos.qty))
+                entry = float(pos.avg_entry_price)
+                is_long_pos = qty > 0
+
+                if is_long_pos:
+                    tp_price = round(entry * (1 + TAKE_PROFIT_HIGH / 100), 2)
+                    sl_price = round(entry * (1 - STOP_LOSS_PCT    / 100), 2)
+                    self.client.submit_order(LimitOrderRequest(
+                        symbol=sym, qty=abs(qty), side=OrderSide.SELL,
+                        limit_price=tp_price, time_in_force=TimeInForce.GTC,
+                    ))
+                    self.client.submit_order(StopOrderRequest(
+                        symbol=sym, qty=abs(qty), side=OrderSide.SELL,
+                        stop_price=sl_price, time_in_force=TimeInForce.GTC,
+                    ))
+                    log.info(f"PROTECT LONG  {sym}: TP ${tp_price:.2f} (+{TAKE_PROFIT_HIGH:.0f}%) | SL ${sl_price:.2f} (-{STOP_LOSS_PCT:.0f}%)")
+                else:
+                    tp_price = round(entry * (1 - TAKE_PROFIT_HIGH / 100), 2)
+                    sl_price = round(entry * (1 + STOP_LOSS_PCT    / 100), 2)
+                    self.client.submit_order(LimitOrderRequest(
+                        symbol=sym, qty=abs(qty), side=OrderSide.BUY,
+                        limit_price=tp_price, time_in_force=TimeInForce.GTC,
+                    ))
+                    self.client.submit_order(StopOrderRequest(
+                        symbol=sym, qty=abs(qty), side=OrderSide.BUY,
+                        stop_price=sl_price, time_in_force=TimeInForce.GTC,
+                    ))
+                    log.info(f"PROTECT SHORT {sym}: TP ${tp_price:.2f} (-{TAKE_PROFIT_HIGH:.0f}%) | SL ${sl_price:.2f} (+{STOP_LOSS_PCT:.0f}%)")
+            except Exception as e:
+                log.error(f"protect_positions {sym}: {e}")
 
     # ΓöÇΓöÇ Health ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
     def get_health(self) -> Dict:

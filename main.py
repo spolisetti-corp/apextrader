@@ -401,6 +401,9 @@ def start():
     log.info("Starting… Press Ctrl+C to stop")
     log.info("=" * 70)
 
+    # Protect any existing positions that have no orders
+    executor.protect_positions()
+
     try:
         scan_and_trade()
     except Exception as e:
@@ -422,6 +425,7 @@ def start():
                 last_vix_check = time.time()
 
             if (time.time() - last_scan) >= (current_interval * 60):
+                executor.protect_positions()
                 try:
                     scan_and_trade()
                 except Exception as e:
