@@ -100,34 +100,35 @@ STOCKS = {
 # ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
 # Trading Parameters ΓÇö Swing Trading Optimized
 # ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
-MAX_POSITIONS        = 8      # Fewer positions, higher conviction
-POSITION_SIZE_PCT    = 12.5   # Maximum position size cap (%)
+MAX_POSITIONS        = 15     # More concurrent positions for aggressive trading
+POSITION_SIZE_PCT    = 7.5    # Smaller per-trade cap to fit more positions (%)
 USE_RISK_EQUALIZED_SIZING = True
-RISK_PER_TRADE_PCT   = 1.0    # Risk 1% of account per trade
+RISK_PER_TRADE_PCT   = 1.5    # Risk 1.5% of account per trade (more aggressive)
 
-# Tiered Profit Targets
-TAKE_PROFIT_EXTREME  = 50.0
-TAKE_PROFIT_HIGH     = 40.0
-TAKE_PROFIT_MEDIUM   = 35.0
-TAKE_PROFIT_NORMAL   = 25.0
+# Tiered Profit Targets — aggressive: book profits faster
+TAKE_PROFIT_EXTREME  = 35.0   # was 50
+TAKE_PROFIT_HIGH     = 25.0   # was 40
+TAKE_PROFIT_MEDIUM   = 18.0   # was 35
+TAKE_PROFIT_NORMAL   = 12.0   # was 25
 
-# Tiered Trailing Stops
-TRAILING_STOP_EXTREME = 15.0
-TRAILING_STOP_HIGH    = 10.0
-TRAILING_STOP_MEDIUM  =  7.0
-TRAILING_STOP_NORMAL  =  5.0
+# Tiered Trailing Stops — tighter: lock in gains quickly
+TRAILING_STOP_EXTREME =  7.0  # was 15
+TRAILING_STOP_HIGH    =  5.0  # was 10
+TRAILING_STOP_MEDIUM  =  4.0  # was  7
+TRAILING_STOP_NORMAL  =  3.0  # was  5
 
 # Legacy (backward compat)
-STOP_LOSS_PCT   = 5.0
-TAKE_PROFIT_PCT = 35.0
+STOP_LOSS_PCT   = 3.0
+TAKE_PROFIT_PCT = 18.0
 
 # ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
 # Dynamic ATR-Based Tier Assignment
+# Lower thresholds = more stocks classified as high-volatility = tighter TP/SL
 # ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
 USE_DYNAMIC_TIERS  = True
-ATR_TIER_EXTREME   = 7.0
-ATR_TIER_HIGH      = 5.0
-ATR_TIER_MEDIUM    = 3.0
+ATR_TIER_EXTREME   = 5.0   # was 7.0
+ATR_TIER_HIGH      = 3.0   # was 5.0
+ATR_TIER_MEDIUM    = 1.5   # was 3.0
 
 # Legacy static lists (used only if USE_DYNAMIC_TIERS=False)
 EXTREME_MOMENTUM_STOCKS = ["UGRO", "VCX", "PTLE", "BIAF", "SATL", "ELAB"]
@@ -153,9 +154,9 @@ AFTERHOURS_SCAN_INTERVAL   = 10
 
 # Position-Based Adaptive Scanning
 USE_POSITION_TUNING      = True
-HIGH_POSITION_INTERVAL   = 10
-NORMAL_POSITION_INTERVAL = 5
-LOW_POSITION_INTERVAL    = 3
+HIGH_POSITION_INTERVAL   = 5    # was 10 — check more frequently when holding many positions
+NORMAL_POSITION_INTERVAL = 3    # was 5
+LOW_POSITION_INTERVAL    = 2    # was 3
 
 # ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
 # VIX Rate-of-Change Filter

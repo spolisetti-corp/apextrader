@@ -255,10 +255,10 @@ def scan_and_trade():
         log.info(f"Excluded {len(skipped)} signals from trading (positions/orders): {', '.join(skipped[:10]) if skipped else 'none'}")
         log.info(f"Eligible signals after exclusion: {len(eligible)}")
 
-        top3 = eligible[:3]
-        log.info(f"Executing top {len(top3)} eligible signal(s)")
+        top_signals = eligible[:5]   # Execute up to 5 per cycle (was 3)
+        log.info(f"Executing top {len(top_signals)} eligible signal(s)")
 
-        for sig in top3:
+        for sig in top_signals:
             log.info(f"EXECUTE: {sig.action.upper()} {sig.symbol} @ ${sig.price:.2f} | {sig.strategy} | {sig.reason}")
             executor.execute(sig)
             time.sleep(1)
