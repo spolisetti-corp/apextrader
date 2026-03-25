@@ -260,6 +260,8 @@ def scan_and_trade():
                 log.warning(f"Scan error {symbol}: {e}")
 
     log.info(f"Signal breakdown — Sweepea: {sweep_hits}, Technical: {tech_hits}, Momentum: {mom_hits} | Errors: {scan_errors}")
+    if sweep_hits + tech_hits + mom_hits == 0:
+        log.info("No signals: market likely in downtrend (MACD negative, prices below SMA20) — waiting for setups")
 
     log.info(f"Total raw signals collected: {len(signals)}")
 
