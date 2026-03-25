@@ -6,7 +6,10 @@ Professional automated trading system.
 import time
 import schedule
 import yfinance as yf
+from dotenv import load_dotenv
 from alpaca.trading.client import TradingClient
+
+load_dotenv()
 
 from apextrader.config import (
     API_KEY, API_SECRET, PAPER,
