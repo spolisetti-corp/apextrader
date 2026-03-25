@@ -83,18 +83,18 @@ STOCKS = {
 }
 
 # ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
-# Trading Parameters ΓÇö Swing Trading Optimized (AGGRESSIVE MODE)
+# Trading Parameters ΓÇö Swing Trading Optimized (AGGRESSIVE MODE - 50% MIN PROFIT TARGET)
 # ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
 MAX_POSITIONS        = 12      # Increased from 8 - more positions
 POSITION_SIZE_PCT    = 20.0    # Increased from 12.5% - larger positions
 USE_RISK_EQUALIZED_SIZING = True
 RISK_PER_TRADE_PCT   = 2.0     # Increased from 1.0% - more aggressive risk
 
-# Tiered Profit Targets (AGGRESSIVE)
+# Tiered Profit Targets (50% MINIMUM - AGGRESSIVE)
 TAKE_PROFIT_EXTREME  = 75.0   # Increased from 50%
 TAKE_PROFIT_HIGH     = 60.0   # Increased from 40%
 TAKE_PROFIT_MEDIUM   = 50.0   # Increased from 35%
-TAKE_PROFIT_NORMAL   = 35.0   # Increased from 25%
+TAKE_PROFIT_NORMAL   = 50.0   # Increased from 25% → 50% MINIMUM
 
 # Tiered Trailing Stops
 TRAILING_STOP_EXTREME = 15.0
@@ -104,7 +104,7 @@ TRAILING_STOP_NORMAL  =  5.0
 
 # Legacy (backward compat)
 STOP_LOSS_PCT   = 5.0
-TAKE_PROFIT_PCT = 35.0
+TAKE_PROFIT_PCT = 50.0  # Updated to match 50% minimum
 
 # ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
 # Dynamic ATR-Based Tier Assignment
