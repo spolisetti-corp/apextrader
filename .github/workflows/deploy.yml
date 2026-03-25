@@ -28,14 +28,10 @@ jobs:
           pip install -r requirements.txt
           pip install pytest pylint black flake8
 
-      - name: Install development dependencies
-        run: |
-          pip install pylint black flake8 pytest
-
       - name: Lint with flake8
         run: |
-          flake8 engine/ main.py --count --select=E9,F63,F7,F82 --show-source --statistics || true
-          flake8 engine/ main.py --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics || true
+          flake8 engine/ main.py --count --select=E9,F63,F7,F82 --show-source --statistics
+          flake8 engine/ main.py --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics
 
       - name: Format check with black
         run: |
