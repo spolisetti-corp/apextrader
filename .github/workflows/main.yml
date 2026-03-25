@@ -17,7 +17,7 @@ on:
 
   # Run CI checks on every push
   push:
-    branches: [ main, 'claude/**' ]
+    branches: [ main, 'feature/**', 'claude/**' ]
   pull_request:
     branches: [ main ]
 
@@ -64,36 +64,10 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
-      - name: Run ApexTrader (single scan cycle)
+      - name: Run single scan cycle
         env:
           ALPACA_API_KEY: ${{ secrets.ALPACA_API_KEY }}
           ALPACA_API_SECRET: ${{ secrets.ALPACA_API_SECRET }}
           ALPACA_PAPER: ${{ vars.ALPACA_PAPER || 'true' }}
           FINNHUB_API_KEY: ${{ secrets.FINNHUB_API_KEY }}
-        run: |
-          python - <<'EOF'
-          import os, sys
-
-          # Single scan cycle (not continuous loop)
-          from engine.config import API_KEY, API_SECRET, PAPER
-          from engine.utils import setup_logging, is_market_open
-          from engine.strategies import SweepeaStrategy, TechnicalStrategy, MomentumStrategy
-          from engine.executor_enhanced import EnhancedExecutor
-
-          from alpaca.trading.client import TradingClient
-
-          log = setup_logging()
-
-          if not API_KEY or not API_SECRET:
-              log.error("ALPACA_API_KEY / ALPACA_API_SECRET not set — aborting")
-              sys.exit(1)
-
-          if not is_market_open():
-              log.info("Market closed — skipping scan")
-              sys.exit(0)
-
-          # Import and run a single scan cycle
-          import main
-          main.scan_and_trade()
-          main.log_status()
-          EOF
+        run: python main.py --once
