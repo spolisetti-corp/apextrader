@@ -196,7 +196,7 @@ def scan_and_trade():
 
             if quarterly_start_equity > 0:
                 q_gain_pct = ((_equity - quarterly_start_equity) / quarterly_start_equity) * 100
-                log.info(f"Quarterly P&L: +{q_gain_pct:.1f}% (target >= {QUARTERLY_PROFIT_TARGET_PCT:.0f}%)")
+                log.info(f"Quarterly P&L: {q_gain_pct:+.1f}% (target >= {QUARTERLY_PROFIT_TARGET_PCT:.0f}%)")
                 if q_gain_pct >= QUARTERLY_PROFIT_TARGET_PCT:
                     log.info(
                         f"QUARTERLY TARGET HIT: +{q_gain_pct:.1f}% >= {QUARTERLY_PROFIT_TARGET_PCT:.0f}% | "
@@ -279,7 +279,7 @@ def log_status():
         log.info(f"Daily P&L:  ${daily_pnl:.2f}  |  Trades: {trades}")
         if USE_QUARTERLY_TARGET and quarterly_start_equity > 0:
             q_gain = ((float(account.equity) - quarterly_start_equity) / quarterly_start_equity) * 100
-            log.info(f"Quarterly:  +{q_gain:.1f}% (target >= {QUARTERLY_PROFIT_TARGET_PCT:.0f}%)")
+            log.info(f"Quarterly:  {q_gain:+.1f}% (target >= {QUARTERLY_PROFIT_TARGET_PCT:.0f}%)")
         log.info(f"Positions:  {len(positions)}")
 
         if positions:

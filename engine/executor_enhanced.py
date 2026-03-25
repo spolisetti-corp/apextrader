@@ -90,6 +90,7 @@ class EnhancedExecutor:
         self._position_cache: Optional[PositionInfo] = None
         self._cache_timestamp: float = 0
         self._cache_ttl:       float = 5.0
+        self._htb_cache:       set   = set()   # hard-to-borrow symbols — skip for rest of session
 
     # ΓöÇΓöÇ Position Cache ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
     def _get_positions(self, force_refresh: bool = False) -> PositionInfo:
@@ -113,6 +114,10 @@ class EnhancedExecutor:
 
         if not self.pdt.can_trade(equity):
             return False, "PDT limit reached"
+
+        # Skip hard-to-borrow shorts cached from previous failures this session
+        if order_type == OrderType.SHORT and signal.symbol in self._htb_cache:
+            return False, f"{signal.symbol} hard-to-borrow (cached)"
 
         positions = self._get_positions()
 
@@ -158,7 +163,14 @@ class EnhancedExecutor:
             self._log_bracket(signal, shares, risk_info, sl_price, tp_price, order_type)
             return True
         except Exception as e:
-            log.error(f"Bracket order failed {signal.symbol}: {e}")
+            err = str(e)
+            if "cannot be sold short" in err:
+                self._htb_cache.add(signal.symbol)
+                log.info(f"HTB cached {signal.symbol} - will skip shorts this session")
+            elif "insufficient buying power" in err:
+                log.warning(f"Bracket skip {signal.symbol}: insufficient buying power")
+            else:
+                log.error(f"Bracket order failed {signal.symbol}: {e}")
             return False
 
     def _log_bracket(self, signal, shares, risk_info, sl, tp, order_type):
@@ -211,8 +223,12 @@ class EnhancedExecutor:
                 return True
 
         except Exception as e:
-            if "cannot be sold short" in str(e):
-                log.info(f"Skip {signal.symbol}: hard-to-borrow")
+            err = str(e)
+            if "cannot be sold short" in err:
+                self._htb_cache.add(signal.symbol)
+                log.info(f"HTB cached {signal.symbol} - will skip shorts this session")
+            elif "insufficient buying power" in err:
+                log.warning(f"Skip {signal.symbol}: insufficient buying power")
             else:
                 log.error(f"{action} order error {signal.symbol}: {e}")
             return False
@@ -229,6 +245,18 @@ class EnhancedExecutor:
         shares    = int(risk_info["dollar_amount"] / signal.price)
         if shares < 1:
             return False
+
+        # Pre-check: enough buying power for shorts (need 2x margin)
+        if order_type == OrderType.SHORT:
+            try:
+                acct = self.client.get_account()
+                bp   = float(acct.buying_power)
+                cost = shares * signal.price * 2
+                if bp < cost:
+                    log.warning(f"Skip {signal.symbol} short: BP ${bp:,.0f} < required ${cost:,.0f}")
+                    return False
+            except Exception:
+                pass
 
         if self.use_bracket_orders and is_regular_hours():
             if self._create_bracket_order(signal, shares, risk_info, order_type):
