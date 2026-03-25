@@ -203,15 +203,26 @@ def scan_tradeideas_universe():
 
             existing = set(dest)
             new_tickers = [t for t in tickers if t not in existing]
+            # Always re-promote ALL fresh TI tickers to the front so they
+            # are scanned first every cycle.
+            fresh = [t for t in tickers if t in existing]   # already known but re-prioritise
+            demote = [t for t in dest if t not in set(tickers)]  # keep the rest after
+            dest.clear()
+            dest.extend(tickers[:50])                         # TI tickers first
+            for t in demote:
+                if t not in set(dest):
+                    dest.append(t)
             if new_tickers:
-                dest.extend(new_tickers)
                 log.info(
                     f"Trade Ideas {SCANS[scan_key]['label']}: "
-                    f"+{len(new_tickers)} tickers added to {target_list_name} "
-                    f"→ {new_tickers[:10]}"
+                    f"+{len(new_tickers)} new, {len(fresh)} re-promoted to top of {target_list_name} "
+                    f"→ {tickers[:10]}"
                 )
             else:
-                log.info(f"Trade Ideas {SCANS[scan_key]['label']}: all {len(tickers)} tickers already in universe")
+                log.info(
+                    f"Trade Ideas {SCANS[scan_key]['label']}: "
+                    f"{len(fresh)} tickers re-promoted to top of {target_list_name}"
+                )
     except Exception as e:
         log.error(f"Trade Ideas scan failed: {e}")
 

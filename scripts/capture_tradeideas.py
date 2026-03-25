@@ -224,21 +224,22 @@ def _patch_config(list_name: str, new_tickers: list[str]) -> int:
     if not to_add:
         return 0
 
-    # Build the insertion block
-    comment  = f"    # Trade-Ideas {list_name} update {datetime.now().strftime('%Y-%m-%d %H:%M')}"
+    # Build the insertion block (goes at the TOP of the list — highest priority)
+    comment  = f"    # Trade-Ideas {list_name} top-priority update {datetime.now().strftime('%Y-%m-%d %H:%M')}"
     new_line = "    " + ", ".join(f'"{t}"' for t in to_add) + ","
 
-    # Locate the closing ] of the target list and insert before it
+    # Locate the opening [ of the target list and insert right after it
     pattern = re.compile(
-        rf'({re.escape(list_name)}\s*=\s*\[.*?)(^\])',
-        re.DOTALL | re.MULTILINE,
+        rf'({re.escape(list_name)}\s*=\s*\[)(\s*\n)',
+        re.MULTILINE,
     )
     m = pattern.search(src)
     if not m:
         print(f"[WARN ] Could not locate {list_name} in config.py — skipping patch")
         return 0
 
-    insert_at = m.start(2)
+    # Insert after the opening bracket+newline (top of list)
+    insert_at = m.end(0)
     new_src   = src[:insert_at] + comment + "\n" + new_line + "\n" + src[insert_at:]
     CONFIG_FILE.write_text(new_src, encoding="utf-8")
     return len(to_add)
@@ -289,7 +290,6 @@ def scrape_tradeideas(
             time.sleep(14)
 
             tickers = _extract_tickers(driver)
-            _save_screenshot(driver, label)
 
             results[scan_key] = tickers
             print(f"[OK   ] {scan_key}: {len(tickers)} tickers — {tickers[:10]}{'…' if len(tickers)>10 else ''}")
