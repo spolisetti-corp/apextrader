@@ -11,7 +11,7 @@ from alpaca.trading.client import TradingClient
 
 load_dotenv()
 
-from apextrader.config import (
+from engine.config import (
     API_KEY, API_SECRET, PAPER,
     STOCKS, PRIORITY_1_MOMENTUM, PRIORITY_2_ESTABLISHED,
     SCAN_INTERVAL_MIN, POSITION_CHECK_MIN,
@@ -28,14 +28,14 @@ from apextrader.config import (
     USE_POSITION_TUNING,
     HIGH_POSITION_INTERVAL, NORMAL_POSITION_INTERVAL, LOW_POSITION_INTERVAL,
 )
-from apextrader.utils import (
+from engine.utils import (
     setup_logging, is_market_open, get_vix,
     get_trending_tickers, filter_trending_momentum,
     get_finnhub_trending_tickers, check_sentiment_gate,
     get_vix_interval, get_market_hours_interval, get_position_tuning_interval,
 )
-from apextrader.strategies import SweepeaStrategy, TechnicalStrategy, MomentumStrategy
-from apextrader.executor_enhanced import EnhancedExecutor
+from engine.strategies import SweepeaStrategy, TechnicalStrategy, MomentumStrategy
+from engine.executor_enhanced import EnhancedExecutor
 
 # ── Initialise ──────────────────────────────────────────────────
 log      = setup_logging()
