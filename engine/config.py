@@ -60,6 +60,8 @@ PRIORITY_1_MOMENTUM = [
     "IMDX", "LICN", "HTCO", "FNUC", "VTIX", "ONEG", "RPID", "KDK", "RHLD", "IONZ",
     # Latest additions
     "IMV",
+    # Added from latest market heatmap (user request)
+    "SCVL", "GDXD", "ZSL", "CMCO", "GMTL", "JDST", "GLL", "WT", "AIRJ", "CLNE", "SSNC", "SBIT", "DUST", "UCO", "STGW", "MGNI", "ETHD", "SOXS", "ANVS", "KSPI", "FTW", "INDI", "BNO", "FBRT",
 ]
 
 PRIORITY_2_ESTABLISHED = [
@@ -81,18 +83,18 @@ STOCKS = {
 }
 
 # ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
-# Trading Parameters ΓÇö Swing Trading Optimized
+# Trading Parameters ΓÇö Swing Trading Optimized (AGGRESSIVE MODE)
 # ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
-MAX_POSITIONS        = 8      # Fewer positions, higher conviction
-POSITION_SIZE_PCT    = 12.5   # Maximum position size cap (%)
+MAX_POSITIONS        = 12      # Increased from 8 - more positions
+POSITION_SIZE_PCT    = 20.0    # Increased from 12.5% - larger positions
 USE_RISK_EQUALIZED_SIZING = True
-RISK_PER_TRADE_PCT   = 1.0    # Risk 1% of account per trade
+RISK_PER_TRADE_PCT   = 2.0     # Increased from 1.0% - more aggressive risk
 
-# Tiered Profit Targets
-TAKE_PROFIT_EXTREME  = 50.0
-TAKE_PROFIT_HIGH     = 40.0
-TAKE_PROFIT_MEDIUM   = 35.0
-TAKE_PROFIT_NORMAL   = 25.0
+# Tiered Profit Targets (AGGRESSIVE)
+TAKE_PROFIT_EXTREME  = 75.0   # Increased from 50%
+TAKE_PROFIT_HIGH     = 60.0   # Increased from 40%
+TAKE_PROFIT_MEDIUM   = 50.0   # Increased from 35%
+TAKE_PROFIT_NORMAL   = 35.0   # Increased from 25%
 
 # Tiered Trailing Stops
 TRAILING_STOP_EXTREME = 15.0
@@ -164,11 +166,11 @@ USE_SENTIMENT_GATE         = False
 SENTIMENT_BULLISH_THRESHOLD = 0.6
 
 # ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
-# Daily Limits
+# Daily Limits (AGGRESSIVE MODE)
 # ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
-POSITION_CHECK_MIN  = 5
-DAILY_LOSS_LIMIT    = -500.0
-DAILY_PROFIT_TARGET = 3500.0
+POSITION_CHECK_MIN  = 3       # Check positions more frequently
+DAILY_LOSS_LIMIT    = -1000.0 # Increased loss limit from -500
+DAILY_PROFIT_TARGET = 5000.0  # Increased profit target from 3500
 
 # ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
 # Extended Hours Trading
