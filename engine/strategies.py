@@ -156,7 +156,7 @@ class TechnicalStrategy:
         elif market_sentiment == "bearish":
             score -= 0.1
 
-        if score >= 0.70:
+        if score >= 0.60:
             return Signal(symbol, "buy",  price, score,       ", ".join(reasons), "Technical")
         elif not LONG_ONLY_MODE and score <= -0.70:
             return Signal(symbol, "sell", price, abs(score),  ", ".join(reasons), "Technical")
