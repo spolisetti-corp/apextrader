@@ -213,6 +213,7 @@ def scan_and_trade():
     scan_trending_stocks()
 
     signals = []
+    sweep_hits = tech_hits = mom_hits = scan_errors = 0
 
     log.info(f"Priority1 pool: {len(PRIORITY_1_MOMENTUM)} symbols, P2 pool: {len(PRIORITY_2_ESTABLISHED)} symbols")
 
@@ -222,18 +223,22 @@ def scan_and_trade():
             sig = sweepea.scan(symbol)
             if sig:
                 signals.append(sig)
+                sweep_hits += 1
                 continue
             sig = technical.scan(symbol, sentiment)
             if sig:
                 signals.append(sig)
+                tech_hits += 1
                 continue
             sig = momentum.scan(symbol)
             if sig:
                 signals.append(sig)
+                mom_hits += 1
         except KeyboardInterrupt:
             raise
         except Exception as e:
-            log.debug(f"Scan error {symbol}: {e}")
+            scan_errors += 1
+            log.warning(f"Scan error {symbol}: {e}")
 
     # Priority 2 — if capacity remains
     if len(signals) < 10:
@@ -242,14 +247,19 @@ def scan_and_trade():
                 sig = sweepea.scan(symbol)
                 if sig:
                     signals.append(sig)
+                    sweep_hits += 1
                     continue
                 sig = technical.scan(symbol, sentiment)
                 if sig:
                     signals.append(sig)
+                    tech_hits += 1
             except KeyboardInterrupt:
                 raise
             except Exception as e:
-                log.debug(f"Scan error {symbol}: {e}")
+                scan_errors += 1
+                log.warning(f"Scan error {symbol}: {e}")
+
+    log.info(f"Signal breakdown — Sweepea: {sweep_hits}, Technical: {tech_hits}, Momentum: {mom_hits} | Errors: {scan_errors}")
 
     log.info(f"Total raw signals collected: {len(signals)}")
 

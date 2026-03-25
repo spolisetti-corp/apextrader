@@ -217,7 +217,7 @@ PDT_WARN_AT_REMAINING = 1      # Warn log when PDT trades remaining falls to thi
 
 # Sniper Mode Controls
 LONG_ONLY_MODE        = True   # Disable all short entries — eliminates margin, HTB, and 2x BP requirements
-MIN_SIGNAL_CONFIDENCE = 0.60   # Execute only high-conviction signals (confidence >= this)
+MIN_SIGNAL_CONFIDENCE = 0.50   # Execute signals with confidence >= this
 MAX_SIGNALS_PER_CYCLE = 3      # Execute at most this many signals per scan cycle
 
 # ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
