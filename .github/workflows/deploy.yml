@@ -39,9 +39,10 @@ jobs:
 
       - name: Run basic import tests
         run: |
-          python -c "from engine.config import API_KEY; print('✓ Config imports')"
+          python -c "from engine.config import API_KEY, QUARTERLY_TARGET_FACTOR; print('✓ Config imports')"
           python -c "from engine.utils import get_vix_interval; print('✓ Utils imports')"
           python -c "from engine.session import TradingSession; print('✓ Session imports')"
+          python -c "from engine.strategies import QuarterlyAggressiveStrategy; print('✓ QuarterlyAggressiveStrategy imports')"
 
   build:
     name: Build & Package

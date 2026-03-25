@@ -18,12 +18,13 @@ Professional automated trading system with multi-strategy signal generation, tie
 
 ```
 apextrader/
-├── apextrader/
+├── engine/
 │   ├── __init__.py
 │   ├── config.py              # All parameters & universe
 │   ├── strategies.py          # Sweepea, Technical, Momentum
 │   ├── executor_enhanced.py   # Order execution & PDT tracking
 │   ├── broker_factory.py      # Alpaca / E*TRADE factory
+│   ├── session.py             # Trading session state management
 │   └── utils.py               # Bars, indicators, sizing, VIX
 ├── main.py                    # Entry point
 ├── requirements.txt
@@ -49,7 +50,7 @@ python main.py
 
 ## Configuration
 
-All parameters live in `apextrader/config.py`. Key settings:
+All parameters live in `engine/config.py`. Key settings:
 
 ```python
 MAX_POSITIONS       = 8       # Max concurrent positions

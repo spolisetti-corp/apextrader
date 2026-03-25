@@ -60,6 +60,8 @@ PRIORITY_1_MOMENTUM = [
     "IMDX", "LICN", "HTCO", "FNUC", "VTIX", "ONEG", "RPID", "KDK", "RHLD", "IONZ",
     # Latest additions
     "IMV",
+    # Added from latest market heatmap (user request)
+    "SCVL", "GDXD", "ZSL", "CMCO", "GMTL", "JDST", "GLL", "WT", "AIRJ", "CLNE", "SSNC", "SBIT", "DUST", "UCO", "STGW", "MGNI", "ETHD", "SOXS", "ANVS", "KSPI", "FTW", "INDI", "BNO", "FBRT",
 ]
 
 PRIORITY_2_ESTABLISHED = [
@@ -84,26 +86,39 @@ PRIORITY_FOLLOWING = [
     "CRCL", "INTC", "IREN", "GLD", "BMNR",
 ]
 
+# TI Universe (technical indicator-driven stock subset)
+DELISTED_STOCKS = ["IMV", "EKV", "AMTK"]  # Add any known delisted symbols here
+
+TI_UNIVERSE = [
+    "ELVN", "HZO", "SATS", "TERN", "TXG", "BKSY", "CGEM",  # bkSI/ccEM alias to BKSY/CGEM
+    "DXYZ", "ARM", "CRCG", "CONL", "BABA", "ETHA", "STLA",
+    "NVDA", "BMRN", "JD", "SOXL", "SLV", "CRCL", "GDX", "ONDS", "VSH",
+]
+
+# Remove blacklist from TI universe
+TI_UNIVERSE = [s for s in TI_UNIVERSE if s not in DELISTED_STOCKS]
+
 STOCKS = {
     "priority_1": PRIORITY_1_MOMENTUM,
     "priority_2": PRIORITY_2_ESTABLISHED,
     "priority_3": PRIORITY_3_MARKET,
     "following":  PRIORITY_FOLLOWING,
+    "priority_ti": TI_UNIVERSE,
 }
 
 # ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
-# Trading Parameters ΓÇö Swing Trading Optimized
+# Trading Parameters ΓÇö Swing Trading Optimized (AGGRESSIVE MODE - 50% MIN PROFIT TARGET)
 # ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
-MAX_POSITIONS        = 8      # Fewer positions, higher conviction
-POSITION_SIZE_PCT    = 12.5   # Maximum position size cap (%)
+MAX_POSITIONS        = 12      # Increased from 8 - more positions
+POSITION_SIZE_PCT    = 20.0    # Increased from 12.5% - larger positions
 USE_RISK_EQUALIZED_SIZING = True
-RISK_PER_TRADE_PCT   = 1.0    # Risk 1% of account per trade
+RISK_PER_TRADE_PCT   = 2.0     # Increased from 1.0% - more aggressive risk
 
-# Tiered Profit Targets
-TAKE_PROFIT_EXTREME  = 50.0
-TAKE_PROFIT_HIGH     = 40.0
-TAKE_PROFIT_MEDIUM   = 35.0
-TAKE_PROFIT_NORMAL   = 25.0
+# Tiered Profit Targets (50% MINIMUM - AGGRESSIVE)
+TAKE_PROFIT_EXTREME  = 75.0   # Increased from 50%
+TAKE_PROFIT_HIGH     = 60.0   # Increased from 40%
+TAKE_PROFIT_MEDIUM   = 50.0   # Increased from 35%
+TAKE_PROFIT_NORMAL   = 50.0   # Increased from 25% → 50% MINIMUM
 
 # Tiered Trailing Stops
 TRAILING_STOP_EXTREME = 15.0
@@ -113,7 +128,7 @@ TRAILING_STOP_NORMAL  =  5.0
 
 # Legacy (backward compat)
 STOP_LOSS_PCT   = 5.0
-TAKE_PROFIT_PCT = 35.0
+TAKE_PROFIT_PCT = 50.0  # Updated to match 50% minimum
 
 # ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
 # Dynamic ATR-Based Tier Assignment
@@ -171,15 +186,31 @@ TRENDING_MIN_MOMENTUM   = 3.0
 # ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
 USE_FINNHUB_DISCOVERY      = False
 FINNHUB_API_KEY            = os.getenv("FINNHUB_API_KEY", "")
+USE_IEX_DISCOVERY          = False
+IEX_API_KEY                = os.getenv("IEX_API_KEY", "")
+USE_POLYGON_DISCOVERY      = False
+POLYGON_API_KEY            = os.getenv("POLYGON_API_KEY", "")
+USE_POLYGON_HIGH_SHORT     = False
+POLYGON_SHORT_FLOAT_MIN    = 15.0
+USE_ALPHAVANTAGE_DISCOVERY = False
+ALPHAVANTAGE_API_KEY       = os.getenv("ALPHAVANTAGE_API_KEY", "")
+USE_TWELVEDATA_DISCOVERY   = False
+TWELVEDATA_API_KEY         = os.getenv("TWELVEDATA_API_KEY", "")
 USE_SENTIMENT_GATE         = False
 SENTIMENT_BULLISH_THRESHOLD = 0.6
 
 # ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
-# Daily Limits
+# Daily Limits (AGGRESSIVE MODE)
 # ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
-POSITION_CHECK_MIN  = 5
-DAILY_LOSS_LIMIT    = -500.0
-DAILY_PROFIT_TARGET = 3500.0
+POSITION_CHECK_MIN      = 3       # Check positions more frequently
+DAILY_LOSS_LIMIT        = -1000.0 # Increased loss limit from -500
+DAILY_PROFIT_TARGET     = 5000.0  # Increased profit target from 3500
+
+# Quarterly ambitious target settings
+QUARTERLY_TARGET_FACTOR = 0.50   # 50% quarterly equity gain target
+QUARTERLY_MAX_RISK      = 0.10   # Max 10% equity written as risk exposure at peak
+QUARTERLY_COOLDOWN      = 0.65   # Cool down trading after 65% of quarterly target realized
+QUARTERLY_MIN_HOLD_DAYS  = 1.0   # Minimum hold period in days for aggressive trades
 
 # ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
 # Extended Hours Trading
