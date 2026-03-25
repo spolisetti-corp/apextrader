@@ -40,10 +40,10 @@ jobs:
       - name: Check imports
         run: |
           python -c "
-          from apextrader.config import API_KEY
-          from apextrader.utils import setup_logging, is_market_open, get_vix
-          from apextrader.strategies import SweepeaStrategy, TechnicalStrategy, MomentumStrategy
-          from apextrader.executor_enhanced import EnhancedExecutor
+          from engine.config import API_KEY
+          from engine.utils import setup_logging, is_market_open, get_vix
+          from engine.strategies import SweepeaStrategy, TechnicalStrategy, MomentumStrategy
+          from engine.executor_enhanced import EnhancedExecutor
           print('All imports OK')
           "
 
@@ -75,10 +75,10 @@ jobs:
           import os, sys
 
           # Single scan cycle (not continuous loop)
-          from apextrader.config import API_KEY, API_SECRET, PAPER
-          from apextrader.utils import setup_logging, is_market_open
-          from apextrader.strategies import SweepeaStrategy, TechnicalStrategy, MomentumStrategy
-          from apextrader.executor_enhanced import EnhancedExecutor
+          from engine.config import API_KEY, API_SECRET, PAPER
+          from engine.utils import setup_logging, is_market_open
+          from engine.strategies import SweepeaStrategy, TechnicalStrategy, MomentumStrategy
+          from engine.executor_enhanced import EnhancedExecutor
 
           from alpaca.trading.client import TradingClient
 
