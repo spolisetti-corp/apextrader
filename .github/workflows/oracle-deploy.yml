@@ -1,0 +1,72 @@
+name: Oracle Cloud Deploy
+
+on:
+  push:
+    branches: [ main ]
+
+jobs:
+  deploy:
+    name: Deploy to Oracle Cloud Free Tier
+    runs-on: ubuntu-latest
+
+    env:
+      OCID_TENANCY: ${{ secrets.OCI_TENANCY_OCID }}
+      OCID_USER: ${{ secrets.OCI_USER_OCID }}
+      OCID_FINGERPRINT: ${{ secrets.OCI_FINGERPRINT }}
+      OCID_REGION: ${{ secrets.OCI_REGION }}
+      OCID_PRIVATE_KEY: ${{ secrets.OCI_PRIVATE_KEY }}
+      OCI_INSTANCE_ID: ${{ secrets.OCI_INSTANCE_ID }}
+      OCI_SSH_USER: ${{ secrets.OCI_SSH_USER }}
+      OCI_SSH_HOST: ${{ secrets.OCI_SSH_HOST }}
+      OCI_SSH_KEY: ${{ secrets.OCI_SSH_KEY }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install OCI CLI
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y unzip curl python3-pip
+          python3 -m pip install --upgrade pip
+          python3 -m pip install oci
+
+      - name: Configure OCI CLI with env credentials
+        if: env.OCI_PRIVATE_KEY != ''
+        run: |
+          mkdir -p ~/.oci
+          cat <<'EOF' > ~/.oci/config
+          [DEFAULT]
+          user=${OCID_USER}
+          tenancy=${OCID_TENANCY}
+          fingerprint=${OCID_FINGERPRINT}
+          region=${OCID_REGION}
+          key_file=~/.oci/oci_api_key.pem
+          EOF
+          echo "${OCI_PRIVATE_KEY}" > ~/.oci/oci_api_key.pem
+          chmod 600 ~/.oci/oci_api_key.pem
+
+      - name: Verify OCI config
+        run: |
+          oci os ns get
+
+      - name: Deploy code to target instance (via SSH)
+        if: env.OCI_SSH_HOST != ''
+        run: |
+          mkdir -p ~/.ssh
+          echo "${OCI_SSH_KEY}" > ~/.ssh/oci_deploy_key
+          chmod 600 ~/.ssh/oci_deploy_key
+          ssh -o StrictHostKeyChecking=no -i ~/.ssh/oci_deploy_key ${OCI_SSH_USER}@${OCI_SSH_HOST} <<'SSH'
+            set -euo pipefail
+            cd /home/${OCI_SSH_USER}/apextrader || exit 0
+            git fetch --all
+            git checkout main
+            git pull origin main
+            source .venv/bin/activate || python3 -m venv .venv && source .venv/bin/activate
+            pip install -r requirements.txt
+            sudo systemctl restart apextrader || true
+            echo "Deployment complete"
+          SSH
+
+      - name: Mark successful deployment
+        run: echo "Oracle Cloud deployment triggered from main"
