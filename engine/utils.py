@@ -5,10 +5,24 @@ Common functions for trading operations.
 
 import logging
 import datetime
+import threading
 import pytz
 import pandas as pd
-from typing import Optional, Dict
+from typing import Optional, Dict, Tuple
 import os
+
+# ── Per-cycle bar cache ─────────────────────────────────────────
+# Keyed by (symbol, period, interval). Each symbol is only ever
+# processed by one thread at a time, so a simple dict + lock is safe.
+_bar_cache: Dict[Tuple[str, str, str], pd.DataFrame] = {}
+_bar_cache_lock = threading.Lock()
+
+
+def clear_bar_cache() -> None:
+    """Clear the bar cache at the start of every scan cycle."""
+    global _bar_cache
+    with _bar_cache_lock:
+        _bar_cache = {}
 
 from dotenv import load_dotenv
 
@@ -312,8 +326,17 @@ def check_sentiment_gate(ticker: str) -> tuple:
 # Bar Data
 # ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
 def get_bars(symbol: str, period: str = "5d", interval: str = "15m") -> pd.DataFrame:
-    """Fetch OHLCV bars ΓÇö Alpaca first, yfinance fallback."""
+    """Fetch OHLCV bars ─ Alpaca first, yfinance fallback.
+
+    Results are cached per (symbol, period, interval) for the duration of
+    the current scan cycle. Call clear_bar_cache() to reset.
+    """
     log = logging.getLogger("ApexTrader")
+    cache_key = (symbol, period, interval)
+    with _bar_cache_lock:
+        if cache_key in _bar_cache:
+            log.debug(f"{symbol}: bar cache hit ({period}/{interval})")
+            return _bar_cache[cache_key]
 
     if ALPACA_AVAILABLE:
         try:
@@ -348,6 +371,8 @@ def get_bars(symbol: str, period: str = "5d", interval: str = "15m") -> pd.DataF
                         log.warning(f"{symbol}: Alpaca data stale ({staleness:.0f}s), using yfinance")
                     else:
                         log.debug(f"{symbol}: Alpaca data OK")
+                        with _bar_cache_lock:
+                            _bar_cache[cache_key] = data
                         return data
 
         except Exception as e:
@@ -363,6 +388,8 @@ def get_bars(symbol: str, period: str = "5d", interval: str = "15m") -> pd.DataF
         data.columns = [c.lower() for c in data.columns]
         if "datetime" in data.columns:
             data = data.rename(columns={"datetime": "time"})
+        with _bar_cache_lock:
+            _bar_cache[cache_key] = data
         return data
     except Exception:
         return pd.DataFrame()
