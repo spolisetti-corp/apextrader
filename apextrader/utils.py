@@ -393,3 +393,74 @@ def calc_macd(prices: pd.Series) -> Dict:
     macd   = exp1 - exp2
     signal = macd.ewm(span=9, adjust=False).mean()
     return {"macd": macd, "signal": signal, "hist": macd - signal}
+
+
+# ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
+# Interval Calculations
+# ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
+def get_vix_interval(vix: float, config: dict) -> tuple:
+    """
+    Map VIX value to scan interval and volatility label.
+
+    Args:
+        vix: Current VIX value
+        config: Dictionary with SCAN_INTERVAL_* values
+
+    Returns:
+        (interval_minutes, volatility_label)
+    """
+    thresholds = [
+        (30, config.get("SCAN_INTERVAL_EXTREME_VOL", 1), "EXTREME"),
+        (26, config.get("SCAN_INTERVAL_HIGH_VOL", 2), "HIGH"),
+        (22, config.get("SCAN_INTERVAL_MODERATE_VOL", 3), "MODERATE"),
+        (18, config.get("SCAN_INTERVAL_NORMAL_VOL", 5), "NORMAL"),
+        (15, config.get("SCAN_INTERVAL_CALM_VOL", 7), "CALM"),
+    ]
+
+    for threshold, interval, label in thresholds:
+        if vix >= threshold:
+            return interval, label
+
+    return config.get("SCAN_INTERVAL_LOW_VOL", 10), "LOW"
+
+
+def get_market_hours_interval(hour: float, config: dict) -> tuple:
+    """
+    Map hour of day to market phase and scan interval.
+
+    Args:
+        hour: Hour in decimal format (e.g., 9.5 = 9:30 AM)
+        config: Dictionary with market hours interval values
+
+    Returns:
+        (interval_minutes, market_phase_label)
+    """
+    if 7 <= hour < 9.5:
+        return config.get("PREMARKET_SCAN_INTERVAL", 5), "PRE-MARKET"
+    elif 9.5 <= hour < 16:
+        return config.get("REGULAR_HOURS_SCAN_INTERVAL", 3), "REGULAR HOURS"
+    elif 16 <= hour < 20:
+        return config.get("AFTERHOURS_SCAN_INTERVAL", 7), "AFTER-HOURS"
+    else:
+        return None, "OFF-HOURS"
+
+
+def get_position_tuning_interval(pos_count: int, config: dict) -> tuple:
+    """
+    Map position count to scan interval and position status label.
+
+    Args:
+        pos_count: Number of open positions
+        config: Dictionary with position interval values
+
+    Returns:
+        (interval_minutes, position_status_label) or (None, label) if no tuning
+    """
+    if pos_count >= 8:
+        return config.get("HIGH_POSITION_INTERVAL", 10), f"HIGH POS ({pos_count})"
+    elif 3 <= pos_count <= 7:
+        return config.get("NORMAL_POSITION_INTERVAL", 5), f"NORMAL POS ({pos_count})"
+    elif pos_count < 3:
+        return config.get("LOW_POSITION_INTERVAL", 3), f"LOW POS ({pos_count})"
+
+    return None, "DISABLED"
