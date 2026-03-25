@@ -1,4 +1,4 @@
-"""
+﻿"""
 ApexTrader - Broker Factory
 Selects the appropriate broker client.
 Supports Alpaca (stocks + options) and E*TRADE (stocks only).

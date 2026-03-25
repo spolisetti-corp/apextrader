@@ -6,9 +6,12 @@ Professional automated trading system.
 import time
 import schedule
 import yfinance as yf
+from dotenv import load_dotenv
 from alpaca.trading.client import TradingClient
 
-from apextrader.config import (
+load_dotenv()
+
+from engine.config import (
     API_KEY, API_SECRET, PAPER,
     STOCKS, PRIORITY_1_MOMENTUM, PRIORITY_2_ESTABLISHED,
     SCAN_INTERVAL_MIN, POSITION_CHECK_MIN,
@@ -25,13 +28,14 @@ from apextrader.config import (
     USE_POSITION_TUNING,
     HIGH_POSITION_INTERVAL, NORMAL_POSITION_INTERVAL, LOW_POSITION_INTERVAL,
 )
-from apextrader.utils import (
+from engine.utils import (
     setup_logging, is_market_open, get_vix,
     get_trending_tickers, filter_trending_momentum,
     get_finnhub_trending_tickers, check_sentiment_gate,
+    get_vix_interval, get_market_hours_interval, get_position_tuning_interval,
 )
-from apextrader.strategies import SweepeaStrategy, TechnicalStrategy, MomentumStrategy
-from apextrader.executor_enhanced import EnhancedExecutor
+from engine.strategies import SweepeaStrategy, TechnicalStrategy, MomentumStrategy
+from engine.executor_enhanced import EnhancedExecutor
 
 # ── Initialise ──────────────────────────────────────────────────
 log      = setup_logging()
@@ -235,13 +239,17 @@ def get_adaptive_interval() -> int:
     if not ADAPTIVE_INTERVALS:
         return SCAN_INTERVAL_MIN
 
+    # Get VIX-based interval
     vix = get_vix()
-    if   vix > 30:   vix_interval, vol = SCAN_INTERVAL_EXTREME_VOL,  "EXTREME"
-    elif vix >= 26:  vix_interval, vol = SCAN_INTERVAL_HIGH_VOL,     "HIGH"
-    elif vix >= 22:  vix_interval, vol = SCAN_INTERVAL_MODERATE_VOL, "MODERATE"
-    elif vix >= 18:  vix_interval, vol = SCAN_INTERVAL_NORMAL_VOL,   "NORMAL"
-    elif vix >= 15:  vix_interval, vol = SCAN_INTERVAL_CALM_VOL,     "CALM"
-    else:            vix_interval, vol = SCAN_INTERVAL_LOW_VOL,      "LOW"
+    vix_config = {
+        "SCAN_INTERVAL_EXTREME_VOL": SCAN_INTERVAL_EXTREME_VOL,
+        "SCAN_INTERVAL_HIGH_VOL": SCAN_INTERVAL_HIGH_VOL,
+        "SCAN_INTERVAL_MODERATE_VOL": SCAN_INTERVAL_MODERATE_VOL,
+        "SCAN_INTERVAL_NORMAL_VOL": SCAN_INTERVAL_NORMAL_VOL,
+        "SCAN_INTERVAL_CALM_VOL": SCAN_INTERVAL_CALM_VOL,
+        "SCAN_INTERVAL_LOW_VOL": SCAN_INTERVAL_LOW_VOL,
+    }
+    vix_interval, vol = get_vix_interval(vix, vix_config)
 
     interval = vix_interval
     market_phase = "ALL DAY"
@@ -249,25 +257,29 @@ def get_adaptive_interval() -> int:
     if USE_MARKET_HOURS_TUNING:
         import datetime
         h = datetime.datetime.now().hour + datetime.datetime.now().minute / 60
-        if 7 <= h < 9.5:
-            interval, market_phase = PREMARKET_SCAN_INTERVAL,     "PRE-MARKET"
-        elif 9.5 <= h < 16:
-            interval, market_phase = REGULAR_HOURS_SCAN_INTERVAL, "REGULAR HOURS"
-        elif 16 <= h < 20:
-            interval, market_phase = AFTERHOURS_SCAN_INTERVAL,    "AFTER-HOURS"
+        mkt_config = {
+            "PREMARKET_SCAN_INTERVAL": PREMARKET_SCAN_INTERVAL,
+            "REGULAR_HOURS_SCAN_INTERVAL": REGULAR_HOURS_SCAN_INTERVAL,
+            "AFTERHOURS_SCAN_INTERVAL": AFTERHOURS_SCAN_INTERVAL,
+        }
+        mkt_interval, market_phase = get_market_hours_interval(h, mkt_config)
+        if mkt_interval is not None:
+            interval = mkt_interval
         else:
-            interval, market_phase = vix_interval,                "OFF-HOURS"
+            interval = vix_interval
 
     pos_status = "DISABLED"
     if USE_POSITION_TUNING:
         try:
             pos_count = len(client.get_all_positions())
-            if pos_count >= 8:
-                interval, pos_status = max(interval, HIGH_POSITION_INTERVAL),   f"HIGH POS ({pos_count})"
-            elif 3 <= pos_count <= 7:
-                interval, pos_status = max(interval, NORMAL_POSITION_INTERVAL), f"NORMAL POS ({pos_count})"
-            else:
-                interval, pos_status = max(interval, LOW_POSITION_INTERVAL),    f"LOW POS ({pos_count})"
+            pos_config = {
+                "HIGH_POSITION_INTERVAL": HIGH_POSITION_INTERVAL,
+                "NORMAL_POSITION_INTERVAL": NORMAL_POSITION_INTERVAL,
+                "LOW_POSITION_INTERVAL": LOW_POSITION_INTERVAL,
+            }
+            pos_interval, pos_status = get_position_tuning_interval(pos_count, pos_config)
+            if pos_interval is not None:
+                interval = max(interval, pos_interval)
         except Exception:
             pos_status = "POS CHECK ERROR"
 

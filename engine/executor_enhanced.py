@@ -1,4 +1,4 @@
-"""
+﻿"""
 ApexTrader - Enhanced Executor
 Optimized trade executor with consolidated logic:
   - Reduced API calls through caching
@@ -36,9 +36,9 @@ from .utils import is_regular_hours, calculate_risk_adjusted_size, check_vix_roc
 log = logging.getLogger("ApexTrader")
 
 
-# ──────────────────────────────────────────────────────────────
+# ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
 # Helpers
-# ──────────────────────────────────────────────────────────────
+# ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
 class OrderType(Enum):
     LONG  = "long"
     SHORT = "short"
@@ -76,9 +76,9 @@ class PositionInfo:
         return self.has_position(symbol) and float(self.positions_dict[symbol].qty) < 0
 
 
-# ──────────────────────────────────────────────────────────────
+# ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
 # Executor
-# ──────────────────────────────────────────────────────────────
+# ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
 class EnhancedExecutor:
     """Optimized trade executor with consolidated long/short logic."""
 
@@ -91,7 +91,7 @@ class EnhancedExecutor:
         self._cache_timestamp: float = 0
         self._cache_ttl:       float = 5.0
 
-    # ── Position Cache ─────────────────────────────────────────
+    # ΓöÇΓöÇ Position Cache ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
     def _get_positions(self, force_refresh: bool = False) -> PositionInfo:
         import time
         now = time.time()
@@ -104,7 +104,7 @@ class EnhancedExecutor:
             self._cache_timestamp = now
         return self._position_cache
 
-    # ── Validation ─────────────────────────────────────────────
+    # ΓöÇΓöÇ Validation ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
     def _validate_trade(self, signal: Signal, equity: float, order_type: OrderType) -> Tuple[bool, Optional[str]]:
         if USE_VIX_ROC_FILTER:
             allow, roc = check_vix_roc_filter()
@@ -127,7 +127,7 @@ class EnhancedExecutor:
 
         return True, None
 
-    # ── Bracket Prices ─────────────────────────────────────────
+    # ΓöÇΓöÇ Bracket Prices ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
     def _calculate_bracket_prices(self, signal: Signal, risk_info: Dict, order_type: OrderType) -> Tuple[float, float]:
         if order_type == OrderType.LONG:
             sl = round(signal.price * (1 - risk_info["stop_loss_pct"] / 100), 2)
@@ -137,7 +137,7 @@ class EnhancedExecutor:
             tp = round(signal.price * (1 - risk_info["tp"]            / 100), 2)
         return sl, tp
 
-    # ── Bracket Order ──────────────────────────────────────────
+    # ΓöÇΓöÇ Bracket Order ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
     def _create_bracket_order(self, signal: Signal, shares: int, risk_info: Dict, order_type: OrderType) -> bool:
         sl_price, tp_price = self._calculate_bracket_prices(signal, risk_info, order_type)
         side = OrderSide.BUY if order_type == OrderType.LONG else OrderSide.SELL
@@ -177,7 +177,7 @@ class EnhancedExecutor:
             log.info(f"{action} BRACKET {signal.symbol}: {shares} @ ${signal.price:.2f} "
                      f"| SL ${sl:.2f} | TP ${tp:.2f} ({tp_sign}{tp_pct:.0f}%) | {signal.strategy}")
 
-    # ── Simple Order ───────────────────────────────────────────
+    # ΓöÇΓöÇ Simple Order ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
     def _create_simple_order(self, signal: Signal, shares: int, order_type: OrderType) -> bool:
         side   = OrderSide.BUY if order_type == OrderType.LONG else OrderSide.SELL
         action = "BUY"         if order_type == OrderType.LONG else "SHORT"
@@ -217,7 +217,7 @@ class EnhancedExecutor:
                 log.error(f"{action} order error {signal.symbol}: {e}")
             return False
 
-    # ── Entry (unified) ────────────────────────────────────────
+    # ΓöÇΓöÇ Entry (unified) ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
     def _execute_entry(self, signal: Signal, equity: float, order_type: OrderType) -> bool:
         valid, reason = self._validate_trade(signal, equity, order_type)
         if not valid:
@@ -243,7 +243,7 @@ class EnhancedExecutor:
 
         return False
 
-    # ── Public: Execute ────────────────────────────────────────
+    # ΓöÇΓöÇ Public: Execute ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
     def execute(self, signal: Signal) -> bool:
         try:
             account = self.client.get_account()
@@ -264,7 +264,7 @@ class EnhancedExecutor:
             log.error(f"Execute error {signal.symbol}: {e}")
         return False
 
-    # ── Close Short ────────────────────────────────────────────
+    # ΓöÇΓöÇ Close Short ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
     def _close_short_position(self, signal: Signal, equity: float) -> bool:
         positions = self._get_positions()
         if not positions.has_position(signal.symbol):
@@ -290,14 +290,14 @@ class EnhancedExecutor:
             log.error(f"Cover error {signal.symbol}: {e}")
             return False
 
-    # ── Close Long ─────────────────────────────────────────────
+    # ΓöÇΓöÇ Close Long ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
     def _close_long_position(self, signal: Signal, equity: float) -> bool:
         positions = self._get_positions()
         if not positions.has_position(signal.symbol):
             log.info(f"No position in {signal.symbol}")
             return False
         if not self.pdt.can_trade(equity):
-            log.warning(f"PDT limit — cannot sell {signal.symbol}")
+            log.warning(f"PDT limit ΓÇö cannot sell {signal.symbol}")
             return False
 
         qty = abs(int(float(positions.positions_dict[signal.symbol].qty)))
@@ -315,7 +315,7 @@ class EnhancedExecutor:
             log.error(f"Sell error {signal.symbol}: {e}")
             return False
 
-    # ── Health ─────────────────────────────────────────────────
+    # ΓöÇΓöÇ Health ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
     def get_health(self) -> Dict:
         try:
             account = self.client.get_account()
