@@ -1,0 +1,99 @@
+name: ApexTrader
+
+on:
+  # Run during US market extended hours (Mon–Fri 7 AM – 8 PM ET = 12:00–01:00 UTC next day)
+  schedule:
+    - cron: '*/5 12-23 * * 1-5'   # Every 5 min, 12:00–23:59 UTC (Mon–Fri)
+    - cron: '*/5 0-1  * * 2-6'    # Every 5 min, 00:00–01:00 UTC (Tue–Sat, covers 8 PM ET)
+
+  # Allow manual trigger
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Dry run (no real orders)'
+        required: false
+        default: 'true'
+        type: boolean
+
+  # Run CI checks on every push
+  push:
+    branches: [ main, 'claude/**' ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  lint:
+    name: Lint & Import Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Check imports
+        run: |
+          python -c "
+          from apextrader.config import API_KEY
+          from apextrader.utils import setup_logging, is_market_open, get_vix
+          from apextrader.strategies import SweepeaStrategy, TechnicalStrategy, MomentumStrategy
+          from apextrader.executor_enhanced import EnhancedExecutor
+          print('All imports OK')
+          "
+
+  trade:
+    name: Run Trading Bot
+    runs-on: ubuntu-latest
+    # Only execute trades on schedule or manual trigger (not on push/PR)
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run ApexTrader (single scan cycle)
+        env:
+          ALPACA_API_KEY: ${{ secrets.ALPACA_API_KEY }}
+          ALPACA_API_SECRET: ${{ secrets.ALPACA_API_SECRET }}
+          ALPACA_PAPER: ${{ vars.ALPACA_PAPER || 'true' }}
+          FINNHUB_API_KEY: ${{ secrets.FINNHUB_API_KEY }}
+        run: |
+          python - <<'EOF'
+          import os, sys
+
+          # Single scan cycle (not continuous loop)
+          from apextrader.config import API_KEY, API_SECRET, PAPER
+          from apextrader.utils import setup_logging, is_market_open
+          from apextrader.strategies import SweepeaStrategy, TechnicalStrategy, MomentumStrategy
+          from apextrader.executor_enhanced import EnhancedExecutor
+
+          from alpaca.trading.client import TradingClient
+
+          log = setup_logging()
+
+          if not API_KEY or not API_SECRET:
+              log.error("ALPACA_API_KEY / ALPACA_API_SECRET not set — aborting")
+              sys.exit(1)
+
+          if not is_market_open():
+              log.info("Market closed — skipping scan")
+              sys.exit(0)
+
+          # Import and run a single scan cycle
+          import main
+          main.scan_and_trade()
+          main.log_status()
+          EOF
