@@ -162,6 +162,16 @@ TRENDING_MIN_MOMENTUM   = 3.0
 # ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
 USE_FINNHUB_DISCOVERY      = False
 FINNHUB_API_KEY            = os.getenv("FINNHUB_API_KEY", "")
+USE_IEX_DISCOVERY          = False
+IEX_API_KEY                = os.getenv("IEX_API_KEY", "")
+USE_POLYGON_DISCOVERY      = False
+POLYGON_API_KEY            = os.getenv("POLYGON_API_KEY", "")
+USE_POLYGON_HIGH_SHORT     = False
+POLYGON_SHORT_FLOAT_MIN    = 15.0
+USE_ALPHAVANTAGE_DISCOVERY = False
+ALPHAVANTAGE_API_KEY       = os.getenv("ALPHAVANTAGE_API_KEY", "")
+USE_TWELVEDATA_DISCOVERY   = False
+TWELVEDATA_API_KEY         = os.getenv("TWELVEDATA_API_KEY", "")
 USE_SENTIMENT_GATE         = False
 SENTIMENT_BULLISH_THRESHOLD = 0.6
 

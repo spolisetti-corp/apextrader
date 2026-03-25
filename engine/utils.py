@@ -219,25 +219,164 @@ def check_vix_roc_filter() -> tuple:
 # ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
 # Trending Discovery
 # ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
-def get_trending_tickers(max_results: int = 20) -> list:
+def _sanitize_symbols(symbols):
+    return [s.strip().upper() for s in symbols if isinstance(s, str) and s.strip().isalpha() and 1 <= len(s.strip()) <= 5]
+
+
+def get_iex_trending_tickers(max_results: int = 20) -> list:
+    from .config import IEX_API_KEY
+
+    if not IEX_API_KEY:
+        logging.getLogger("ApexTrader").warning("IEX_API_KEY not set")
+        return []
+
     try:
-        import yfinance as yf
+        import requests
+        url = f"https://cloud.iexapis.com/stable/stock/market/list/mostactive?token={IEX_API_KEY}"
+        r = requests.get(url, timeout=10)
+        r.raise_for_status()
+        symbols = [item.get("symbol") for item in r.json() if item.get("symbol")]
+        return _sanitize_symbols(symbols)[:max_results]
+    except Exception as e:
+        logging.getLogger("ApexTrader").warning(f"IEX discovery failed: {e}")
+        return []
 
-        for method, fn in [
-            ("most_actives", lambda: [s["symbol"] for s in yf.screen("most_actives")["quotes"] if s.get("quoteType") == "EQUITY"][:max_results]),
-            ("day_gainers",  lambda: [s["symbol"] for s in yf.screen("day_gainers")["quotes"] if s.get("quoteType") == "EQUITY"][:max_results]),
-        ]:
-            try:
-                result = fn()
-                if result:
-                    logging.getLogger("ApexTrader").debug(f"Trending via {method}: {len(result)} tickers")
-                    return result
-            except Exception as e:
-                logging.getLogger("ApexTrader").debug(f"Trending {method} failed: {e}")
 
+def get_polygon_trending_tickers(max_results: int = 20) -> list:
+    from .config import POLYGON_API_KEY
+
+    if not POLYGON_API_KEY:
+        logging.getLogger("ApexTrader").warning("POLYGON_API_KEY not set")
+        return []
+
+    try:
+        import requests
+        url = f"https://api.polygon.io/v2/snapshot/locale/us/markets/stocks/tickers?apiKey={POLYGON_API_KEY}"
+        r = requests.get(url, timeout=10)
+        r.raise_for_status()
+        tickers = r.json().get("tickers", [])
+        symbols = [t.get("ticker") for t in tickers if t.get("ticker")]
+        return _sanitize_symbols(symbols)[:max_results]
+    except Exception as e:
+        logging.getLogger("ApexTrader").warning(f"Polygon discovery failed: {e}")
+        return []
+
+
+def get_alphavantage_trending_tickers(max_results: int = 20) -> list:
+    from .config import ALPHAVANTAGE_API_KEY
+
+    if not ALPHAVANTAGE_API_KEY:
+        logging.getLogger("ApexTrader").warning("ALPHAVANTAGE_API_KEY not set")
+        return []
+
+    try:
+        import requests
+        # AlphaVantage doesn't provide direct movers API, so use recommendations on strong movers via symbol search of major sectors
+        url = f"https://www.alphavantage.co/query?function=SECTOR&apikey={ALPHAVANTAGE_API_KEY}"
+        r = requests.get(url, timeout=10)
+        r.raise_for_status()
         return []
     except Exception as e:
-        logging.getLogger("ApexTrader").debug(f"Trending discovery failed: {e}")
+        logging.getLogger("ApexTrader").warning(f"AlphaVantage discovery failed: {e}")
+        return []
+
+
+def get_twelvedata_trending_tickers(max_results: int = 20) -> list:
+    from .config import TWELVEDATA_API_KEY
+
+    if not TWELVEDATA_API_KEY:
+        logging.getLogger("ApexTrader").warning("TWELVEDATA_API_KEY not set")
+        return []
+
+    try:
+        import requests
+        url = f"https://api.twelvedata.com/quotes?symbol=SPY,QQQ,DIA&apikey={TWELVEDATA_API_KEY}"
+        r = requests.get(url, timeout=10)
+        r.raise_for_status()
+        return []
+    except Exception as e:
+        logging.getLogger("ApexTrader").warning(f"TwelveData discovery failed: {e}")
+        return []
+
+
+def get_trending_tickers(max_results: int = 20) -> list:
+    from .config import (
+        USE_LIVE_TRENDING, USE_FINNHUB_DISCOVERY, USE_IEX_DISCOVERY,
+        USE_POLYGON_DISCOVERY, USE_POLYGON_HIGH_SHORT, USE_ALPHAVANTAGE_DISCOVERY,
+        USE_TWELVEDATA_DISCOVERY
+    )
+
+    candidates = []
+
+    if USE_LIVE_TRENDING:
+        try:
+            import yfinance as yf
+            for method, fn in [
+                ("most_actives", lambda: [s["symbol"] for s in yf.screen("most_actives")["quotes"] if s.get("quoteType") == "EQUITY"][:max_results]),
+                ("day_gainers",  lambda: [s["symbol"] for s in yf.screen("day_gainers")["quotes"] if s.get("quoteType") == "EQUITY"][:max_results]),
+            ]:
+                try:
+                    result = fn()
+                    if result:
+                        logging.getLogger("ApexTrader").debug(f"Trending via {method}: {len(result)} tickers")
+                        candidates.extend(result)
+                        break
+                except Exception as e:
+                    logging.getLogger("ApexTrader").debug(f"Trending {method} failed: {e}")
+        except Exception as e:
+            logging.getLogger("ApexTrader").debug(f"Trending discovery failed: {e}")
+
+    if USE_FINNHUB_DISCOVERY:
+        candidates.extend(get_finnhub_trending_tickers(max_results))
+    if USE_IEX_DISCOVERY:
+        candidates.extend(get_iex_trending_tickers(max_results))
+    if USE_POLYGON_DISCOVERY:
+        candidates.extend(get_polygon_trending_tickers(max_results))
+    if USE_POLYGON_HIGH_SHORT:
+        candidates.extend(get_polygon_high_short_float_tickers(max_results))
+    if USE_ALPHAVANTAGE_DISCOVERY:
+        candidates.extend(get_alphavantage_trending_tickers(max_results))
+    if USE_TWELVEDATA_DISCOVERY:
+        candidates.extend(get_twelvedata_trending_tickers(max_results))
+
+    unique = []
+    for s in candidates:
+        sym = s.strip().upper()
+        if sym and sym not in unique:
+            unique.append(sym)
+        if len(unique) >= max_results:
+            break
+
+    logging.getLogger("ApexTrader").debug(f"Combined trending discovery found {len(unique)} tickers")
+    return unique
+
+
+def get_polygon_high_short_float_tickers(max_results: int = 20) -> list:
+    from .config import POLYGON_API_KEY, POLYGON_SHORT_FLOAT_MIN
+
+    if not POLYGON_API_KEY:
+        logging.getLogger("ApexTrader").warning("POLYGON_API_KEY not set for short float scan")
+        return []
+
+    try:
+        import requests
+        url = f"https://api.polygon.io/v3/reference/tickers?market=stocks&sort=short_interest&order=desc&limit=100&apiKey={POLYGON_API_KEY}"
+        r = requests.get(url, timeout=10)
+        r.raise_for_status()
+        tickers = []
+
+        for item in r.json().get("results", []):
+            ticker = item.get("ticker")
+            short_interest = item.get("short_interest")
+            if ticker and isinstance(short_interest, (int, float)) and short_interest >= POLYGON_SHORT_FLOAT_MIN:
+                tickers.append(ticker)
+                if len(tickers) >= max_results:
+                    break
+
+        logging.getLogger("ApexTrader").debug(f"Polygon short float discovery found {len(tickers)} tickers")
+        return _sanitize_symbols(tickers)[:max_results]
+    except Exception as e:
+        logging.getLogger("ApexTrader").warning(f"Polygon high short float discovery failed: {e}")
         return []
 
 

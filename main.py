@@ -22,7 +22,8 @@ from engine.config import (
     SCAN_INTERVAL_CALM_VOL, SCAN_INTERVAL_LOW_VOL,
     USE_LIVE_TRENDING, TRENDING_SCAN_INTERVAL,
     TRENDING_MAX_RESULTS, TRENDING_MIN_MOMENTUM,
-    USE_FINNHUB_DISCOVERY, USE_SENTIMENT_GATE,
+    USE_FINNHUB_DISCOVERY, USE_IEX_DISCOVERY, USE_POLYGON_DISCOVERY,
+    USE_ALPHAVANTAGE_DISCOVERY, USE_TWELVEDATA_DISCOVERY, USE_SENTIMENT_GATE,
     USE_MARKET_HOURS_TUNING,
     PREMARKET_SCAN_INTERVAL, REGULAR_HOURS_SCAN_INTERVAL, AFTERHOURS_SCAN_INTERVAL,
     USE_POSITION_TUNING,
@@ -31,7 +32,7 @@ from engine.config import (
 from engine.utils import (
     setup_logging, is_market_open, get_vix,
     get_trending_tickers, filter_trending_momentum,
-    get_finnhub_trending_tickers, check_sentiment_gate,
+    check_sentiment_gate,
     get_vix_interval, get_market_hours_interval, get_position_tuning_interval,
 )
 from engine.strategies import SweepeaStrategy, TechnicalStrategy, MomentumStrategy, QuarterlyAggressiveStrategy
@@ -80,7 +81,14 @@ def get_market_sentiment() -> str:
 def scan_trending_stocks():
     global trending_stocks, last_trending_scan
 
-    if not USE_LIVE_TRENDING and not USE_FINNHUB_DISCOVERY:
+    if not any([
+        USE_LIVE_TRENDING,
+        USE_FINNHUB_DISCOVERY,
+        USE_IEX_DISCOVERY,
+        USE_POLYGON_DISCOVERY,
+        USE_ALPHAVANTAGE_DISCOVERY,
+        USE_TWELVEDATA_DISCOVERY,
+    ]):
         return
 
     current_time = time.time()
@@ -91,15 +99,9 @@ def scan_trending_stocks():
         log.info("Scanning for live trending stocks…")
         all_tickers = []
 
-        if USE_LIVE_TRENDING:
-            tickers = get_trending_tickers(TRENDING_MAX_RESULTS)
-            if tickers:
-                all_tickers.extend(tickers)
-
-        if USE_FINNHUB_DISCOVERY:
-            tickers = get_finnhub_trending_tickers()
-            if tickers:
-                all_tickers.extend(tickers)
+        tickers = get_trending_tickers(TRENDING_MAX_RESULTS)
+        if tickers:
+            all_tickers.extend(tickers)
 
         unique = list(set(all_tickers))
 
