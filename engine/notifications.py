@@ -117,16 +117,16 @@ def build_eod_report(
 
     # HTML summary
     subject_prefix = _get_env('EMAIL_SUBJECT_PREFIX', 'ApexTrader EOD Report')
-    html = ["<html><body style='font-family:Arial,sans-serif;background:#f4f6fa;margin:0;padding:0;'>"]
-    html.append("<div style='max-width:800px;margin:24px auto;padding:20px;background:#ffffff;border-radius:12px;box-shadow:0 1px 14px rgba(0,0,0,0.08);'>")
+    html = ["<html><body style='font-family:Arial,Helvetica,sans-serif;background:#eaf1f8;margin:0;padding:20px;color:#1b2541;'>"]
+    html.append("<div style='max-width:820px;margin:0 auto;padding:20px;background:linear-gradient(145deg,#f7fbff,#dbefff);border-radius:18px;box-shadow:0 8px 26px rgba(14,33,77,0.16);border:1px solid rgba(71,114,177,0.2);'>")
     html.append(f"<h1 style='margin:0;color:#0d1b2a;font-size:24px;'>{subject_prefix} - {report_date.isoformat()}</h1>")
     html.append("<p style='margin:8px 0 20px;color:#2f4f4f;font-size:14px;'>Daily briefing with account status, trade activity, and EOD closing actions.</p>")
 
-    html.append("<div style='display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;margin-bottom:20px;'>")
-    html.append(f"<div style='background:#e9f5ff;border-left:4px solid #3178c6;padding:10px;border-radius:8px;'><strong>Market</strong><br>{market_summary}</div>")
-    html.append(f"<div style='background:#e6ffed;border-left:4px solid #2c9f4a;padding:10px;border-radius:8px;'><strong>Equity</strong><br>{_format_currency(float(account_summary.get('equity',0)))}</div>")
-    html.append(f"<div style='background:#fff8e1;border-left:4px solid #e6a000;padding:10px;border-radius:8px;'><strong>Buying Power</strong><br>{_format_currency(float(account_summary.get('buying_power',0)))}</div>")
-    html.append(f"<div style='background:#fee9f2;border-left:4px solid #d32f2f;padding:10px;border-radius:8px;'><strong>PDT</strong><br>{'Yes' if account_summary.get('pdt_protected') else 'No'}</div>")
+    html.append("<div style='display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:14px;margin-bottom:22px;'>")
+    html.append(f"<div style='background:#ffffffc0;border-left:4px solid #3c72c5;padding:14px;border-radius:12px;box-shadow:0 2px 10px rgba(46,86,139,0.12);'><strong>Market</strong><br>{market_summary}</div>")
+    html.append(f"<div style='background:#ffffffc0;border-left:4px solid #2a9365;padding:14px;border-radius:12px;box-shadow:0 2px 10px rgba(28,108,67,0.12);'><strong>Equity</strong><br>{_format_currency(float(account_summary.get('equity',0)))}</div>")
+    html.append(f"<div style='background:#ffffffc0;border-left:4px solid #d39500;padding:14px;border-radius:12px;box-shadow:0 2px 10px rgba(121,89,0,0.12);'><strong>Buying Power</strong><br>{_format_currency(float(account_summary.get('buying_power',0)))}</div>")
+    html.append(f"<div style='background:#ffffffc0;border-left:4px solid #b2353f;padding:14px;border-radius:12px;box-shadow:0 2px 10px rgba(150,47,54,0.12);'><strong>PDT</strong><br>{'Yes' if account_summary.get('pdt_protected') else 'No'}</div>")
     html.append("</div>")
 
     # Add flashy insights block
@@ -156,7 +156,7 @@ def build_eod_report(
         html.append(f"<p style='margin:6px 0 0;font-size:13px;'>Top loser: <strong>{bottom_open.symbol}</strong> {_format_currency(float(bottom_open.unrealized_pl))} ({float(bottom_open.unrealized_plpc)*100:.2f}%)</p>")
     html.append("</div>")
 
-    html.append("<div style='background:linear-gradient(135deg, #232931, #3f72af);color:#e8f1ff;padding:14px;border-radius:12px;border:1px solid #5271c9;margin-bottom:16px;'>")
+    html.append("<div style='background:linear-gradient(135deg, #27496d, #3a86ff);color:#fdfdff;padding:14px;border-radius:14px;border:1px solid #4d7fc9;margin-bottom:16px; box-shadow:0 4px 18px rgba(35,102,191,0.2);'>")
     html.append("<h3 style='margin:0 0 8px;font-size:16px;'>🔥 Latest Scrape/Discovery Candidates</h3>")
     if discovery_tickers:
         html.append("<ul style='margin:0;padding-left:20px;color:#f1f5ff;font-size:13px;'>")
@@ -173,9 +173,9 @@ def build_eod_report(
     html.append("</div>")
 
     # Fancy position table
-    html.append("<div style='margin-bottom:20px;'><h3 style='font-size:16px;color:#223f70;margin-bottom:8px;'>Open Positions</h3>")
-    html.append("<table style='width:100%;border-collapse:collapse;font-size:13px;line-height:1.3;'>")
-    html.append("<thead style='background:#e6eefb;color:#082a56;'><tr><th style='padding:8px;border:1px solid #c3d2eb;'>Symbol</th><th style='padding:8px;border:1px solid #c3d2eb;'>Qty</th><th style='padding:8px;border:1px solid #c3d2eb;'>Entry</th><th style='padding:8px;border:1px solid #c3d2eb;'>Current</th><th style='padding:8px;border:1px solid #c3d2eb;'>P/L</th><th style='padding:8px;border:1px solid #c3d2eb;'>P/L %</th></tr></thead>")
+    html.append("<div style='margin-bottom:20px;'><h3 style='font-size:16px;color:#1a3960;margin-bottom:10px;'>Open Positions</h3>")
+    html.append("<table style='width:100%;border-collapse:separate;border-spacing:0 4px;font-size:13px;line-height:1.4;background:#f8fbff;border-radius:10px;overflow:hidden;'>")
+    html.append("<thead style='background:#e0ecfc;color:#0f3057;'><tr><th style='padding:10px 12px;border:none;text-align:left;'>Symbol</th><th style='padding:10px 12px;border:none;text-align:right;'>Qty</th><th style='padding:10px 12px;border:none;text-align:right;'>Entry</th><th style='padding:10px 12px;border:none;text-align:right;'>Current</th><th style='padding:10px 12px;border:none;text-align:right;'>P/L</th><th style='padding:10px 12px;border:none;text-align:right;'>P/L %</th></tr></thead>")
     if positions:
         sorted_positions = sorted(positions, key=lambda p: float(p.unrealized_pl), reverse=True)
         html.append("<tbody>")
