@@ -59,10 +59,14 @@ def get_scan_targets(excluded: Set[str] = None) -> List[str]:
     p1 = _cfg.PRIORITY_1_MOMENTUM
     p2 = _cfg.PRIORITY_2_ESTABLISHED
 
+    # Take top 50% from each list (marketscope360 + highshortfloat)
+    p1_slice = p1[:max(1, len(p1) // 2)]
+    p2_slice = p2[:max(1, len(p2) // 2)]
+
     targets = []
     seen = set()
 
-    for s in p1 + p2[:10]:
+    for s in p1_slice + p2_slice:
         if s not in seen and s not in excluded:
             seen.add(s)
             targets.append(s)
