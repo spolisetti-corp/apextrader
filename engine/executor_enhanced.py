@@ -117,17 +117,21 @@ class EnhancedExecutor:
         self._account_ttl:    float = 10.0
         self._htb_cache:      set   = set()   # hard-to-borrow symbols — skip shorts this session
         self._entry_log:   Dict[str, dict] = {}  # {symbol: {"strategy": str, "date": date}}
+        self._swap_cycle_closed: set = set()     # positions already swapped this scan cycle
 
     # -- Position Cache ----------------------------------------------------
     def _find_weakest_position(self) -> Optional[str]:
         """Return the symbol of the open long position with the worst unrealized P&L %.
         Only considers longs with no shares held for pending orders (closable immediately).
+        Skips positions already closed this scan cycle.
         Returns None if no closable position found."""
         try:
             positions = self.client.get_all_positions()
             longs = [
                 p for p in positions
-                if float(p.qty) > 0 and float(getattr(p, "qty_available", p.qty)) > 0
+                if float(p.qty) > 0
+                and float(getattr(p, "qty_available", p.qty)) > 0
+                and p.symbol not in self._swap_cycle_closed
             ]
             if not longs:
                 return None
@@ -203,6 +207,7 @@ class EnhancedExecutor:
             )
             try:
                 self.client.close_position(weakest)
+                self._swap_cycle_closed.add(weakest)
             except Exception as e:
                 log.warning(f"SWAP close failed for {weakest}: {e}")
                 return False, f"Swap close failed: {e}"
@@ -219,6 +224,7 @@ class EnhancedExecutor:
                     )
                     try:
                         self.client.close_position(weakest)
+                        self._swap_cycle_closed.add(weakest)
                     except Exception as e:
                         log.warning(f"SWAP close failed for {weakest}: {e}")
                         return False, f"Swap close failed: {e}"
@@ -656,8 +662,10 @@ class EnhancedExecutor:
           - Regular hours   → cancel + market order (instant fill)
           - Extended hours  → cancel + limit order at current price (IOC)
         Only applies to entry/exit orders (buy/sell), not bracket legs (stop/limit TP-SL).
+        Also resets _swap_cycle_closed so each scan cycle starts fresh.
         """
         import time
+        self._swap_cycle_closed.clear()  # reset per-cycle swap dedup
         try:
             open_orders = self.client.get_orders()
         except Exception as e:
