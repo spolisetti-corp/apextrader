@@ -119,11 +119,14 @@ class EnhancedExecutor:
     # -- Position Cache ----------------------------------------------------
     def _find_weakest_position(self) -> Optional[str]:
         """Return the symbol of the open long position with the worst unrealized P&L %.
-        Only considers longs (no shorts) to avoid HTB complications.
+        Only considers longs with no shares held for pending orders (closable immediately).
         Returns None if no closable position found."""
         try:
             positions = self.client.get_all_positions()
-            longs = [p for p in positions if float(p.qty) > 0]
+            longs = [
+                p for p in positions
+                if float(p.qty) > 0 and float(getattr(p, "qty_available", p.qty)) > 0
+            ]
             if not longs:
                 return None
             worst = min(longs, key=lambda p: float(p.unrealized_plpc))
