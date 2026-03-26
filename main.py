@@ -143,8 +143,9 @@ def _passes_guardrails(symbol: str) -> bool:
                     return False
 
         return True
-    except Exception:
-        return True   # never block on guardrail errors
+    except Exception as e:
+        log.warning(f"Guardrail check failed for {symbol}: {e} — skipping symbol")
+        return False  # fail-safe: block on error, never bypass guardrails
 
 
 # ── Trending Scan ───────────────────────────────────────────────

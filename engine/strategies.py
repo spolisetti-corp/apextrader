@@ -530,7 +530,7 @@ class FloatRotationStrategy:
             return self._float_cache[symbol]
         try:
             info = yf.Ticker(symbol).fast_info
-            shares_float = getattr(info, "shares", None)
+            shares_float = getattr(info, "shares_float", None)
             if shares_float and shares_float > 0:
                 self._float_cache[symbol] = float(shares_float)
                 return float(shares_float)

@@ -203,8 +203,8 @@ class EnhancedExecutor:
                     # Order is filled/cancelled — remove stale cache entry
                     del self.order_cache[signal.symbol]
             except Exception:
-                # Can't verify → remove stale entry and proceed cautiously
-                del self.order_cache[signal.symbol]
+                # Can't verify — keep cache entry intact to avoid double-submit risk
+                return False, f"Could not verify order status for {signal.symbol} (id={cached_id}) — skipping to be safe"
 
         positions = self._get_positions()
 
@@ -233,6 +233,7 @@ class EnhancedExecutor:
             try:
                 self.client.close_position(weakest)
                 self._swap_cycle_closed.add(weakest)
+                self.pdt.add(datetime.date.today())  # swap close counts as a day trade
                 positions = self._get_positions(force_refresh=True)
             except Exception as e:
                 log.warning(f"SWAP close failed for {weakest}: {e}")
@@ -495,7 +496,9 @@ class EnhancedExecutor:
                 side=OrderSide.SELL, time_in_force=TimeInForce.DAY,
             )
             self.client.submit_order(req)
-            self.pdt.add(datetime.date.today())
+            # NOTE: closing an existing position is NOT a new day trade.
+            # Alpaca counts the round-trip (open+close same day) as one trade;
+            # pdt.add() is intentionally omitted here — it was already counted at entry.
             self._get_positions(force_refresh=True)
             log.info(f"SELL {signal.symbol}: {qty} shares | {signal.strategy}")
             return True
