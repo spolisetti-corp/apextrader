@@ -322,7 +322,7 @@ def scan_top3_only():
             log.info(f"#{idx}: {s.symbol} {s.action.upper()} ${s.price:.2f} conf={s.confidence:.0%} [{s.strategy}] - {s.reason}")
 
         try:
-            top3_report = build_top3_report(top3, datetime.date.today())
+            top3_report = build_top3_report(top3, datetime.date.today(), sentiment)
             sent = send_email(top3_report['subject'], top3_report['text'], top3_report['html'])
             log.info("Top3 scan email sent" if sent else "Top3 scan email skipped")
         except Exception as email_err:
@@ -473,7 +473,7 @@ def scan_and_trade():
 
         # Email scan summary (optional, if enabled)
         try:
-            top3_report = build_top3_report(signals[:3], datetime.date.today())
+            top3_report = build_top3_report(signals[:3], datetime.date.today(), sentiment)
             sent = send_email(top3_report['subject'], top3_report['text'], top3_report['html'])
             if sent:
                 log.info("Scan notification email sent")
