@@ -431,3 +431,56 @@ def send_email(subject: str, text: str, html: Optional[str] = None) -> bool:
         print("[DEBUG] SMTP connection closed")
 
     return True
+
+
+# ── High-level notification helpers ───────────────────────────────────────
+import logging as _logging
+_nlog = _logging.getLogger("ApexTrader")
+
+
+def notify_scan_results(signals, report_date, sentiment: str, regime: str) -> bool:
+    """Send top-5 scan picks email. Returns True if sent, False otherwise."""
+    picks = list(signals)[:5]
+    if not picks:
+        _nlog.info("notify_scan_results: no picks to send")
+        return False
+    try:
+        report = build_top5_report(picks, report_date, sentiment, regime)
+        sent   = send_email(report["subject"], report["text"], report["html"])
+        _nlog.info("Scan email sent" if sent else "Scan email skipped (disabled)")
+        return bool(sent)
+    except Exception as e:
+        _nlog.warning(f"Scan email failed: {e}")
+        return False
+
+
+def notify_eod(
+    eod_close_summary: Dict,
+    account,
+    positions,
+    daily_pnl: float,
+    total_trades: int,
+    discovery_tickers=None,
+) -> bool:
+    """Send EOD report email. Returns True if sent, False otherwise."""
+    try:
+        report = build_eod_report(
+            report_date     = date.today(),
+            market_summary  = str(getattr(account, "status", "open")),
+            account_summary = {
+                "equity":       float(account.equity),
+                "buying_power": float(account.buying_power),
+                "pdt_protected": getattr(account, "pattern_day_trader", False),
+            },
+            daily_pnl          = daily_pnl,
+            total_trades       = total_trades,
+            eod_close_summary  = eod_close_summary,
+            positions          = positions,
+            discovery_tickers  = discovery_tickers or [],
+        )
+        sent = send_email(report["subject"], report["text"], report["html"])
+        _nlog.info("EOD email sent" if sent else "EOD email skipped (disabled)")
+        return bool(sent)
+    except Exception as e:
+        _nlog.error(f"EOD email failed: {e}")
+        return False

@@ -47,14 +47,14 @@ from engine.utils import (
     get_trending_tickers, filter_trending_momentum,
     get_finnhub_trending_tickers, check_sentiment_gate,
     get_vix_interval, get_market_hours_interval, get_position_tuning_interval,
-    get_bars,
+    get_bars, get_live_holdings,
 )
 from engine.strategies import (
     SweepeaStrategy, TechnicalStrategy, MomentumStrategy,
     GapBreakoutStrategy, ORBStrategy, VWAPReclaimStrategy, FloatRotationStrategy,
 )
 from engine.executor_enhanced import EnhancedExecutor
-from engine.notifications import build_eod_report, build_top5_report, send_email
+from engine.notifications import notify_scan_results, notify_eod
 from engine.scan import get_scan_targets, scan_universe, filter_signals
 
 # ── Initialise ──────────────────────────────────────────────────
@@ -334,11 +334,7 @@ def scan_top3_only():
     scan_trending_stocks()
     scan_tradeideas_universe()
 
-    _open_positions = {p.symbol for p in client.get_all_positions()}
-    _open_orders    = {o.symbol for o in client.get_orders()
-                       if str(getattr(o, 'side', '')).lower() == 'buy'}
-    _excluded = _open_positions | _open_orders
-
+    _positions, _orders, _excluded = get_live_holdings(client)
     scan_targets = get_scan_targets(_excluded)
     log.info(f"Top3 mode: scanning {len(scan_targets)} symbols ({len(_excluded)} pre-excluded)")
 
@@ -347,14 +343,8 @@ def scan_top3_only():
     log.info(f"Scan errors: {scan_errors} | Signals: {len(signals)}")
 
     if signals:
-        # Re-fetch live holdings so any position entered moments ago is also excluded
-        try:
-            _fresh_held = (
-                {p.symbol for p in client.get_all_positions()} |
-                {o.symbol for o in client.get_orders()}
-            )
-        except Exception:
-            _fresh_held = _excluded
+        _, _, _fresh_held = get_live_holdings(client)
+        _fresh_held = _fresh_held or _excluded  # fallback if re-fetch failed
         top5 = [s for s in signals if s.symbol not in _fresh_held][:5]
         if not top5:
             log.info("No signals found in Top5 mode (all candidates already held)")
@@ -362,13 +352,7 @@ def scan_top3_only():
         log.info("TOP 5 SCAN PICKS:")
         for idx, s in enumerate(top5, start=1):
             log.info(f"#{idx}: {s.symbol} {s.action.upper()} ${s.price:.2f} conf={s.confidence:.0%} [{s.strategy}] - {s.reason}")
-
-        try:
-            top5_report = build_top5_report(top5, datetime.date.today(), sentiment, regime="bull")
-            sent = send_email(top5_report['subject'], top5_report['text'], top5_report['html'])
-            log.info("Top5 scan email sent" if sent else "Top5 scan email skipped")
-        except Exception as email_err:
-            log.warning(f"Scan notification email failed: {email_err}")
+        notify_scan_results(top5, datetime.date.today(), sentiment, _last_market_regime)
     else:
         log.info("No signals found in Top5 mode")
 
@@ -450,10 +434,7 @@ def scan_and_trade():
     scan_tradeideas_universe()
 
     # ── Pre-exclude symbols already held/ordered ─────────────────────────
-    _open_positions = {p.symbol for p in client.get_all_positions()}
-    _open_orders    = {o.symbol for o in client.get_orders()
-                       if str(getattr(o, 'side', '')).lower() == 'buy'}
-    _excluded = _open_positions | _open_orders
+    _open_positions, _open_orders, _excluded = get_live_holdings(client)
 
     scan_targets = get_scan_targets(_excluded)
     log.info(
@@ -501,16 +482,8 @@ def scan_and_trade():
         # ── Live re-fetch: positions + pending BUY orders (order book cross-ref) ─
         # Buy-side only: stop-loss/TP sell legs are already covered by positions.
         # Done AFTER scan so any fills during the scan window are captured.
-        try:
-            _live_positions = {p.symbol for p in client.get_all_positions()}
-            _live_orders    = {o.symbol for o in client.get_orders()
-                               if str(getattr(o, 'side', '')).lower() == 'buy'}
-            _fresh_held     = _live_positions | _live_orders
-        except Exception as e:
-            log.warning(f"Live position re-fetch failed, falling back to pre-scan set: {e}")
-            _live_positions = _open_positions
-            _live_orders    = _open_orders
-            _fresh_held     = _excluded
+        _live_positions, _live_orders, _fresh_held_new = get_live_holdings(client)
+        _fresh_held = _fresh_held_new or _excluded  # fallback to pre-scan set if fetch failed
 
         log.info(
             f"Live holdings: {len(_live_positions)} positions, "
@@ -535,14 +508,7 @@ def scan_and_trade():
         log.info("——————————————————————————————")
 
         # ── Email notification ────────────────────────────────────────────
-        try:
-            email_picks = eligible[:5]
-            if email_picks:
-                top5_report = build_top5_report(email_picks, datetime.date.today(), sentiment, regime=market_regime)
-                sent = send_email(top5_report['subject'], top5_report['text'], top5_report['html'])
-                log.info("Scan notification email sent" if sent else "Scan notification email skipped (disabled)")
-        except Exception as email_err:
-            log.warning(f"Scan notification email failed: {email_err}")
+        notify_scan_results(eligible[:5], datetime.date.today(), sentiment, market_regime)
 
         # ── Execute ───────────────────────────────────────────────────────
         top_signals = eligible[:signals_cap]
@@ -704,30 +670,9 @@ def start():
                     try:
                         account   = client.get_account()
                         positions = client.get_all_positions()
-                        market_summary = get_market_sentiment()
-
-                        report = build_eod_report(
-                            report_date=datetime.date.today(),
-                            market_summary=market_summary,
-                            account_summary={
-                                "equity": float(account.equity),
-                                "buying_power": float(account.buying_power),
-                                "pdt_protected": account.pattern_day_trader,
-                            },
-                            daily_pnl=daily_pnl,
-                            total_trades=trades,
-                            eod_close_summary=eod_summary,
-                            positions=positions,
-                            discovery_tickers=trending_stocks,
-                        )
-
-                        sent = send_email(report["subject"], report["text"], report["html"])
-                        if sent:
-                            log.info("EOD notification email sent.")
-                        else:
-                            log.info("EOD notification email skipped (disabled in config).")
+                        notify_eod(eod_summary, account, positions, daily_pnl, trades, trending_stocks)
                     except Exception as e:
-                        log.error(f"EOD email error: {e}")
+                        log.error(f"EOD account fetch error: {e}")
 
                 try:
                     scan_and_trade()

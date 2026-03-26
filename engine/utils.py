@@ -202,8 +202,26 @@ def calculate_risk_adjusted_size(account_balance: float, symbol: str, price: flo
     }
 
 
-# ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
-# VIX Rate-of-Change Filter
+# ── Live Holdings ──────────────────────────────────────────────────────────
+def get_live_holdings(client) -> tuple:
+    """Fetch current account state: positions and active buy-side orders.
+
+    Returns:
+        (positions_set, buy_orders_set, combined_set)
+    Buy-side only: stop-loss / TP sell legs are already covered by positions
+    and must not block reinvestment.
+    """
+    log = logging.getLogger("ApexTrader")
+    try:
+        positions = {p.symbol for p in client.get_all_positions()}
+        orders    = {
+            o.symbol for o in client.get_orders()
+            if str(getattr(o, "side", "")).lower() == "buy"
+        }
+        return positions, orders, positions | orders
+    except Exception as e:
+        log.warning(f"get_live_holdings failed: {e}")
+        return set(), set(), set()
 # ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
 def check_vix_roc_filter() -> tuple:
     from .config import USE_VIX_ROC_FILTER, VIX_ROC_THRESHOLD, VIX_ROC_PERIOD

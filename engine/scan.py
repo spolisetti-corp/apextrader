@@ -3,6 +3,9 @@
 Contains reusable scanning functions for main loop and run_top3 tools.
 """
 
+import datetime
+import logging
+import pytz
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import List, Dict, Tuple, Set
 
@@ -15,8 +18,14 @@ from .config import (
     LONG_ONLY_MODE,
     MIN_SIGNAL_CONFIDENCE,
     MAX_SIGNALS_PER_CYCLE,
+    RVOL_MIN,
+    MAX_GAP_CHASE_PCT,
+    GAP_CHASE_CONSOL_BARS,
 )
 from .utils import clear_bar_cache, get_bars, is_market_open
+
+_ET  = pytz.timezone("America/New_York")
+_log = logging.getLogger("ApexTrader")
 from .strategies import (
     GapBreakoutStrategy,
     ORBStrategy,
@@ -30,26 +39,48 @@ from .strategies import (
 
 
 def _passes_guardrails(symbol: str) -> bool:
+    """Pre-scan gates: dollar-volume, RVOL, and gap-chase guard.
+    Returns False to skip the symbol; never raises."""
     try:
-        df = get_bars(symbol, "1d", "1m")
-        if df.empty or len(df) < 5:
-            return True
+        intraday = get_bars(symbol, "1d", "1m")
+        if intraday.empty or len(intraday) < 5:
+            return True  # not enough data — let strategies decide
 
-        price = float(df["close"].iloc[-1])
-        day_vol = float(df["volume"].sum())
+        price   = float(intraday["close"].iloc[-1])
+        day_vol = float(intraday["volume"].sum())
+
+        # Dollar-volume gate
         if price * day_vol < MIN_DOLLAR_VOLUME:
             return False
 
+        # RVOL gate: only meaningful during regular market hours
         if is_market_open():
             daily = get_bars(symbol, "5d", "1d")
             if not daily.empty and len(daily) >= 2:
                 avg_daily_vol = float(daily["volume"].iloc[:-1].mean())
                 if avg_daily_vol > 0:
-                    now = daily.index[-1]
-                    # skip tracker in this helper for brevity; normal scan does partial
+                    now_et       = datetime.datetime.now(_ET)
+                    mkt_open     = now_et.replace(hour=9, minute=30, second=0, microsecond=0)
+                    elapsed_min  = max((now_et - mkt_open).total_seconds() / 60, 1.0)
+                    elapsed_frac = min(elapsed_min / 390.0, 1.0)
+                    rvol = (day_vol / max(elapsed_frac, 0.02)) / avg_daily_vol
+                    if rvol < RVOL_MIN:
+                        return False
+
+        # Gap-chase guard: skip if up >MAX_GAP_CHASE_PCT% without a tight consolidation base
+        open_px = float(intraday["open"].iloc[0])
+        if open_px > 0:
+            day_gain = ((price - open_px) / open_px) * 100
+            if day_gain > MAX_GAP_CHASE_PCT:
+                last_n    = intraday.iloc[-GAP_CHASE_CONSOL_BARS:]
+                bar_range = float(last_n["high"].max() - last_n["low"].min())
+                if bar_range > price * 0.02:  # range > 2% = no consolidation
+                    return False
+
         return True
-    except Exception:
-        return True
+    except Exception as e:
+        _log.warning(f"Guardrail check failed for {symbol}: {e} — skipping symbol")
+        return False  # fail-safe: block on error, never bypass guardrails
 
 
 def get_scan_targets(excluded: Set[str] = None) -> List[str]:
