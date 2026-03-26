@@ -12,10 +12,10 @@ MAIN_SCRIPT = BASE_DIR / "main.py"
 
 
 def is_process_running(pid):
-    """Windows-safe process existence check via tasklist."""
+    """Windows-safe process existence check — only matches python.exe processes."""
     try:
         result = subprocess.run(
-            ["tasklist", "/FI", f"PID eq {pid}", "/NH"],
+            ["tasklist", "/FI", f"PID eq {pid}", "/FI", "IMAGENAME eq python.exe", "/NH"],
             capture_output=True, text=True, timeout=5,
         )
         return str(pid) in result.stdout
