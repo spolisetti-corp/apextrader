@@ -91,6 +91,18 @@ def build_eod_report(
         txt.append("  - None")
 
     txt.append("")
+    txt.append("Flashy Insights:")
+    top_open = sorted(positions, key=lambda p: float(p.unrealized_pl), reverse=True)[0] if positions else None
+    bottom_open = sorted(positions, key=lambda p: float(p.unrealized_pl), reverse=False)[0] if positions else None
+    txt.append(f"- Open positions: {len(positions)}")
+    txt.append(f"- EOD closed trades: {eod_close_summary.get('closed_count',0)}")
+    txt.append(f"- Daily P&L: {_format_currency(daily_pnl)}")
+    if top_open:
+        txt.append(f"- Top gainer: {top_open.symbol} {_format_currency(float(top_open.unrealized_pl))} ({float(top_open.unrealized_plpc)*100:.2f}%)")
+    if bottom_open:
+        txt.append(f"- Top loser: {bottom_open.symbol} {_format_currency(float(bottom_open.unrealized_pl))} ({float(bottom_open.unrealized_plpc)*100:.2f}%)")
+
+    txt.append("")
     txt.append("Latest Scan Candidates:")
     if discovery_tickers:
         sorted_candidates = sorted(discovery_tickers, key=lambda t: float(t.get('momentum_pct', 0)), reverse=True)
@@ -127,6 +139,21 @@ def build_eod_report(
     html.append("<div style='background:#fff8f2;padding:14px;border-radius:10px;margin-bottom:20px;border:1px solid #ffdab9;'>")
     html.append(f"<h3 style='margin:0 0 8px;font-size:16px;color:#a14104;'>Daily Performance</h3>")
     html.append(f"<p style='margin:0; font-size:14px; color:#6b3b00;'>Daily P&L: <strong>{_format_currency(daily_pnl)}</strong><br>Trades Today: <strong>{total_trades}</strong></p>")
+    html.append("</div>")
+
+    # Flashy insights summary
+    top_open = sorted(positions, key=lambda p: float(p.unrealized_pl), reverse=True)[0] if positions else None
+    bottom_open = sorted(positions, key=lambda p: float(p.unrealized_pl), reverse=False)[0] if positions else None
+    total_open = len(positions)
+    closed = eod_close_summary.get('closed_count', 0)
+
+    html.append("<div style='background:linear-gradient(135deg, #ff6b6b, #fca311);color:#fff;padding:14px;border-radius:12px;margin-bottom:20px;border:1px solid #e2962d;'>")
+    html.append("<h3 style='margin:0 0 8px;font-size:16px;'>🚀 Flashy Insights</h3>")
+    html.append(f"<p style='margin:0;font-size:13px;'>Open positions: <strong>{total_open}</strong> | EOD closes: <strong>{closed}</strong> | Daily P&L: <strong>{_format_currency(daily_pnl)}</strong></p>")
+    if top_open:
+        html.append(f"<p style='margin:6px 0 0;font-size:13px;'>Top gainer: <strong>{top_open.symbol}</strong> {_format_currency(float(top_open.unrealized_pl))} ({float(top_open.unrealized_plpc)*100:.2f}%)</p>")
+    if bottom_open:
+        html.append(f"<p style='margin:6px 0 0;font-size:13px;'>Top loser: <strong>{bottom_open.symbol}</strong> {_format_currency(float(bottom_open.unrealized_pl))} ({float(bottom_open.unrealized_plpc)*100:.2f}%)</p>")
     html.append("</div>")
 
     html.append("<div style='background:linear-gradient(135deg, #232931, #3f72af);color:#e8f1ff;padding:14px;border-radius:12px;border:1px solid #5271c9;margin-bottom:16px;'>")
