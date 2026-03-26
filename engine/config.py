@@ -34,6 +34,8 @@ ETRADE_SANDBOX         = os.getenv("ETRADE_SANDBOX", "false").lower() == "true"
 # Priority 3: Market ETFs for context
 # ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
 PRIORITY_1_MOMENTUM = [
+    # Trade-Ideas PRIORITY_1_MOMENTUM top-priority update 2026-03-26 09:05
+    "FATN", "CHAC", "SLON",
     # Trade-Ideas PRIORITY_1_MOMENTUM top-priority update 2026-03-26 08:53
     "TASK",
     # Trade-Ideas PRIORITY_1_MOMENTUM top-priority update 2026-03-26 08:32
@@ -85,6 +87,8 @@ PRIORITY_1_MOMENTUM = [
 
 
 PRIORITY_2_ESTABLISHED = [
+    # Trade-Ideas PRIORITY_2_ESTABLISHED top-priority update 2026-03-26 09:05
+    "VRCA", "IBTA", "TBCH", "ARCT", "OXM",
     # Trade-Ideas PRIORITY_2_ESTABLISHED top-priority update 2026-03-26 08:52
     "PLCE", "AAP",
     # Trade-Ideas PRIORITY_2_ESTABLISHED top-priority update 2026-03-26 08:32
@@ -390,22 +394,24 @@ ATR_STOP_MULTIPLIER      = 1.5        # Stop loss = entry − ATR × 1.5
 ATR_TP_RATIO             = 2.0        # Take-profit at 2:1 R:R (risk × 2)
 MAX_SHORT_FLOAT_PCT      = 20.0       # Never exceed this % of equity per squeeze ticker
 HIGH_SHORT_FLOAT_STOCKS  = {
-    "AAP", "AGQ", "AIFF", "AIRS", "ALBT", "ANAB",
-    "ANNA", "ANNX", "APGE", "APP", "APPX", "ARTL",
-    "ARWR", "ATPC", "BABX", "BATL", "BBW", "BETR",
-    "BFLY", "BIRD", "BMNZ", "BNAI", "BOXL", "BTBD",
-    "CAR", "CGEM", "CRCA", "CRCG", "CYN", "DBI",
-    "DJI", "DOCN", "DUST", "DVLT", "DXST", "DXYZ",
-    "ERAS", "ETHD", "ETHT", "EWTX", "EYE", "FBIO",
+    "AAP", "ABTS", "AGQ", "AIFF", "AIRS", "ALBT",
+    "ANAB", "ANNA", "ANNX", "APGE", "APP", "APPX",
+    "ARCT", "ARTL", "ARWR", "ASST", "ATPC", "BABX",
+    "BATL", "BBW", "BCRX", "BETR", "BFLY", "BIRD",
+    "BMNZ", "BNAI", "BOXL", "BTBD", "CAR", "CGEM",
+    "CHAC", "CRCA", "CRCG", "CYN", "DBI", "DJI",
+    "DOCN", "DUST", "DVLT", "DXST", "DXYZ", "ERAS",
+    "ETHD", "ETHT", "EWTX", "EYE", "FATN", "FBIO",
     "FCHL", "FFAI", "FOSL", "GDXD", "GDXU", "GOGO",
     "GRND", "HCTI", "HUMA", "HUT", "HYPD", "IBRX",
-    "IDYA", "INDO", "JNUG", "KIDZ", "KOD", "KORU",
-    "KRRO", "LASE", "LENZ", "LOVE", "MARA", "MED",
-    "MLKN", "MRAL", "MRNO", "MUX", "NAVN", "NGNE",
-    "NUGT", "OGEN", "OLPX", "ORGO", "PGEN", "PLCE",
-    "PROP", "QNCX", "RBNE", "SHMD", "SMCX", "SMCZ",
-    "SNBR", "SND", "SNSE", "SOLT", "SOWG", "SOXS",
-    "SPIR", "TASK", "TERN", "TNGX", "TPET", "UAMY",
-    "UGRO", "UPXI", "VCX", "WKHS", "WVE", "WYFI",
+    "IBTA", "IDYA", "INDO", "JNUG", "KIDZ", "KOD",
+    "KORU", "KRRO", "LASE", "LENZ", "LOVE", "MARA",
+    "MED", "MLKN", "MRAL", "MRNO", "MUX", "NAVN",
+    "NGNE", "NUGT", "OGEN", "OLPX", "ORGO", "OXM",
+    "PGEN", "PLCE", "PROP", "QNCX", "RBNE", "SHMD",
+    "SHNY", "SLON", "SMCX", "SMCZ", "SNBR", "SND",
+    "SNSE", "SOLT", "SOWG", "SOXS", "SPIR", "TASK",
+    "TBCH", "TERN", "TNGX", "TPET", "UAMY", "UGRO",
+    "UPXI", "VCX", "VRCA", "WKHS", "WVE", "WYFI",
     "YANG", "YINN", "ZSL",
 }
