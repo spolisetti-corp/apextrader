@@ -1,7 +1,6 @@
 # ApexTrader 🚀
 
-Developer-focused trading automation framework for Alpaca + E*TRADE.
-
+Professional automated trading system with multi-strategy signal generation, tiered risk management, and PDT compliance.
 ## Release 1.0.0 - Initial Release
 
 - Initial stable core: live scanning, strategy execution, risk controls, and EOD reporting.

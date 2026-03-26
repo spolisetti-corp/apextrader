@@ -34,6 +34,8 @@ ETRADE_SANDBOX         = os.getenv("ETRADE_SANDBOX", "false").lower() == "true"
 # Priority 3: Market ETFs for context
 # ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
 PRIORITY_1_MOMENTUM = [
+    # Trade-Ideas PRIORITY_1_MOMENTUM top-priority update 2026-03-26 00:07
+    "SLND", "BTBD", "FCHL", "NAVN", "RVI", "CBUS", "MLKN", "WS",
     # Extreme momentum (100%+ gainers) - HIGHEST PRIORITY
     "UGRO", "VCX", "PTLE", "BIAF", "SATL", "ELAB",
     # Strong momentum (50%+ gainers)
@@ -67,6 +69,8 @@ PRIORITY_1_MOMENTUM = [
 
 
 PRIORITY_2_ESTABLISHED = [
+    # Trade-Ideas PRIORITY_2_ESTABLISHED top-priority update 2026-03-26 00:07
+    "PROP", "PGEN", "CRVS", "BOXL", "LVWR", "CYN", "IMTE", "TPET", "ABSI", "BBW",
     # Tech giants (stable, liquid)
     "AAPL", "MSFT", "NVDA", "AMD", "GOOGL", "META", "TSLA", "AMZN",
     # High short float (squeeze potential)
@@ -268,6 +272,7 @@ MAX_SIGNALS_PER_CYCLE = 3      # Execute at most this many signals per scan cycl
 # Parallel Scanning
 SCAN_WORKERS        = 12   # Threads scanning symbols concurrently
 SCAN_SYMBOL_TIMEOUT = 15   # Max seconds per symbol before it is skipped
+SCAN_MAX_SYMBOLS    = 50   # Max symbols to scan per cycle (to keep latency reasonable)
 
 # ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
 # Strategy Parameters
