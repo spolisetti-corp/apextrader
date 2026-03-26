@@ -34,6 +34,10 @@ ETRADE_SANDBOX         = os.getenv("ETRADE_SANDBOX", "false").lower() == "true"
 # Priority 3: Market ETFs for context
 # ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
 PRIORITY_1_MOMENTUM = [
+    # Trade-Ideas PRIORITY_1_MOMENTUM top-priority update 2026-03-26 07:57
+    "WVE",
+    # Trade-Ideas PRIORITY_1_MOMENTUM top-priority update 2026-03-26 07:45
+    "APPX", "APP",
     # Trade-Ideas PRIORITY_1_MOMENTUM top-priority update 2026-03-26 07:28
     "VG", "SOLT", "ADVB", "BABX",
     # Trade-Ideas PRIORITY_1_MOMENTUM top-priority update 2026-03-26 07:01
@@ -73,6 +77,10 @@ PRIORITY_1_MOMENTUM = [
 
 
 PRIORITY_2_ESTABLISHED = [
+    # Trade-Ideas PRIORITY_2_ESTABLISHED top-priority update 2026-03-26 07:57
+    "GEF", "MRNO", "INMB", "PGY", "ENVX",
+    # Trade-Ideas PRIORITY_2_ESTABLISHED top-priority update 2026-03-26 07:45
+    "WRAP", "ATPC", "ZBIO", "GLUE", "TRON", "AMR",
     # Trade-Ideas PRIORITY_2_ESTABLISHED top-priority update 2026-03-26 07:31
     "DBI",
     # Trade-Ideas PRIORITY_2_ESTABLISHED top-priority update 2026-03-26 07:28
@@ -278,7 +286,7 @@ PDT_WARN_AT_REMAINING = 1      # Warn log when PDT trades remaining falls to thi
 
 # Sniper Mode Controls
 LONG_ONLY_MODE        = True   # Disable all short entries — eliminates margin, HTB, and 2x BP requirements
-MIN_SIGNAL_CONFIDENCE = 0.50   # Execute signals with confidence >= this
+MIN_SIGNAL_CONFIDENCE = 0.85   # Execute signals with confidence >= this
 MAX_SIGNALS_PER_CYCLE = 3      # Execute at most this many signals per scan cycle
 
 # Parallel Scanning

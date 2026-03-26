@@ -50,7 +50,7 @@ for url, label in [
               "GO","BE","IN","ON","TO","AT","BY","IF","IS","IT","MIN","RACE",
               "MON","TUE","WED","THU","FRI","SAT","SUN","USD","EST","ETF",
               "HIGH","LOW","BUY","SELL","OPEN","CLOSE","POST","PRE","MARKET",
-              "PRICE","FLOAT","SHORT","CHANGE","VOLUME","SCAN","TRADE","IDEAS"}
+              "PRICE","FLOAT","SHORT","CHANGE","VOLUME","SCAN","TRADE","IDEAS","DJI"}
     tickers = []
     seen = set()
     for m in re.finditer(r'\b([A-Z]{2,5})\b', all_text):
