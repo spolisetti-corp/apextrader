@@ -1,8 +1,21 @@
+# Python
 __pycache__/
 *.pyc
 *.pyo
+
+# Environment
 .env
-apextrader.log
-*.log
 .venv/
+
+# Logs (runtime, never commit)
+*.log
+
+# Runtime state files
+*.pid
+autobot.pid
+
+# Local task scheduler export (machine-specific)
+apextrader_task.xml
+
+# Screenshots / captures
 screenshots/
