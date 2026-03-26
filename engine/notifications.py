@@ -297,6 +297,11 @@ def send_scan_summary_email(report_date: date, cycle_name: str, scan_count: int,
     )
     thread.start()
 
+
+def send_email(subject: str, text: str, html: Optional[str] = None) -> bool:
+    if not _bool_env('USE_EMAIL_NOTIFICATIONS', 'false'):
+        return False
+
     to_addresses = [a.strip() for a in _get_env('EMAIL_TO_ADDRESSES').split(',') if a.strip()]
     if not to_addresses:
         raise ValueError("No EMAIL_TO_ADDRESSES configured")
@@ -318,6 +323,17 @@ def send_scan_summary_email(report_date: date, cycle_name: str, scan_count: int,
     msg.attach(MIMEText(text, 'plain'))
     if html:
         msg.attach(MIMEText(html, 'html'))
+
+    server = smtplib.SMTP(smtp_server, smtp_port, timeout=30)
+    try:
+        server.starttls()
+        server.login(smtp_user, smtp_pass)
+        server.sendmail(from_address, to_addresses, msg.as_string())
+    finally:
+        server.quit()
+
+    return True
+
 
     server = smtplib.SMTP(smtp_server, smtp_port, timeout=30)
     try:
