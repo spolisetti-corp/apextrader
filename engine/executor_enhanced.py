@@ -123,15 +123,21 @@ class EnhancedExecutor:
     def _find_weakest_position(self) -> Optional[str]:
         """Return the symbol of the open long position with the worst unrealized P&L %.
         Only considers longs with no shares held for pending orders (closable immediately).
-        Skips positions already closed this scan cycle.
+        Skips positions entered today (protected for full day) and those already closed this cycle.
         Returns None if no closable position found."""
         try:
+            today = datetime.date.today()
+            entered_today = {
+                sym for sym, info in self._entry_log.items()
+                if info.get("date") == today
+            }
             positions = self.client.get_all_positions()
             longs = [
                 p for p in positions
                 if float(p.qty) > 0
                 and float(getattr(p, "qty_available", p.qty)) > 0
                 and p.symbol not in self._swap_cycle_closed
+                and p.symbol not in entered_today
             ]
             if not longs:
                 return None
