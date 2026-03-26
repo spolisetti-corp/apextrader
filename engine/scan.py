@@ -58,6 +58,7 @@ def get_scan_targets(excluded: Set[str] = None) -> List[str]:
     # Read live from config module so Trade Ideas scrape updates are reflected
     p1 = _cfg.PRIORITY_1_MOMENTUM
     p2 = _cfg.PRIORITY_2_ESTABLISHED
+    delisted = set(_cfg.DELISTED_STOCKS)
 
     # Take top 50% from each list (marketscope360 + highshortfloat)
     p1_slice = p1[:max(1, len(p1) // 2)]
@@ -67,7 +68,7 @@ def get_scan_targets(excluded: Set[str] = None) -> List[str]:
     seen = set()
 
     for s in p1_slice + p2_slice:
-        if s not in seen and s not in excluded:
+        if s not in seen and s not in excluded and s not in delisted:
             seen.add(s)
             targets.append(s)
 
