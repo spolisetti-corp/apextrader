@@ -34,6 +34,8 @@ ETRADE_SANDBOX         = os.getenv("ETRADE_SANDBOX", "false").lower() == "true"
 # Priority 3: Market ETFs for context
 # ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
 PRIORITY_1_MOMENTUM = [
+    # Trade-Ideas PRIORITY_1_MOMENTUM top-priority update 2026-03-26 08:53
+    "TASK",
     # Trade-Ideas PRIORITY_1_MOMENTUM top-priority update 2026-03-26 08:32
     "JNUG", "NUGT",
     # Trade-Ideas PRIORITY_1_MOMENTUM top-priority update 2026-03-26 08:21
@@ -83,6 +85,8 @@ PRIORITY_1_MOMENTUM = [
 
 
 PRIORITY_2_ESTABLISHED = [
+    # Trade-Ideas PRIORITY_2_ESTABLISHED top-priority update 2026-03-26 08:52
+    "PLCE", "AAP",
     # Trade-Ideas PRIORITY_2_ESTABLISHED top-priority update 2026-03-26 08:32
     "MARA", "NGNE", "MED", "CRK", "BIRD", "CAR", "FBIO", "CADL",
     # Trade-Ideas PRIORITY_2_ESTABLISHED top-priority update 2026-03-26 08:20
@@ -115,7 +119,16 @@ PRIORITY_2_ESTABLISHED = [
 PRIORITY_3_MARKET = ["SPY", "QQQ", "IWM", "^VIX"]
 
 # Delisted or broken tickers — filtered out at runtime
-DELISTED_STOCKS = ["IMV", "EKV", "AMTK", "SUNE", "BTU", "DJI", "$DJI"]
+DELISTED_STOCKS = [
+    # Truly delisted
+    "IMV", "EKV", "AMTK", "SUNE", "BTU",
+    # Index tickers (not tradeable)
+    "DJI", "$DJI",
+    # Leveraged / inverse ETFs — generate false Sweepea/strategy signals
+    "ZSL", "GLL", "YANG", "YINN", "LABD", "SBIT", "GDXD", "GDXU",
+    "SOXS", "CONL", "MSTX", "SMCX", "SMCZ", "IONL", "KORU",
+    "ETHD", "ETHT", "ETHA", "UXRP", "XXRP", "CWEB",
+]
 
 # Remove delisted from live lists
 PRIORITY_1_MOMENTUM = [s for s in PRIORITY_1_MOMENTUM if s not in DELISTED_STOCKS]
@@ -381,6 +394,22 @@ ATR_STOP_MULTIPLIER      = 1.5        # Stop loss = entry − ATR × 1.5
 ATR_TP_RATIO             = 2.0        # Take-profit at 2:1 R:R (risk × 2)
 MAX_SHORT_FLOAT_PCT      = 20.0       # Never exceed this % of equity per squeeze ticker
 HIGH_SHORT_FLOAT_STOCKS  = {
-    "BFLY", "EWTX", "IDYA", "ANNX", "TNGX", "IBRX", "ERAS", "SPIR", "HUT", "EYE",
-    "FOSL", "ANAB", "DOCN", "TERN", "KOD",
+    "AAP", "AGQ", "AIFF", "AIRS", "ALBT", "ANAB",
+    "ANNA", "ANNX", "APGE", "APP", "APPX", "ARTL",
+    "ARWR", "ATPC", "BABX", "BATL", "BBW", "BETR",
+    "BFLY", "BIRD", "BMNZ", "BNAI", "BOXL", "BTBD",
+    "CAR", "CGEM", "CRCA", "CRCG", "CYN", "DBI",
+    "DJI", "DOCN", "DUST", "DVLT", "DXST", "DXYZ",
+    "ERAS", "ETHD", "ETHT", "EWTX", "EYE", "FBIO",
+    "FCHL", "FFAI", "FOSL", "GDXD", "GDXU", "GOGO",
+    "GRND", "HCTI", "HUMA", "HUT", "HYPD", "IBRX",
+    "IDYA", "INDO", "JNUG", "KIDZ", "KOD", "KORU",
+    "KRRO", "LASE", "LENZ", "LOVE", "MARA", "MED",
+    "MLKN", "MRAL", "MRNO", "MUX", "NAVN", "NGNE",
+    "NUGT", "OGEN", "OLPX", "ORGO", "PGEN", "PLCE",
+    "PROP", "QNCX", "RBNE", "SHMD", "SMCX", "SMCZ",
+    "SNBR", "SND", "SNSE", "SOLT", "SOWG", "SOXS",
+    "SPIR", "TASK", "TERN", "TNGX", "TPET", "UAMY",
+    "UGRO", "UPXI", "VCX", "WKHS", "WVE", "WYFI",
+    "YANG", "YINN", "ZSL",
 }
