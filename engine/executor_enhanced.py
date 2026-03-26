@@ -214,10 +214,12 @@ class EnhancedExecutor:
             try:
                 self.client.close_position(weakest)
                 self._swap_cycle_closed.add(weakest)
+                self._get_positions(force_refresh=True)   # refresh so max check sees updated count
             except Exception as e:
                 log.warning(f"SWAP close failed for {weakest}: {e}")
                 return False, f"Swap close failed: {e}"
-            # fall through to enter new position
+            # re-fetch updated positions after close
+            positions = self._get_positions()
         # swap_only + no positions → fall through to normal entry (portfolio is empty)
 
         if positions.total_count >= effective_max:
