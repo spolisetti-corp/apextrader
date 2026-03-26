@@ -242,6 +242,22 @@ class TradingOrchestrator:
 
         elapsed = time.time() - cycle_start
         log.info(f"Cycle complete in {elapsed:.1f}s. Total trades={self.trades}, daily_pnl={self.daily_pnl:.2f}")
+
+        # Non-blocking email summary after scan/trading complete
+        try:
+            from engine.notifications import send_scan_summary_email
+            send_scan_summary_email(
+                report_date=today,
+                cycle_name='Scan + Execution',
+                scan_count=len(scan_targets),
+                signals_count=len(signals),
+                executed_count=len(filtered) if top_signals else 0,
+                top_signals=top_signals[:3] if top_signals else [],
+                discovery_tickers=self.trending_stocks,
+            )
+        except Exception as e:
+            log.warning(f"Failed to send scan summary email: {e}")
+
         return True
 
     def run_eod_check(self):

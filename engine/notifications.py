@@ -207,9 +207,95 @@ def build_eod_report(
     return {"subject": subject, "text": "\n".join(txt), "html": "\n".join(html)}
 
 
-def send_email(subject: str, text: str, html: Optional[str] = None) -> bool:
-    if not _bool_env('USE_EMAIL_NOTIFICATIONS', 'false'):
-        return False
+def _format_top_signals_html(highlight_signals) -> str:
+    if not highlight_signals:
+        return "<p style='margin:0;color:#667089;'>No signals today.</p>"
+
+    rows = []
+    for idx, sig in enumerate(highlight_signals, 1):
+        rows.append(
+            f"<tr><td>#{idx}</td><td>{sig.symbol}</td><td>{sig.action}</td><td>${sig.price:,.2f}</td>"
+            f"<td>{sig.confidence*100:.0f}%</td><td>{sig.strategy}</td></tr>"
+        )
+    return (
+        "<table style='width:100%;border-collapse:collapse;font-size:13px;'>"
+        "<thead><tr><th style='border:1px solid #c3d2eb;padding:8px;'>Rank</th>"
+        "<th style='border:1px solid #c3d2eb;padding:8px;'>Ticker</th>"
+        "<th style='border:1px solid #c3d2eb;padding:8px;'>Action</th>"
+        "<th style='border:1px solid #c3d2eb;padding:8px;'>Price</th>"
+        "<th style='border:1px solid #c3d2eb;padding:8px;'>Conf</th>"
+        "<th style='border:1px solid #c3d2eb;padding:8px;'>Strategy</th></tr></thead>"
+        f"<tbody>{''.join(rows)}</tbody></table>"
+    )
+
+
+def build_scan_summary_report(
+    report_date: date,
+    cycle_name: str,
+    scan_count: int,
+    signals_count: int,
+    executed_count: int,
+    top_signals,
+    discovery_tickers=None,
+) -> Dict[str, str]:
+    txt = []
+    txt.append(f"ApexTrader Scan Summary - {report_date.isoformat()} ({cycle_name})")
+    txt.append("=" * 60)
+    txt.append(f"Scanned symbols: {scan_count}")
+    txt.append(f"Signals found: {signals_count}")
+    txt.append(f"Orders executed: {executed_count}")
+    txt.append("")
+    txt.append("Top 3 signals:")
+    if top_signals:
+        for idx, sig in enumerate(top_signals, 1):
+            txt.append(f"  #{idx} {sig.symbol} {sig.action} ${sig.price:,.2f} conf={sig.confidence*100:.0f}% [{sig.strategy}]")
+    else:
+        txt.append("  none")
+    if discovery_tickers:
+        txt.append("")
+        txt.append("Latest discovery tickers:")
+        txt.append(", ".join([t.get('symbol', 'N/A') for t in discovery_tickers[:8]]))
+
+    subject = f"ApexTrader Scan Summary - {report_date.isoformat()}"
+    html = ["<html><body style='font-family:Arial,sans-serif;background:#f2f3f7;margin:0;padding:20px;'>"]
+    html.append("<div style='max-width:760px;margin:auto;background:#ffffff;border-radius:14px;box-shadow:0 10px 30px rgba(0,0,0,0.08);padding:18px;'>")
+    html.append(f"<h2 style='margin-top:0;color:#1a2f4d;'>ApexTrader Scan Summary ({cycle_name})</h2>")
+    html.append(f"<p style='color:#4f6272;'>Scanned symbols: <strong>{scan_count}</strong> | Signals: <strong>{signals_count}</strong> | Executed: <strong>{executed_count}</strong></p>")
+    html.append("<h3 style='margin:12px 0 8px;color:#2d4f81;'>Top 3 signals</h3>")
+    html.append(_format_top_signals_html(top_signals))
+
+    if discovery_tickers:
+        html.append("<h3 style='margin:14px 0 8px;color:#2d4f81;'>Discovery Snapshot</h3>")
+        html.append("<p style='margin:0 0 8px;color:#556a84;font-size:13px;'>Latest candidates from discovery sources</p>")
+        discovery_list = [t.get('symbol', 'N/A') for t in discovery_tickers[:10]]
+        html.append(f"<p style='margin:0;color:#2b3d60;font-size:14px;font-weight:600;'>{', '.join(discovery_list)}</p>")
+
+    html.append("</div></body></html>")
+    return {"subject": subject, "text": "\n".join(txt), "html": "\n".join(html)}
+
+
+def send_scan_summary_email(report_date: date, cycle_name: str, scan_count: int,
+                            signals_count: int, executed_count: int,
+                            top_signals, discovery_tickers=None):
+    report = build_scan_summary_report(
+        report_date=report_date,
+        cycle_name=cycle_name,
+        scan_count=scan_count,
+        signals_count=signals_count,
+        executed_count=executed_count,
+        top_signals=top_signals,
+        discovery_tickers=discovery_tickers,
+    )
+
+    # Non-blocking: send in background
+    import threading
+    thread = threading.Thread(
+        target=send_email,
+        args=(report['subject'], report['text'], report['html']),
+        kwargs={},
+        daemon=True,
+    )
+    thread.start()
 
     to_addresses = [a.strip() for a in _get_env('EMAIL_TO_ADDRESSES').split(',') if a.strip()]
     if not to_addresses:
