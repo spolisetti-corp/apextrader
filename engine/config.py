@@ -34,6 +34,8 @@ ETRADE_SANDBOX         = os.getenv("ETRADE_SANDBOX", "false").lower() == "true"
 # Priority 3: Market ETFs for context
 # ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
 PRIORITY_1_MOMENTUM = [
+    # Trade-Ideas PRIORITY_1_MOMENTUM top-priority update 2026-03-26 08:32
+    "JNUG", "NUGT",
     # Trade-Ideas PRIORITY_1_MOMENTUM top-priority update 2026-03-26 08:21
     "DUST", "MASK", "MSOX", "FGL", "HYMC",
     # Trade-Ideas PRIORITY_1_MOMENTUM top-priority update 2026-03-26 08:15
@@ -81,6 +83,8 @@ PRIORITY_1_MOMENTUM = [
 
 
 PRIORITY_2_ESTABLISHED = [
+    # Trade-Ideas PRIORITY_2_ESTABLISHED top-priority update 2026-03-26 08:32
+    "MARA", "NGNE", "MED", "CRK", "BIRD", "CAR", "FBIO", "CADL",
     # Trade-Ideas PRIORITY_2_ESTABLISHED top-priority update 2026-03-26 08:20
     "WKHS", "OGEN", "LENZ", "CGEM", "GRND", "EVTV", "SNSE", "CHRS", "CDIO", "ARRY", "DRVN", "KRRO",
     # Trade-Ideas PRIORITY_2_ESTABLISHED top-priority update 2026-03-26 07:57
@@ -378,5 +382,5 @@ ATR_TP_RATIO             = 2.0        # Take-profit at 2:1 R:R (risk × 2)
 MAX_SHORT_FLOAT_PCT      = 20.0       # Never exceed this % of equity per squeeze ticker
 HIGH_SHORT_FLOAT_STOCKS  = {
     "BFLY", "EWTX", "IDYA", "ANNX", "TNGX", "IBRX", "ERAS", "SPIR", "HUT", "EYE",
-    "FOSL", "ANAB", "DOCN", "TERN",
+    "FOSL", "ANAB", "DOCN", "TERN", "KOD",
 }

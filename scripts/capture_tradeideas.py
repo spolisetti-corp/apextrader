@@ -245,6 +245,51 @@ def _patch_config(list_name: str, new_tickers: list[str]) -> int:
     return len(to_add)
 
 
+# ── High-short-float set patcher ────────────────────────────────
+def _patch_high_short_float(new_tickers: list[str]) -> int:
+    """
+    Merge *new_tickers* into the HIGH_SHORT_FLOAT_STOCKS set in config.py.
+    Returns the number of tickers added.
+    """
+    src = CONFIG_FILE.read_text(encoding="utf-8")
+
+    # Extract current set members
+    m = re.search(
+        r'HIGH_SHORT_FLOAT_STOCKS\s*=\s*\{([^}]*)\}',
+        src, re.DOTALL
+    )
+    if not m:
+        print("[WARN ] Could not locate HIGH_SHORT_FLOAT_STOCKS in config.py — skipping")
+        return 0
+
+    existing = set(re.findall(r'"([A-Z]{1,5})"', m.group(1)))
+    to_add   = [t for t in new_tickers if t not in existing]
+    if not to_add:
+        return 0
+
+    new_members = sorted(existing | set(to_add))
+    # Rebuild the set block (up to 6 per line for readability)
+    lines = []
+    chunk = []
+    for ticker in new_members:
+        chunk.append(f'"{ticker}"')
+        if len(chunk) == 6:
+            lines.append("    " + ", ".join(chunk) + ",")
+            chunk = []
+    if chunk:
+        lines.append("    " + ", ".join(chunk) + ",")
+    new_block = "HIGH_SHORT_FLOAT_STOCKS  = {\n" + "\n".join(lines) + "\n}"
+
+    new_src = re.sub(
+        r'HIGH_SHORT_FLOAT_STOCKS\s*=\s*\{[^}]*\}',
+        new_block,
+        src,
+        flags=re.DOTALL,
+    )
+    CONFIG_FILE.write_text(new_src, encoding="utf-8")
+    return len(to_add)
+
+
 # ── Dropdown helper ──────────────────────────────────────────────
 def _try_select_30min(driver: "webdriver.Chrome") -> bool:
     """
@@ -370,6 +415,13 @@ def scrape_tradeideas(
                     print(f"[OK   ] config.py: +{added} new tickers added to {scan['target']}")
                 else:
                     print(f"[INFO ] config.py: all tickers already present in {scan['target']}")
+                # highshortfloat scan → also sync HIGH_SHORT_FLOAT_STOCKS set
+                if scan_key == "highshortfloat":
+                    hsf_added = _patch_high_short_float(tickers)
+                    if hsf_added:
+                        print(f"[OK   ] config.py: +{hsf_added} new tickers added to HIGH_SHORT_FLOAT_STOCKS")
+                    else:
+                        print(f"[INFO ] config.py: HIGH_SHORT_FLOAT_STOCKS already up to date")
 
             # Navigate away so the tab goes blank
             try:
