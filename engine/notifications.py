@@ -115,23 +115,22 @@ def build_top3_report(signals, report_date: date, sentiment: str = "neutral") ->
         acolor = action_colors.get(s.action.lower(), "#2563eb")
         conf_pct = int(s.confidence * 100)
         cards += f"""
-        <div style="background:#1e293b;border-radius:12px;padding:20px 24px;margin-bottom:16px;border-left:5px solid {acolor};">
-          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
-            <span style="font-size:24px;font-weight:900;color:#f1f5f9;">{medal} {s.symbol}</span>
-            <span style="background:{acolor};color:#fff;padding:4px 14px;border-radius:20px;font-size:13px;font-weight:700;letter-spacing:1px;">{s.action.upper()}</span>
+        <div style="background:#1e293b;border-radius:10px;padding:16px 20px;margin-bottom:12px;border-left:3px solid {acolor};">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+            <span style="font-size:18px;font-weight:800;color:#f1f5f9;">{medal} {s.symbol}</span>
+            <span style="background:{acolor};color:#fff;padding:3px 11px;border-radius:20px;font-size:12px;font-weight:700;">{s.action.upper()}</span>
           </div>
-          <div style="display:flex;gap:24px;flex-wrap:wrap;margin-bottom:10px;">
-            <div style="color:#94a3b8;font-size:13px;">Price <span style="color:#f1f5f9;font-weight:700;font-size:16px;">${s.price:.2f}</span></div>
-            <div style="color:#94a3b8;font-size:13px;">Strategy <span style="color:#38bdf8;font-weight:600;">{s.strategy}</span></div>
+          <div style="display:flex;gap:20px;flex-wrap:wrap;margin-bottom:8px;">
+            <div style="color:#94a3b8;font-size:12px;">Price <span style="color:#f1f5f9;font-weight:700;">${s.price:.2f}</span></div>
+            <div style="color:#94a3b8;font-size:12px;">Strategy <span style="color:#38bdf8;font-weight:600;">{s.strategy}</span></div>
           </div>
-          <div style="margin-bottom:10px;">
-            <div style="color:#94a3b8;font-size:12px;margin-bottom:4px;">Confidence</div>
-            <div style="background:#334155;border-radius:999px;height:10px;width:100%;">
-              <div style="background:{acolor};height:10px;border-radius:999px;width:{conf_pct}%;"></div>
+          <div style="margin-bottom:8px;">
+            <div style="background:#334155;border-radius:999px;height:6px;width:100%;">
+              <div style="background:{acolor};height:6px;border-radius:999px;width:{conf_pct}%;"></div>
             </div>
-            <div style="color:#f1f5f9;font-size:12px;margin-top:3px;">{conf_pct}%</div>
+            <div style="color:#64748b;font-size:11px;margin-top:3px;">{conf_pct}% confidence</div>
           </div>
-          <div style="color:#94a3b8;font-size:12px;font-style:italic;">{s.reason}</div>
+          <div style="color:#64748b;font-size:11px;">{s.reason}</div>
         </div>"""
 
     if not signals:
@@ -139,26 +138,26 @@ def build_top3_report(signals, report_date: date, sentiment: str = "neutral") ->
 
     html = f"""<!DOCTYPE html>
 <html><head><meta charset='utf-8'></head>
-<body style="margin:0;padding:0;background:#0f172a;font-family:'Segoe UI',Arial,sans-serif;">
-  <div style="max-width:600px;margin:32px auto;padding:0 16px;">
+<body style="margin:0;padding:0;background:#111827;font-family:'Segoe UI',Arial,sans-serif;">
+  <div style="max-width:580px;margin:28px auto;padding:0 14px;">
     <!-- Header -->
-    <div style="background:linear-gradient(135deg,#1e3a5f 0%,#0f172a 100%);border-radius:16px 16px 0 0;padding:32px 28px 20px;text-align:center;">
-      <div style="font-size:13px;color:#38bdf8;letter-spacing:3px;text-transform:uppercase;margin-bottom:6px;">ApexTrader</div>
-      <div style="font-size:28px;font-weight:900;color:#f1f5f9;">\U0001f4c8 Top 3 Scan Picks</div>
-      <div style="font-size:13px;color:#64748b;margin-top:6px;">{report_date.strftime('%A, %B %d, %Y')}</div>
+    <div style="background:#1e293b;border-radius:12px 12px 0 0;padding:24px 24px 16px;text-align:center;border-bottom:1px solid #334155;">
+      <div style="font-size:11px;color:#38bdf8;letter-spacing:2px;text-transform:uppercase;margin-bottom:4px;">ApexTrader</div>
+      <div style="font-size:22px;font-weight:800;color:#f1f5f9;">📈 Top 3 Scan Picks</div>
+      <div style="font-size:12px;color:#64748b;margin-top:4px;">{report_date.strftime('%A, %B %d, %Y')}</div>
     </div>
     <!-- Sentiment bar -->
-    <div style="background:#1e293b;padding:12px 28px;display:flex;align-items:center;gap:10px;border-bottom:1px solid #334155;">
-      <span style="font-size:18px;">{_sent_icon}</span>
-      <span style="color:#94a3b8;font-size:13px;">Market Sentiment</span>
-      <span style="background:{_sent_color};color:#fff;padding:3px 14px;border-radius:20px;font-size:12px;font-weight:700;letter-spacing:1px;margin-left:auto;">{sentiment.upper()}</span>
+    <div style="background:#1e293b;padding:10px 24px;display:flex;align-items:center;gap:8px;border-bottom:1px solid #334155;">
+      <span style="font-size:15px;">{_sent_icon}</span>
+      <span style="color:#94a3b8;font-size:12px;">Market Sentiment</span>
+      <span style="background:{_sent_color};color:#fff;padding:2px 12px;border-radius:20px;font-size:11px;font-weight:700;letter-spacing:1px;margin-left:auto;">{sentiment.upper()}</span>
     </div>
     <!-- Cards -->
-    <div style="background:#0f172a;padding:24px 20px;border-radius:0 0 16px 16px;">
+    <div style="background:#1a2332;padding:20px 16px;border-radius:0 0 12px 12px;">
       {cards}
     </div>
     <!-- Footer -->
-    <div style="text-align:center;color:#334155;font-size:11px;margin-top:16px;">ApexTrader &bull; Automated &bull; {report_date.isoformat()}</div>
+    <div style="text-align:center;color:#334155;font-size:10px;margin-top:12px;">ApexTrader &bull; Automated &bull; {report_date.isoformat()}</div>
   </div>
 </body></html>"""
 
