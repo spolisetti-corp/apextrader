@@ -8,8 +8,6 @@ logging.basicConfig(level=logging.ERROR)
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 sys.path.insert(0, os.path.dirname(__file__))
 
-from concurrent.futures import ThreadPoolExecutor, as_completed
-
 # ── Step 1: Fresh TI scrape ──────────────────────────────────────
 from capture_tradeideas import scrape_tradeideas
 print("Step 1/3: Scraping Trade Ideas (30min)...")
@@ -20,67 +18,15 @@ import importlib
 import engine.config as cfg
 importlib.reload(cfg)
 
-from engine.config import PRIORITY_1_MOMENTUM, PRIORITY_2_ESTABLISHED, MIN_DOLLAR_VOLUME
-from engine.utils import get_bars, clear_bar_cache
-from engine.strategies import (
-    GapBreakoutStrategy, ORBStrategy, VWAPReclaimStrategy,
-    FloatRotationStrategy, MomentumStrategy, TechnicalStrategy, SweepeaStrategy,
-)
+from engine.scan import scan_universe, get_scan_targets
 
-seen = set()
-targets = []
-for t in PRIORITY_1_MOMENTUM + PRIORITY_2_ESTABLISHED[:10]:
-    if t not in seen:
-        seen.add(t)
-        targets.append(t)
-
+targets = get_scan_targets()
 print(f"Step 2/3: Scanning {len(targets)} symbols across 7 strategies...")
-clear_bar_cache()
 
-strats = [
-    GapBreakoutStrategy(), ORBStrategy(), VWAPReclaimStrategy(),
-    FloatRotationStrategy(), MomentumStrategy(), TechnicalStrategy(), SweepeaStrategy(),
-]
+signals, hit_counts, scan_errors = scan_universe(targets, "neutral")
 
-
-def passes(sym):
-    try:
-        df = get_bars(sym, "1d", "1m")
-        if df.empty or len(df) < 5:
-            return True
-        return float(df["close"].iloc[-1]) * float(df["volume"].sum()) >= MIN_DOLLAR_VOLUME
-    except Exception:
-        return True
-
-
-def scan_one(sym):
-    if not passes(sym):
-        return None
-    best = None
-    for s in strats:
-        try:
-            sig = s.scan(sym, "neutral") if isinstance(s, TechnicalStrategy) else s.scan(sym)
-            if sig and (best is None or sig.confidence > best.confidence):
-                best = sig
-        except Exception:
-            pass
-    return best
-
-
-signals = []
-with ThreadPoolExecutor(max_workers=8) as pool:
-    futs = {pool.submit(scan_one, sym): sym for sym in targets}
-    done = 0
-    for f in as_completed(futs):
-        done += 1
-        try:
-            sig = f.result()
-            if sig:
-                signals.append(sig)
-        except Exception:
-            pass
-        if done % 40 == 0:
-            print(f"  ...{done}/{len(targets)} scanned, {len(signals)} signals so far")
+if scan_errors:
+    print(f"Scan errors: {scan_errors}")
 
 signals.sort(key=lambda x: -x.confidence)
 

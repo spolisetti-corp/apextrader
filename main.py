@@ -38,7 +38,7 @@ from engine.config import (
     USE_POSITION_TUNING,
     HIGH_POSITION_INTERVAL, NORMAL_POSITION_INTERVAL, LOW_POSITION_INTERVAL,
     LONG_ONLY_MODE, MIN_SIGNAL_CONFIDENCE, MAX_SIGNALS_PER_CYCLE,
-    SCAN_WORKERS, SCAN_SYMBOL_TIMEOUT,
+    SCAN_WORKERS, SCAN_SYMBOL_TIMEOUT, SCAN_MAX_SYMBOLS,
     RVOL_MIN, MIN_DOLLAR_VOLUME, MAX_GAP_CHASE_PCT, GAP_CHASE_CONSOL_BARS,
     USE_MARKET_REGIME_FILTER, MARKET_REGIME_SIGNALS_CAP,
 )
@@ -54,7 +54,8 @@ from engine.strategies import (
     GapBreakoutStrategy, ORBStrategy, VWAPReclaimStrategy, FloatRotationStrategy,
 )
 from engine.executor_enhanced import EnhancedExecutor
-from engine.notifications import build_eod_report, send_email
+from engine.notifications import build_eod_report, build_top3_report, send_email
+from engine.scan import get_scan_targets, scan_universe, filter_signals
 
 # ── Initialise ──────────────────────────────────────────────────
 log      = setup_logging()
@@ -295,6 +296,41 @@ def _get_quarter_start(d):
     return datetime.date(d.year, quarter_month, 1)
 
 
+def scan_top3_only():
+    sentiment = get_market_sentiment()
+    log.info(f"Market sentiment: {sentiment}")
+
+    scan_trending_stocks()
+    scan_tradeideas_universe()
+
+    _open_positions = {p.symbol for p in client.get_all_positions()}
+    _open_orders    = {o.symbol for o in client.get_orders()
+                       if getattr(o, "status", "") in ("new", "partially_filled", "pending_new")}
+    _excluded = _open_positions | _open_orders
+
+    scan_targets = get_scan_targets(_excluded)
+    log.info(f"Top3 mode: scanning {len(scan_targets)} symbols ({len(_excluded)} pre-excluded)")
+
+    signals, hit_counts, scan_errors = scan_universe(scan_targets, sentiment)
+
+    log.info(f"Scan errors: {scan_errors} | Signals: {len(signals)}")
+
+    if signals:
+        top3 = signals[:3]
+        log.info("TOP 3 SCAN PICKS:")
+        for idx, s in enumerate(top3, start=1):
+            log.info(f"#{idx}: {s.symbol} {s.action.upper()} ${s.price:.2f} conf={s.confidence:.0%} [{s.strategy}] - {s.reason}")
+
+        try:
+            top3_report = build_top3_report(top3, datetime.date.today())
+            sent = send_email(top3_report['subject'], top3_report['text'], top3_report['html'])
+            log.info("Top3 scan email sent" if sent else "Top3 scan email skipped")
+        except Exception as email_err:
+            log.warning(f"Scan notification email failed: {email_err}")
+    else:
+        log.info("No signals found in Top3 mode")
+
+
 def scan_and_trade():
     global daily_pnl, daily_reset, trades
     global quarterly_start_equity, quarterly_reset
@@ -359,21 +395,11 @@ def scan_and_trade():
                        if getattr(o, "status", "") in ("new", "partially_filled", "pending_new")}
     _excluded = _open_positions | _open_orders
 
-    # Deduplicated scan list: P1 first, then up to 10 of P2
-    _seen: set = set()
-    scan_targets = []
-    for s in PRIORITY_1_MOMENTUM + PRIORITY_2_ESTABLISHED[:10]:
-        if s not in _seen and s not in _excluded:
-            _seen.add(s)
-            scan_targets.append(s)
-
+    scan_targets = get_scan_targets(_excluded)
     log.info(
         f"Scanning {len(scan_targets)} symbols "
         f"({len(_excluded)} pre-excluded, {SCAN_WORKERS} workers)"
     )
-
-    # ── Clear bar cache for this cycle ──────────────────────────────
-    clear_bar_cache()
 
     # ── Market regime filter: SPY vs 200-day MA ──────────────────────
     signals_cap = MAX_SIGNALS_PER_CYCLE
@@ -425,24 +451,7 @@ def scan_and_trade():
             return None
         return max(candidates, key=lambda s: s.confidence)
 
-    signals      = []
-    hit_counts   = {}
-    scan_errors  = 0
-    _sig_lock    = threading.Lock()
-
-    with ThreadPoolExecutor(max_workers=SCAN_WORKERS) as pool:
-        future_map = {pool.submit(_scan_one, sym): sym for sym in scan_targets}
-        for future in as_completed(future_map):
-            sym = future_map[future]
-            try:
-                sig = future.result(timeout=SCAN_SYMBOL_TIMEOUT)
-                if sig:
-                    with _sig_lock:
-                        signals.append(sig)
-                        hit_counts[sig.strategy] = hit_counts.get(sig.strategy, 0) + 1
-            except Exception as e:
-                scan_errors += 1
-                log.warning(f"Scan error {sym}: {e}")
+    signals, hit_counts, scan_errors = scan_universe(scan_targets, sentiment)
 
     breakdown = ", ".join(f"{k}: {v}" for k, v in sorted(hit_counts.items()))
     log.info(f"Signal breakdown — {breakdown or 'none'} | Errors: {scan_errors}")
@@ -452,17 +461,30 @@ def scan_and_trade():
     log.info(f"Total raw signals: {len(signals)}")
 
     if signals:
-        signals.sort(key=lambda x: x.confidence, reverse=True)
+        # Top 3 picks for this cycle
+        log.info("——————————————————————————————")
+        log.info("TOP 3 SCAN PICKS:")
+        for idx, s in enumerate(signals[:3], start=1):
+            log.info(
+                f"#{idx}: {s.symbol} {s.action.upper()} ${s.price:.2f} "
+                f"conf={s.confidence:.0%} [{s.strategy}] - {s.reason}"
+            )
+        log.info("——————————————————————————————")
+
+        # Email scan summary (optional, if enabled)
+        try:
+            top3_report = build_top3_report(signals[:3], datetime.date.today())
+            sent = send_email(top3_report['subject'], top3_report['text'], top3_report['html'])
+            if sent:
+                log.info("Scan notification email sent")
+            else:
+                log.info("Scan notification email skipped (disabled)")
+        except Exception as email_err:
+            log.warning(f"Scan notification email failed: {email_err}")
 
         # Symbols already excluded pre-scan; apply sniper gates only
-        eligible = signals
+        eligible = filter_signals(signals, long_only=LONG_ONLY_MODE, min_conf=MIN_SIGNAL_CONFIDENCE)
         log.info(f"Pre-scan excluded: {len(_excluded)} symbols | Raw eligible: {len(eligible)}")
-
-        # Sniper gates: long-only mode and minimum confidence
-        if LONG_ONLY_MODE:
-            eligible = [s for s in eligible if s.action == "buy"]
-            log.info(f"LONG_ONLY_MODE: {len(eligible)} buy signal(s) remaining")
-        eligible = [s for s in eligible if s.confidence >= MIN_SIGNAL_CONFIDENCE]
         log.info(f"Confidence gate ({MIN_SIGNAL_CONFIDENCE:.0%}): {len(eligible)} signal(s) qualify")
 
         top_signals = eligible[:signals_cap]
@@ -666,6 +688,11 @@ if __name__ == "__main__":
         action="store_true",
         help="Bypass market-hours gate — scan and execute even when market is closed",
     )
+    parser.add_argument(
+        "--top3-only",
+        action="store_true",
+        help="Run scan and report top3 signals without executing orders",
+    )
     args = parser.parse_args()
 
     if args.force:
@@ -673,6 +700,12 @@ if __name__ == "__main__":
         _cfg.FORCE_SCAN = True
         # also re-export so scan_and_trade sees it
         globals()["FORCE_SCAN"] = True
+
+    if args.top3_only:
+        log.info("APEXTRADER — Top3 scan mode")
+        scan_top3_only()
+        log_status()
+        sys.exit(0)
 
     if args.once:
         log.info("=" * 70)

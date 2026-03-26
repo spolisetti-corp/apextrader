@@ -6,6 +6,16 @@ from typing import List, Dict, Optional
 
 import os
 
+from .config import (
+    USE_EMAIL_NOTIFICATIONS,
+    EMAIL_SMTP_SERVER,
+    EMAIL_SMTP_PORT,
+    EMAIL_SMTP_USER,
+    EMAIL_SMTP_PASSWORD,
+    EMAIL_FROM_ADDRESS,
+    EMAIL_TO_ADDRESSES,
+)
+
 
 def _bool_env(name: str, default: str = "false") -> bool:
     return os.getenv(name, default).strip().lower() in ("1", "true", "yes")
@@ -19,8 +29,46 @@ def _format_currency(value: float) -> str:
     return f"${value:,.2f}"
 
 
+def _format_signal_text(signals) -> str:
+    if not signals:
+        return "No signals"
+    lines = []
+    for i, s in enumerate(signals[:3], start=1):
+        lines.append(f"#{i}: {s.symbol} {s.action.upper()} ${s.price:.2f} conf={s.confidence:.0%} [{s.strategy}] {s.reason}")
+    return "\n".join(lines)
+
+
+def _format_signal_html(signals) -> str:
+    if not signals:
+        return "<p>No signals</p>"
+    rows = "".join(
+        f"<tr><td>{i+1}</td><td>{s.symbol}</td><td>{s.action.upper()}</td><td>${s.price:.2f}</td><td>{s.confidence:.0%}</td><td>{s.strategy}</td><td>{s.reason}</td></tr>"
+        for i, s in enumerate(signals[:3])
+    )
+    return (
+        "<table border='1' cellpadding='4' cellspacing='0' style='border-collapse:collapse;'>"
+        "<thead><tr><th>#</th><th>Symbol</th><th>Action</th><th>Price</th><th>Confidence</th><th>Strategy</th><th>Reason</th></tr></thead>"
+        f"<tbody>{rows}</tbody></table>"
+    )
+
+
 def _build_html_section(title: str, content: str) -> str:
     return f"<h2>{title}</h2>\n{content}\n"
+
+
+def _build_signal_table(signals) -> str:
+    if not signals:
+        return "<p>No signals available.</p>"
+
+    rows = "".join(
+        f"<tr><td>{i+1}</td><td>{s.symbol}</td><td>{s.action.upper()}</td><td>${s.price:.2f}</td><td>{s.confidence:.0%}</td><td>{s.strategy}</td><td>{s.reason}</td></tr>"
+        for i, s in enumerate(signals)
+    )
+    return (
+        "<table border='1' cellpadding='5' cellspacing='0' style='border-collapse:collapse;width:100%;'>"
+        "<thead><tr><th>#</th><th>Symbol</th><th>Action</th><th>Price</th><th>Confidence</th><th>Strategy</th><th>Reason</th></tr></thead>"
+        f"<tbody>{rows}</tbody></table>"
+    )
 
 
 def _build_positions_table(positions) -> str:
@@ -39,6 +87,13 @@ def _build_positions_table(positions) -> str:
         "<thead><tr><th>Symbol</th><th>Qty</th><th>Entry</th><th>Current</th><th>Unrealized P&L</th><th>Unrealized %</th></tr></thead>"
         f"<tbody>{rows}</tbody></table>"
     )
+
+
+def build_top3_report(signals, report_date: date) -> Dict[str, str]:
+    subject = f"ApexTrader Scan Top 3 - {report_date.isoformat()}"
+    text = "Top 3 scan picks:\n" + _format_signal_text(signals)
+    html = "<h1>Top 3 scan picks</h1>" + _format_signal_html(signals)
+    return {"subject": subject, "text": text, "html": html}
 
 
 def build_eod_report(
@@ -208,21 +263,22 @@ def build_eod_report(
 
 
 def send_email(subject: str, text: str, html: Optional[str] = None) -> bool:
-    if not _bool_env('USE_EMAIL_NOTIFICATIONS', 'false'):
+    if not _bool_env('USE_EMAIL_NOTIFICATIONS', 'false') and not USE_EMAIL_NOTIFICATIONS:
         return False
 
-    to_addresses = [a.strip() for a in _get_env('EMAIL_TO_ADDRESSES').split(',') if a.strip()]
+    env_to = [a.strip() for a in _get_env('EMAIL_TO_ADDRESSES', '').split(',') if a.strip()]
+    to_addresses = env_to or EMAIL_TO_ADDRESSES
     if not to_addresses:
         raise ValueError("No EMAIL_TO_ADDRESSES configured")
 
-    from_address = _get_env('EMAIL_FROM_ADDRESS', _get_env('EMAIL_SMTP_USER', ''))
+    from_address = _get_env('EMAIL_FROM_ADDRESS', EMAIL_FROM_ADDRESS or EMAIL_SMTP_USER)
     if not from_address:
         raise ValueError("No EMAIL_FROM_ADDRESS configured")
 
-    smtp_server = _get_env('EMAIL_SMTP_SERVER', 'smtp.gmail.com')
-    smtp_port = int(_get_env('EMAIL_SMTP_PORT', '587'))
-    smtp_user = _get_env('EMAIL_SMTP_USER', '')
-    smtp_pass = _get_env('EMAIL_SMTP_PASSWORD', '')
+    smtp_server = _get_env('EMAIL_SMTP_SERVER', EMAIL_SMTP_SERVER or 'smtp.gmail.com')
+    smtp_port = int(_get_env('EMAIL_SMTP_PORT', str(EMAIL_SMTP_PORT or 587)))
+    smtp_user = _get_env('EMAIL_SMTP_USER', EMAIL_SMTP_USER)
+    smtp_pass = _get_env('EMAIL_SMTP_PASSWORD', EMAIL_SMTP_PASSWORD)
 
     msg = MIMEMultipart('alternative')
     msg['Subject'] = subject
@@ -233,31 +289,23 @@ def send_email(subject: str, text: str, html: Optional[str] = None) -> bool:
     if html:
         msg.attach(MIMEText(html, 'html'))
 
+    print(f"[DEBUG] send_email called: subject={subject}")
+    print(f"[DEBUG] to={to_addresses}")
+    print(f"[DEBUG] from={from_address}")
+    print(f"[DEBUG] smtp_server={smtp_server} smtp_port={smtp_port} smtp_user={smtp_user}")
     server = smtplib.SMTP(smtp_server, smtp_port, timeout=30)
     try:
         server.starttls()
+        print("[DEBUG] starttls successful")
         server.login(smtp_user, smtp_pass)
+        print("[DEBUG] SMTP login successful")
         server.sendmail(from_address, to_addresses, msg.as_string())
+        print("[DEBUG] sendmail successful")
+    except Exception as e:
+        print(f"[DEBUG] sendmail error: {type(e).__name__} {e}")
+        raise
     finally:
         server.quit()
-
-    return True
-
-    msg = MIMEMultipart("alternative")
-    msg["Subject"] = subject
-    msg["From"] = EMAIL_FROM_ADDRESS
-    msg["To"] = ", ".join(EMAIL_TO_ADDRESSES)
-
-    msg.attach(MIMEText(text, "plain"))
-    if html:
-        msg.attach(MIMEText(html, "html"))
-
-    server = smtplib.SMTP(EMAIL_SMTP_SERVER, EMAIL_SMTP_PORT, timeout=30)
-    try:
-        server.starttls()
-        server.login(EMAIL_SMTP_USER, EMAIL_SMTP_PASSWORD)
-        server.sendmail(EMAIL_FROM_ADDRESS, EMAIL_TO_ADDRESSES, msg.as_string())
-    finally:
-        server.quit()
+        print("[DEBUG] SMTP connection closed")
 
     return True
