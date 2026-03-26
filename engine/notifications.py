@@ -6,6 +6,16 @@ from typing import List, Dict, Optional
 
 import os
 
+from .config import (
+    USE_EMAIL_NOTIFICATIONS,
+    EMAIL_SMTP_SERVER,
+    EMAIL_SMTP_PORT,
+    EMAIL_SMTP_USER,
+    EMAIL_SMTP_PASSWORD,
+    EMAIL_FROM_ADDRESS,
+    EMAIL_TO_ADDRESSES,
+)
+
 
 def _bool_env(name: str, default: str = "false") -> bool:
     return os.getenv(name, default).strip().lower() in ("1", "true", "yes")
@@ -19,8 +29,46 @@ def _format_currency(value: float) -> str:
     return f"${value:,.2f}"
 
 
+def _format_signal_text(signals) -> str:
+    if not signals:
+        return "No signals"
+    lines = []
+    for i, s in enumerate(signals[:3], start=1):
+        lines.append(f"#{i}: {s.symbol} {s.action.upper()} ${s.price:.2f} conf={s.confidence:.0%} [{s.strategy}] {s.reason}")
+    return "\n".join(lines)
+
+
+def _format_signal_html(signals) -> str:
+    if not signals:
+        return "<p>No signals</p>"
+    rows = "".join(
+        f"<tr><td>{i+1}</td><td>{s.symbol}</td><td>{s.action.upper()}</td><td>${s.price:.2f}</td><td>{s.confidence:.0%}</td><td>{s.strategy}</td><td>{s.reason}</td></tr>"
+        for i, s in enumerate(signals[:3])
+    )
+    return (
+        "<table border='1' cellpadding='4' cellspacing='0' style='border-collapse:collapse;'>"
+        "<thead><tr><th>#</th><th>Symbol</th><th>Action</th><th>Price</th><th>Confidence</th><th>Strategy</th><th>Reason</th></tr></thead>"
+        f"<tbody>{rows}</tbody></table>"
+    )
+
+
 def _build_html_section(title: str, content: str) -> str:
     return f"<h2>{title}</h2>\n{content}\n"
+
+
+def _build_signal_table(signals) -> str:
+    if not signals:
+        return "<p>No signals available.</p>"
+
+    rows = "".join(
+        f"<tr><td>{i+1}</td><td>{s.symbol}</td><td>{s.action.upper()}</td><td>${s.price:.2f}</td><td>{s.confidence:.0%}</td><td>{s.strategy}</td><td>{s.reason}</td></tr>"
+        for i, s in enumerate(signals)
+    )
+    return (
+        "<table border='1' cellpadding='5' cellspacing='0' style='border-collapse:collapse;width:100%;'>"
+        "<thead><tr><th>#</th><th>Symbol</th><th>Action</th><th>Price</th><th>Confidence</th><th>Strategy</th><th>Reason</th></tr></thead>"
+        f"<tbody>{rows}</tbody></table>"
+    )
 
 
 def _build_positions_table(positions) -> str:
@@ -39,6 +87,82 @@ def _build_positions_table(positions) -> str:
         "<thead><tr><th>Symbol</th><th>Qty</th><th>Entry</th><th>Current</th><th>Unrealized P&L</th><th>Unrealized %</th></tr></thead>"
         f"<tbody>{rows}</tbody></table>"
     )
+
+
+def build_top3_report(signals, report_date: date, sentiment: str = "neutral") -> Dict[str, str]:
+    subject = f"\U0001f4c8 ApexTrader Top 3 Picks \u2014 {report_date.strftime('%b %d, %Y')}"
+
+    # Plain text
+    text_lines = [
+        f"ApexTrader Top 3 Scan Picks — {report_date.isoformat()}",
+        f"Market Sentiment: {sentiment.upper()}",
+        "",
+    ]
+    text_lines.append(_format_signal_text(signals))
+    text = "\n".join(text_lines)
+
+    # Sentiment badge color
+    _sent_color = {"bullish": "#16a34a", "bearish": "#dc2626", "neutral": "#d97706"}.get(sentiment.lower(), "#6b7280")
+    _sent_icon  = {"bullish": "\U0001f7e2", "bearish": "\U0001f534", "neutral": "\U0001f7e1"}.get(sentiment.lower(), "\u26aa")
+
+    # Medal emojis
+    medals = ["\U0001f947", "\U0001f948", "\U0001f949"]
+    action_colors = {"buy": "#16a34a", "sell": "#dc2626", "short": "#dc2626"}
+
+    cards = ""
+    for i, s in enumerate(signals[:3]):
+        medal = medals[i] if i < len(medals) else f"#{i+1}"
+        acolor = action_colors.get(s.action.lower(), "#2563eb")
+        conf_pct = int(s.confidence * 100)
+        cards += f"""
+        <div style="background:#1e293b;border-radius:12px;padding:20px 24px;margin-bottom:16px;border-left:5px solid {acolor};">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
+            <span style="font-size:24px;font-weight:900;color:#f1f5f9;">{medal} {s.symbol}</span>
+            <span style="background:{acolor};color:#fff;padding:4px 14px;border-radius:20px;font-size:13px;font-weight:700;letter-spacing:1px;">{s.action.upper()}</span>
+          </div>
+          <div style="display:flex;gap:24px;flex-wrap:wrap;margin-bottom:10px;">
+            <div style="color:#94a3b8;font-size:13px;">Price <span style="color:#f1f5f9;font-weight:700;font-size:16px;">${s.price:.2f}</span></div>
+            <div style="color:#94a3b8;font-size:13px;">Strategy <span style="color:#38bdf8;font-weight:600;">{s.strategy}</span></div>
+          </div>
+          <div style="margin-bottom:10px;">
+            <div style="color:#94a3b8;font-size:12px;margin-bottom:4px;">Confidence</div>
+            <div style="background:#334155;border-radius:999px;height:10px;width:100%;">
+              <div style="background:{acolor};height:10px;border-radius:999px;width:{conf_pct}%;"></div>
+            </div>
+            <div style="color:#f1f5f9;font-size:12px;margin-top:3px;">{conf_pct}%</div>
+          </div>
+          <div style="color:#94a3b8;font-size:12px;font-style:italic;">{s.reason}</div>
+        </div>"""
+
+    if not signals:
+        cards = "<p style='color:#94a3b8;'>No signals this scan.</p>"
+
+    html = f"""<!DOCTYPE html>
+<html><head><meta charset='utf-8'></head>
+<body style="margin:0;padding:0;background:#0f172a;font-family:'Segoe UI',Arial,sans-serif;">
+  <div style="max-width:600px;margin:32px auto;padding:0 16px;">
+    <!-- Header -->
+    <div style="background:linear-gradient(135deg,#1e3a5f 0%,#0f172a 100%);border-radius:16px 16px 0 0;padding:32px 28px 20px;text-align:center;">
+      <div style="font-size:13px;color:#38bdf8;letter-spacing:3px;text-transform:uppercase;margin-bottom:6px;">ApexTrader</div>
+      <div style="font-size:28px;font-weight:900;color:#f1f5f9;">\U0001f4c8 Top 3 Scan Picks</div>
+      <div style="font-size:13px;color:#64748b;margin-top:6px;">{report_date.strftime('%A, %B %d, %Y')}</div>
+    </div>
+    <!-- Sentiment bar -->
+    <div style="background:#1e293b;padding:12px 28px;display:flex;align-items:center;gap:10px;border-bottom:1px solid #334155;">
+      <span style="font-size:18px;">{_sent_icon}</span>
+      <span style="color:#94a3b8;font-size:13px;">Market Sentiment</span>
+      <span style="background:{_sent_color};color:#fff;padding:3px 14px;border-radius:20px;font-size:12px;font-weight:700;letter-spacing:1px;margin-left:auto;">{sentiment.upper()}</span>
+    </div>
+    <!-- Cards -->
+    <div style="background:#0f172a;padding:24px 20px;border-radius:0 0 16px 16px;">
+      {cards}
+    </div>
+    <!-- Footer -->
+    <div style="text-align:center;color:#334155;font-size:11px;margin-top:16px;">ApexTrader &bull; Automated &bull; {report_date.isoformat()}</div>
+  </div>
+</body></html>"""
+
+    return {"subject": subject, "text": text, "html": html}
 
 
 def build_eod_report(
@@ -208,21 +332,22 @@ def build_eod_report(
 
 
 def send_email(subject: str, text: str, html: Optional[str] = None) -> bool:
-    if not _bool_env('USE_EMAIL_NOTIFICATIONS', 'false'):
+    if not _bool_env('USE_EMAIL_NOTIFICATIONS', 'false') and not USE_EMAIL_NOTIFICATIONS:
         return False
 
-    to_addresses = [a.strip() for a in _get_env('EMAIL_TO_ADDRESSES').split(',') if a.strip()]
+    env_to = [a.strip() for a in _get_env('EMAIL_TO_ADDRESSES', '').split(',') if a.strip()]
+    to_addresses = env_to or EMAIL_TO_ADDRESSES
     if not to_addresses:
         raise ValueError("No EMAIL_TO_ADDRESSES configured")
 
-    from_address = _get_env('EMAIL_FROM_ADDRESS', _get_env('EMAIL_SMTP_USER', ''))
+    from_address = _get_env('EMAIL_FROM_ADDRESS', EMAIL_FROM_ADDRESS or EMAIL_SMTP_USER)
     if not from_address:
         raise ValueError("No EMAIL_FROM_ADDRESS configured")
 
-    smtp_server = _get_env('EMAIL_SMTP_SERVER', 'smtp.gmail.com')
-    smtp_port = int(_get_env('EMAIL_SMTP_PORT', '587'))
-    smtp_user = _get_env('EMAIL_SMTP_USER', '')
-    smtp_pass = _get_env('EMAIL_SMTP_PASSWORD', '')
+    smtp_server = _get_env('EMAIL_SMTP_SERVER', EMAIL_SMTP_SERVER or 'smtp.gmail.com')
+    smtp_port = int(_get_env('EMAIL_SMTP_PORT', str(EMAIL_SMTP_PORT or 587)))
+    smtp_user = _get_env('EMAIL_SMTP_USER', EMAIL_SMTP_USER)
+    smtp_pass = _get_env('EMAIL_SMTP_PASSWORD', EMAIL_SMTP_PASSWORD)
 
     msg = MIMEMultipart('alternative')
     msg['Subject'] = subject
@@ -233,31 +358,23 @@ def send_email(subject: str, text: str, html: Optional[str] = None) -> bool:
     if html:
         msg.attach(MIMEText(html, 'html'))
 
+    print(f"[DEBUG] send_email called: subject={subject}")
+    print(f"[DEBUG] to={to_addresses}")
+    print(f"[DEBUG] from={from_address}")
+    print(f"[DEBUG] smtp_server={smtp_server} smtp_port={smtp_port} smtp_user={smtp_user}")
     server = smtplib.SMTP(smtp_server, smtp_port, timeout=30)
     try:
         server.starttls()
+        print("[DEBUG] starttls successful")
         server.login(smtp_user, smtp_pass)
+        print("[DEBUG] SMTP login successful")
         server.sendmail(from_address, to_addresses, msg.as_string())
+        print("[DEBUG] sendmail successful")
+    except Exception as e:
+        print(f"[DEBUG] sendmail error: {type(e).__name__} {e}")
+        raise
     finally:
         server.quit()
-
-    return True
-
-    msg = MIMEMultipart("alternative")
-    msg["Subject"] = subject
-    msg["From"] = EMAIL_FROM_ADDRESS
-    msg["To"] = ", ".join(EMAIL_TO_ADDRESSES)
-
-    msg.attach(MIMEText(text, "plain"))
-    if html:
-        msg.attach(MIMEText(html, "html"))
-
-    server = smtplib.SMTP(EMAIL_SMTP_SERVER, EMAIL_SMTP_PORT, timeout=30)
-    try:
-        server.starttls()
-        server.login(EMAIL_SMTP_USER, EMAIL_SMTP_PASSWORD)
-        server.sendmail(EMAIL_FROM_ADDRESS, EMAIL_TO_ADDRESSES, msg.as_string())
-    finally:
-        server.quit()
+        print("[DEBUG] SMTP connection closed")
 
     return True

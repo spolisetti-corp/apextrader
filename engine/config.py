@@ -34,6 +34,16 @@ ETRADE_SANDBOX         = os.getenv("ETRADE_SANDBOX", "false").lower() == "true"
 # Priority 3: Market ETFs for context
 # ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
 PRIORITY_1_MOMENTUM = [
+    # Trade-Ideas PRIORITY_1_MOMENTUM top-priority update 2026-03-26 07:57
+    "WVE",
+    # Trade-Ideas PRIORITY_1_MOMENTUM top-priority update 2026-03-26 07:45
+    "APPX", "APP",
+    # Trade-Ideas PRIORITY_1_MOMENTUM top-priority update 2026-03-26 07:28
+    "VG", "SOLT", "ADVB", "BABX",
+    # Trade-Ideas PRIORITY_1_MOMENTUM top-priority update 2026-03-26 07:01
+    "OLPX", "KOD", "ZSL", "ETHD", "BMNZ", "YANG", "SND", "OCGN", "HOLO", "GLL", "NEXT", "SBIT", "GDXU", "ETHT", "YINN", "SHNY", "MRAL", "TECK", "SIVR", "PSLV", "MUU", "CRCA", "UXRP", "XXRP", "ETHA", "CWEB",
+    # Trade-Ideas PRIORITY_1_MOMENTUM top-priority update 2026-03-26 00:07
+    "SLND", "BTBD", "FCHL", "NAVN", "RVI", "CBUS", "MLKN", "WS",
     # Extreme momentum (100%+ gainers) - HIGHEST PRIORITY
     "UGRO", "VCX", "PTLE", "BIAF", "SATL", "ELAB",
     # Strong momentum (50%+ gainers)
@@ -67,6 +77,20 @@ PRIORITY_1_MOMENTUM = [
 
 
 PRIORITY_2_ESTABLISHED = [
+    # Trade-Ideas PRIORITY_2_ESTABLISHED top-priority update 2026-03-26 07:57
+    "GEF", "MRNO", "INMB", "PGY", "ENVX",
+    # Trade-Ideas PRIORITY_2_ESTABLISHED top-priority update 2026-03-26 07:45
+    "WRAP", "ATPC", "ZBIO", "GLUE", "TRON", "AMR",
+    # Trade-Ideas PRIORITY_2_ESTABLISHED top-priority update 2026-03-26 07:31
+    "DBI",
+    # Trade-Ideas PRIORITY_2_ESTABLISHED top-priority update 2026-03-26 07:28
+    "VNET",
+    # Trade-Ideas PRIORITY_2_ESTABLISHED top-priority update 2026-03-26 07:26
+    "JDZG", "EZPW", "ORGO", "FWRD", "SOWG", "QURE", "WYFI", "VTAK", "SRFM", "BTDR",
+    # Trade-Ideas PRIORITY_2_ESTABLISHED top-priority update 2026-03-26 07:01
+    "DVLT", "AESI", "LOVE", "SPRY", "LXEO", "MVIS", "HUMA", "MNTS", "BEAM", "ABEO", "SOC", "WTI", "IMRX", "IPW", "BHVN", "IMCR", "FRGT", "VTS", "FFAI", "GOGO", "CISS", "SGRY", "HRTX", "ALBT", "PFSA", "STIM", "UPXI", "MUX", "INDI", "UAMY",
+    # Trade-Ideas PRIORITY_2_ESTABLISHED top-priority update 2026-03-26 00:07
+    "PROP", "PGEN", "CRVS", "BOXL", "LVWR", "CYN", "IMTE", "TPET", "ABSI", "BBW",
     # Tech giants (stable, liquid)
     "AAPL", "MSFT", "NVDA", "AMD", "GOOGL", "META", "TSLA", "AMZN",
     # High short float (squeeze potential)
@@ -262,12 +286,13 @@ PDT_WARN_AT_REMAINING = 1      # Warn log when PDT trades remaining falls to thi
 
 # Sniper Mode Controls
 LONG_ONLY_MODE        = True   # Disable all short entries — eliminates margin, HTB, and 2x BP requirements
-MIN_SIGNAL_CONFIDENCE = 0.50   # Execute signals with confidence >= this
+MIN_SIGNAL_CONFIDENCE = 0.85   # Execute signals with confidence >= this
 MAX_SIGNALS_PER_CYCLE = 3      # Execute at most this many signals per scan cycle
 
 # Parallel Scanning
 SCAN_WORKERS        = 12   # Threads scanning symbols concurrently
 SCAN_SYMBOL_TIMEOUT = 15   # Max seconds per symbol before it is skipped
+SCAN_MAX_SYMBOLS    = 50   # Max symbols to scan per cycle (to keep latency reasonable)
 
 # ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
 # Strategy Parameters
