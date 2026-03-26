@@ -20,6 +20,7 @@ _ET = pytz.timezone("America/New_York")
 from engine.config import (
     API_KEY, API_SECRET, PAPER,
     STOCKS, PRIORITY_1_MOMENTUM, PRIORITY_2_ESTABLISHED,
+    FORCE_SCAN,
     SCAN_INTERVAL_MIN, POSITION_CHECK_MIN,
     DAILY_LOSS_LIMIT, DAILY_PROFIT_TARGET,
     USE_QUARTERLY_TARGET, QUARTERLY_PROFIT_TARGET_PCT,
@@ -100,7 +101,7 @@ def get_market_sentiment() -> str:
 
 # ── Golden Ratio Pre-Scan Guardrails ────────────────────────────
 def _passes_guardrails(symbol: str) -> bool:
-    """Quick pre-scan gates: RVOL ≥ 2x, dollar-volume ≥ $20M, gap-chase guard.
+    """Quick pre-scan gates: RVOL ≥ 2x (market hours only), dollar-volume ≥ $20M, gap-chase guard.
     Returns False to skip the symbol; never raises."""
     try:
         intraday = get_bars(symbol, "1d", "1m")
@@ -114,18 +115,19 @@ def _passes_guardrails(symbol: str) -> bool:
         if price * day_vol < MIN_DOLLAR_VOLUME:
             return False
 
-        # RVOL gate: project today's volume to EOD vs historical daily average
-        daily = get_bars(symbol, "5d", "1d")
-        if not daily.empty and len(daily) >= 2:
-            avg_daily_vol = float(daily["volume"].iloc[:-1].mean())
-            if avg_daily_vol > 0:
-                now_et      = datetime.datetime.now(_ET)
-                mkt_open    = now_et.replace(hour=9, minute=30, second=0, microsecond=0)
-                elapsed_min = max((now_et - mkt_open).total_seconds() / 60, 1.0)
-                elapsed_frac = min(elapsed_min / 390.0, 1.0)
-                rvol = (day_vol / max(elapsed_frac, 0.02)) / avg_daily_vol
-                if rvol < RVOL_MIN:
-                    return False
+        # RVOL gate: only meaningful during regular market hours
+        if is_market_open():
+            daily = get_bars(symbol, "5d", "1d")
+            if not daily.empty and len(daily) >= 2:
+                avg_daily_vol = float(daily["volume"].iloc[:-1].mean())
+                if avg_daily_vol > 0:
+                    now_et      = datetime.datetime.now(_ET)
+                    mkt_open    = now_et.replace(hour=9, minute=30, second=0, microsecond=0)
+                    elapsed_min = max((now_et - mkt_open).total_seconds() / 60, 1.0)
+                    elapsed_frac = min(elapsed_min / 390.0, 1.0)
+                    rvol = (day_vol / max(elapsed_frac, 0.02)) / avg_daily_vol
+                    if rvol < RVOL_MIN:
+                        return False
 
         # Gap-chase guard: skip if up >15% on day without a tight 5-bar base
         open_px = float(intraday["open"].iloc[0])
@@ -243,6 +245,7 @@ def scan_tradeideas_universe():
             update_config=TRADEIDEAS_UPDATE_CONFIG_FILE,
             headless=TRADEIDEAS_HEADLESS,
             chrome_profile=TRADEIDEAS_CHROME_PROFILE or None,
+            select_30min=True,
         )
         _target_map = {v["target"]: v["label"] for v in SCANS.values()}
         for scan_key, tickers in results.items():
@@ -306,8 +309,10 @@ def scan_and_trade():
         log.info("=" * 70)
 
     if not is_market_open():
-        log.info("Market closed - skipping scan")
-        return
+        if not FORCE_SCAN:
+            log.info("Market closed - skipping scan")
+            return
+        log.warning("FORCE_SCAN active — bypassing market-hours gate")
 
     if daily_pnl <= DAILY_LOSS_LIMIT:
         log.warning(f"Daily loss limit hit: ${daily_pnl:.2f}")
@@ -624,7 +629,18 @@ if __name__ == "__main__":
         action="store_true",
         help="Run a single scan cycle and exit (used by GitHub Actions scheduled workflow)",
     )
+    parser.add_argument(
+        "--force",
+        action="store_true",
+        help="Bypass market-hours gate — scan and execute even when market is closed",
+    )
     args = parser.parse_args()
+
+    if args.force:
+        import engine.config as _cfg
+        _cfg.FORCE_SCAN = True
+        # also re-export so scan_and_trade sees it
+        globals()["FORCE_SCAN"] = True
 
     if args.once:
         log.info("=" * 70)

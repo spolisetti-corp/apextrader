@@ -26,6 +26,8 @@ from alpaca.trading.enums import OrderSide, TimeInForce, OrderClass
 from .config import (
     PDT_ACCOUNT_MIN, PDT_MAX_TRADES,
     MAX_POSITIONS,
+    SWAP_ON_FULL,
+    SWAP_MIN_CONFIDENCE,
     EXTENDED_HOURS,
     USE_DYNAMIC_TIERS,
     USE_RISK_EQUALIZED_SIZING,
@@ -113,6 +115,21 @@ class EnhancedExecutor:
         self._htb_cache:      set   = set()   # hard-to-borrow symbols — skip shorts this session
 
     # -- Position Cache ----------------------------------------------------
+    def _find_weakest_position(self) -> Optional[str]:
+        """Return the symbol of the open long position with the worst unrealized P&L %.
+        Only considers longs (no shorts) to avoid HTB complications.
+        Returns None if no closable position found."""
+        try:
+            positions = self.client.get_all_positions()
+            longs = [p for p in positions if float(p.qty) > 0]
+            if not longs:
+                return None
+            worst = min(longs, key=lambda p: float(p.unrealized_plpc))
+            return worst.symbol
+        except Exception as e:
+            log.warning(f"_find_weakest_position error: {e}")
+            return None
+
     def _get_positions(self, force_refresh: bool = False) -> PositionInfo:
         import time
         now = time.time()
@@ -163,10 +180,28 @@ class EnhancedExecutor:
         bp_capacity = max(1, int(acct.buying_power / MIN_POSITION_DOLLARS))
         effective_max = min(MAX_POSITIONS, bp_capacity)
         if positions.total_count >= effective_max:
-            return False, (
-                f"Max positions: {positions.total_count}/{effective_max} "
-                f"(config {MAX_POSITIONS}, BP ${acct.buying_power:,.0f})"
-            )
+            # ── Swap: close weakest position to make room for a better signal ──
+            if SWAP_ON_FULL and signal.confidence >= SWAP_MIN_CONFIDENCE:
+                weakest = self._find_weakest_position()
+                if weakest:
+                    log.info(
+                        f"SWAP: closing {weakest} (weakest) to make room for "
+                        f"{signal.symbol} (conf={signal.confidence:.0%})"
+                    )
+                    try:
+                        self.client.close_position(weakest)
+                    except Exception as e:
+                        log.warning(f"SWAP close failed for {weakest}: {e}")
+                        return False, f"Swap close failed: {e}"
+                else:
+                    return False, (
+                        f"Max positions: {positions.total_count}/{effective_max} — no swappable position found"
+                    )
+            else:
+                return False, (
+                    f"Max positions: {positions.total_count}/{effective_max} "
+                    f"(config {MAX_POSITIONS}, BP ${acct.buying_power:,.0f})"
+                )
 
         if positions.has_position(signal.symbol):
             if order_type == OrderType.LONG  and positions.is_long(signal.symbol):

@@ -32,7 +32,7 @@ ETRADE_SANDBOX         = os.getenv("ETRADE_SANDBOX", "false").lower() == "true"
 # Priority 1: Momentum stocks (scanned FIRST, highest allocation)
 # Priority 2: Established tech and high short-float stocks
 # Priority 3: Market ETFs for context
-# ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
+# ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
 PRIORITY_1_MOMENTUM = [
     # Extreme momentum (100%+ gainers) - HIGHEST PRIORITY
     "UGRO", "VCX", "PTLE", "BIAF", "SATL", "ELAB",
@@ -108,6 +108,9 @@ STOCKS = {
 # Trading Parameters ΓÇö Swing Trading Optimized
 # ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
 MAX_POSITIONS        = 15     # More concurrent positions for aggressive trading
+# When full, close the weakest position to make room if new signal conf > this threshold
+SWAP_ON_FULL         = True
+SWAP_MIN_CONFIDENCE  = 0.85   # Only swap out if new signal >= this confidence
 POSITION_SIZE_PCT    = 7.5    # Smaller per-trade cap to fit more positions (%)
 USE_RISK_EQUALIZED_SIZING = True
 RISK_PER_TRADE_PCT   = 0.8    # Risk 0.8% of account per trade (sniper: protect capital)
@@ -216,6 +219,10 @@ PREMARKET_START  = "07:00"
 MARKET_OPEN      = "09:30"
 MARKET_CLOSE     = "16:00"
 AFTERHOURS_END   = "20:00"
+
+# Set FORCE_SCAN=1 (env var) or pass --force CLI flag to bypass the
+# market-hours gate when a high-confidence opportunity is spotted.
+FORCE_SCAN = os.getenv("FORCE_SCAN", "false").lower() in ("1", "true", "yes")
 
 # ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
 # PDT Rules

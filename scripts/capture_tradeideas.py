@@ -245,14 +245,82 @@ def _patch_config(list_name: str, new_tickers: list[str]) -> int:
     return len(to_add)
 
 
+# ── Dropdown helper ──────────────────────────────────────────────
+def _try_select_30min(driver: "webdriver.Chrome") -> bool:
+    """
+    Attempt to select 'Change Last 30 Min (%)' from whatever dropdown
+    is present on the page.  Returns True if successful.
+    """
+    # Strategy 1: native <select>
+    try:
+        from selenium.webdriver.support.select import Select as SeleniumSelect
+        for sel_el in driver.find_elements(By.TAG_NAME, "select"):
+            for opt in sel_el.find_elements(By.TAG_NAME, "option"):
+                if "30" in opt.text and "min" in opt.text.lower():
+                    SeleniumSelect(sel_el).select_by_visible_text(opt.text)
+                    print(f"[OK   ] Dropdown selected (native <select>): {opt.text}")
+                    return True
+    except Exception:
+        pass
+
+    # Strategy 2: React custom dropdown — click trigger then option
+    try:
+        # Find the visible trigger that currently shows the label
+        trigger = WebDriverWait(driver, 6).until(
+            EC.element_to_be_clickable((By.XPATH,
+                "//*[contains(@class,'select') or contains(@class,'Select')"
+                " or contains(@class,'dropdown') or contains(@class,'Dropdown')]"
+                "[contains(normalize-space(.),'Change') or contains(normalize-space(.),'%')]"
+            ))
+        )
+        trigger.click()
+        time.sleep(1.5)
+        option = WebDriverWait(driver, 5).until(
+            EC.element_to_be_clickable((By.XPATH,
+                "//*[contains(text(),'30 Min') or contains(text(),'30 min')]"
+            ))
+        )
+        print(f"[OK   ] Dropdown selected (React): {option.text}")
+        option.click()
+        return True
+    except Exception:
+        pass
+
+    # Strategy 3: JS inject into any <select> with a 30-min option
+    try:
+        result = driver.execute_script("""
+            var selects = document.querySelectorAll('select');
+            for (var s of selects) {
+                for (var o of s.options) {
+                    if (o.text.includes('30') && o.text.toLowerCase().includes('min')) {
+                        s.value = o.value;
+                        s.dispatchEvent(new Event('change', {bubbles: true}));
+                        return o.text;
+                    }
+                }
+            }
+            return null;
+        """)
+        if result:
+            print(f"[OK   ] Dropdown selected (JS inject): {result}")
+            return True
+    except Exception:
+        pass
+
+    return False
+
+
 # ── Main scrape function ──────────────────────────────────────────
 def scrape_tradeideas(
     update_config: bool = False,
     headless: bool = False,
     chrome_profile: Optional[str] = None,
+    select_30min: bool = False,
 ) -> dict[str, list[str]]:
     """
     Scrape both Trade Ideas scan pages.
+    If select_30min=True, attempts to pick 'Change Last 30 Min (%)'
+    from the heatmap dropdown before extracting tickers.
     Returns {scan_key: [tickers, …]}.
     """
     if not SELENIUM_OK:
@@ -271,26 +339,28 @@ def scrape_tradeideas(
             print(f"\n[....] Loading {url}")
             driver.get(url)
 
-            # Wait for any table/results container to appear
-            loaded = False
+            # Wait for body/div to appear
             for sel in ["body", "div"]:
                 try:
                     WebDriverWait(driver, TABLE_WAIT_SEC).until(
                         EC.presence_of_element_located((By.CSS_SELECTOR, sel))
                     )
-                    loaded = True
                     break
                 except Exception:
                     continue
 
-            if not loaded:
-                time.sleep(PAGE_LOAD_SEC)
-
             # Grace period for React heatmap to fully render
-            time.sleep(14)
+            time.sleep(10)
+
+            # Optionally select 'Change Last 30 Min (%)' dropdown
+            if select_30min:
+                found = _try_select_30min(driver)
+                if not found:
+                    print("[WARN ] Could not find 30-min dropdown — scraping current view")
+                else:
+                    time.sleep(6)   # wait for tiles to refresh after selection
 
             tickers = _extract_tickers(driver)
-
             results[scan_key] = tickers
             print(f"[OK   ] {scan_key}: {len(tickers)} tickers — {tickers[:10]}{'…' if len(tickers)>10 else ''}")
 
@@ -301,14 +371,17 @@ def scrape_tradeideas(
                 else:
                     print(f"[INFO ] config.py: all tickers already present in {scan['target']}")
 
-            # Navigate away so the tab goes blank immediately (no lingering TI UI)
+            # Navigate away so the tab goes blank
             try:
                 driver.get("about:blank")
             except Exception:
                 pass
 
     finally:
-        driver.quit()
+        try:
+            driver.quit()
+        except Exception:
+            pass
         print("[OK   ] Browser closed.")
 
     return results
@@ -335,6 +408,10 @@ def main() -> None:
         "--chrome-profile", metavar="PROFILE", default=None,
         help='Use an existing Chrome profile, e.g. "Default" (keeps TI login session)',
     )
+    parser.add_argument(
+        "--30min", dest="select_30min", action="store_true",
+        help="Select 'Change Last 30 Min (%%)' dropdown on each page before scraping",
+    )
     args = parser.parse_args()
 
     if args.loop > 0:
@@ -344,6 +421,7 @@ def main() -> None:
                 update_config=args.update_config,
                 headless=args.headless,
                 chrome_profile=args.chrome_profile,
+                select_30min=args.select_30min,
             )
             print(f"[INFO ] Sleeping {args.loop}s …")
             time.sleep(args.loop)
@@ -352,6 +430,7 @@ def main() -> None:
             update_config=args.update_config,
             headless=args.headless,
             chrome_profile=args.chrome_profile,
+            select_30min=args.select_30min,
         )
 
 
