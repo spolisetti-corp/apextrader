@@ -2,6 +2,22 @@
 
 Developer-focused trading automation framework for Alpaca + E*TRADE.
 
+## Release 1.0.0 - Initial Release
+
+- Initial stable core: live scanning, strategy execution, risk controls, and EOD reporting.
+- Supports multiple momentum and breakout strategies with Alpaca + E*TRADE execution paths.
+- Built-in trail stop, profit targets, and daily P/L caps.
+- Logging and email notifications for trades + discovery snapshots.
+
+### Upcoming: Options Integration
+
+- Planned support for options chains, implied volatility filters, and delta-based position sizing.
+- Automatic options leg construction (calls/puts, spreads, iron condors) in next milestone.
+- Integration roadmap:
+  1. `engine/options.py` module for market data and Greeks.
+  2. `engine/strategies.py` options strategy classes (skew, volatility breakouts).
+  3. order manager extension in `engine/executor_enhanced.py` for options order types.
+
 ## Why ApexTrader?
 
 - modular design for easy strategy/parameter swapping
