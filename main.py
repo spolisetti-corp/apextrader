@@ -411,11 +411,11 @@ def scan_and_trade():
                 spy_price = float(spy_hist["Close"].iloc[-1])
                 spy_ma200 = float(spy_hist["Close"].rolling(200).mean().iloc[-1])
                 if spy_price < spy_ma200:
-                    signals_cap = 0
+                    signals_cap = MAX_SIGNALS_PER_CYCLE
                     market_regime = "bear"
                     log.info(
                         f"BEAR REGIME: SPY ${spy_price:.2f} < 200MA ${spy_ma200:.2f} "
-                        f"— pausing new entries; existing stops will manage open positions"
+                        f"— swap-only mode; no new entries unless at max capacity"
                     )
                 else:
                     market_regime = "bull"
@@ -492,11 +492,12 @@ def scan_and_trade():
             log.warning(f"Scan notification email failed: {email_err}")
 
         top_signals = eligible[:signals_cap]
-        log.info(f"Executing top {len(top_signals)} eligible signal(s) (cap={signals_cap})")
+        swap_only = (market_regime == "bear")
+        log.info(f"Executing top {len(top_signals)} eligible signal(s) (cap={signals_cap}, swap_only={swap_only})")
 
         for sig in top_signals:
             log.info(f"EXECUTE: {sig.action.upper()} {sig.symbol} @ ${sig.price:.2f} | {sig.strategy} | {sig.reason}")
-            executor.execute(sig)
+            executor.execute(sig, swap_only=swap_only)
             time.sleep(1)
             trades += 1
     else:

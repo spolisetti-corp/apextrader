@@ -159,7 +159,7 @@ class EnhancedExecutor:
         return self._account_cache
 
     # -- Validation --------------------------------------------------------
-    def _validate_trade(self, signal: Signal, acct: AccountSnapshot, order_type: OrderType) -> Tuple[bool, Optional[str]]:
+    def _validate_trade(self, signal: Signal, acct: AccountSnapshot, order_type: OrderType, swap_only: bool = False) -> Tuple[bool, Optional[str]]:
         if USE_VIX_ROC_FILTER:
             allow, roc = check_vix_roc_filter()
             if not allow:
@@ -181,6 +181,9 @@ class EnhancedExecutor:
         # Dynamic max positions: cap by buying power capacity
         bp_capacity = max(1, int(acct.buying_power / MIN_POSITION_DOLLARS))
         effective_max = min(MAX_POSITIONS, bp_capacity)
+        if swap_only and positions.total_count < effective_max:
+            return False, "Bear regime: swap-only mode — no new entries until at max capacity"
+
         if positions.total_count >= effective_max:
             # ── Swap: close weakest position to make room for a better signal ──
             if SWAP_ON_FULL and signal.confidence >= SWAP_MIN_CONFIDENCE:
@@ -355,8 +358,8 @@ class EnhancedExecutor:
             return False
 
     # -- Entry (unified) ---------------------------------------------------
-    def _execute_entry(self, signal: Signal, acct: AccountSnapshot, order_type: OrderType) -> bool:
-        valid, reason = self._validate_trade(signal, acct, order_type)
+    def _execute_entry(self, signal: Signal, acct: AccountSnapshot, order_type: OrderType, swap_only: bool = False) -> bool:
+        valid, reason = self._validate_trade(signal, acct, order_type, swap_only=swap_only)
         if not valid:
             if reason:
                 log.info(f"Skip {signal.symbol}: {reason}")
@@ -399,7 +402,7 @@ class EnhancedExecutor:
         return False
 
     # -- Public: Execute ---------------------------------------------------
-    def execute(self, signal: Signal) -> bool:
+    def execute(self, signal: Signal, swap_only: bool = False) -> bool:
         try:
             acct      = self._get_account()
             positions = self._get_positions()
@@ -407,12 +410,12 @@ class EnhancedExecutor:
             if signal.action == "buy":
                 if positions.has_position(signal.symbol) and positions.is_short(signal.symbol):
                     return self._close_short_position(signal, acct.equity)
-                return self._execute_entry(signal, acct, OrderType.LONG)
+                return self._execute_entry(signal, acct, OrderType.LONG, swap_only=swap_only)
 
             elif signal.action == "sell":
                 if positions.has_position(signal.symbol) and positions.is_long(signal.symbol):
                     return self._close_long_position(signal, acct.equity)
-                return self._execute_entry(signal, acct, OrderType.SHORT)
+                return self._execute_entry(signal, acct, OrderType.SHORT, swap_only=swap_only)
 
         except Exception as e:
             log.error(f"Execute error {signal.symbol}: {e}")
