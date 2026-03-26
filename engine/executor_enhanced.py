@@ -469,7 +469,7 @@ class EnhancedExecutor:
                     return self._close_short_position(signal, acct.equity)
                 return self._execute_entry(signal, acct, OrderType.LONG, swap_only=swap_only)
 
-            elif signal.action == "sell":
+            elif signal.action in ("sell", "short"):
                 if positions.has_position(signal.symbol) and positions.is_long(signal.symbol):
                     return self._close_long_position(signal, acct.equity)
                 return self._execute_entry(signal, acct, OrderType.SHORT, swap_only=swap_only)

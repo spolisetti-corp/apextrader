@@ -30,7 +30,7 @@ ET = pytz.timezone("America/New_York")
 @dataclass
 class Signal:
     symbol:     str
-    action:     str    # 'buy' or 'sell'
+    action:     str    # 'buy', 'sell' (close-long or enter-short), or 'short' (enter-short)
     price:      float
     confidence: float
     reason:     str
