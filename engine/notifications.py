@@ -26,11 +26,13 @@ def _build_html_section(title: str, content: str) -> str:
 def _build_positions_table(positions) -> str:
     if not positions:
         return "<p>No open positions at EOD.</p>"
+
+    sorted_positions = sorted(positions, key=lambda p: float(p.unrealized_pl), reverse=True)
     rows = "".join(
         f"<tr><td>{p.symbol}</td><td>{p.qty}</td><td>${float(p.avg_entry_price):,.2f}</td>"
         f"<td>{float(p.current_price):,.2f}</td><td>{float(p.unrealized_pl):,.2f}</td>"  # type: ignore
         f"<td>{float(p.unrealized_plpc) * 100:.2f}%</td></tr>"
-        for p in positions
+        for p in sorted_positions
     )
     return (
         "<table border='1' cellpadding='5' cellspacing='0' style='border-collapse:collapse;'>"
@@ -47,6 +49,7 @@ def build_eod_report(
     total_trades: int,
     eod_close_summary: Dict,
     positions,
+    discovery_tickers: Optional[List[Dict]] = None,
 ) -> Dict[str, str]:
     # Plain text summary
     txt = []
@@ -78,13 +81,27 @@ def build_eod_report(
     txt.append("")
     txt.append("Open Positions:")
     if positions:
-        for p in positions:
+        sorted_positions = sorted(positions, key=lambda p: float(p.unrealized_pl), reverse=True)
+        for p in sorted_positions:
             txt.append(
                 f"  - {p.symbol}: {p.qty} sh @ ${float(p.avg_entry_price):,.2f} | "
                 f"Unrealized {_format_currency(float(p.unrealized_pl))} ({float(p.unrealized_plpc)*100:.2f}%)"
             )
     else:
         txt.append("  - None")
+
+    txt.append("")
+    txt.append("Latest Scan Candidates:")
+    if discovery_tickers:
+        sorted_candidates = sorted(discovery_tickers, key=lambda t: float(t.get('momentum_pct', 0)), reverse=True)
+        for t in sorted_candidates[:12]:
+            symbol = t.get('symbol', 'N/A')
+            mp = float(t.get('momentum_pct', 0))
+            cp = float(t.get('current_price', 0)) if t.get('current_price') is not None else 0
+            sentiment = t.get('sentiment', 'n/a')
+            txt.append(f"  - {symbol}: momentum={mp:+.1f}% | price=${cp:,.2f} | sentiment={sentiment}")
+    else:
+        txt.append("  - none (no live discovery data)")
 
     # HTML summary
     subject_prefix = _get_env('EMAIL_SUBJECT_PREFIX', 'ApexTrader EOD Report')
@@ -112,15 +129,35 @@ def build_eod_report(
     html.append(f"<p style='margin:0; font-size:14px; color:#6b3b00;'>Daily P&L: <strong>{_format_currency(daily_pnl)}</strong><br>Trades Today: <strong>{total_trades}</strong></p>")
     html.append("</div>")
 
+    html.append("<div style='background:linear-gradient(135deg, #232931, #3f72af);color:#e8f1ff;padding:14px;border-radius:12px;border:1px solid #5271c9;margin-bottom:16px;'>")
+    html.append("<h3 style='margin:0 0 8px;font-size:16px;'>🔥 Latest Scrape/Discovery Candidates</h3>")
+    if discovery_tickers:
+        html.append("<ul style='margin:0;padding-left:20px;color:#f1f5ff;font-size:13px;'>")
+        sorted_candidates = sorted(discovery_tickers, key=lambda t: float(t.get('momentum_pct', 0)), reverse=True)
+        for t in sorted_candidates[:12]:
+            symbol = t.get('symbol', 'N/A')
+            mp = float(t.get('momentum_pct', 0))
+            cp = float(t.get('current_price', 0)) if t.get('current_price') is not None else 0
+            sentiment = t.get('sentiment', 'n/a')
+            html.append(f"<li style='margin-bottom:4px;'><strong>{symbol}</strong> — {mp:+.1f}% | ${cp:,.2f} | sentiment: {sentiment}</li>")
+        html.append("</ul>")
+    else:
+        html.append("<p style='margin:0;color:#c5d6ff;font-size:13px;'>No recent discovery tickers available.</p>")
+    html.append("</div>")
+
     # Fancy position table
     html.append("<div style='margin-bottom:20px;'><h3 style='font-size:16px;color:#223f70;margin-bottom:8px;'>Open Positions</h3>")
     html.append("<table style='width:100%;border-collapse:collapse;font-size:13px;line-height:1.3;'>")
     html.append("<thead style='background:#e6eefb;color:#082a56;'><tr><th style='padding:8px;border:1px solid #c3d2eb;'>Symbol</th><th style='padding:8px;border:1px solid #c3d2eb;'>Qty</th><th style='padding:8px;border:1px solid #c3d2eb;'>Entry</th><th style='padding:8px;border:1px solid #c3d2eb;'>Current</th><th style='padding:8px;border:1px solid #c3d2eb;'>P/L</th><th style='padding:8px;border:1px solid #c3d2eb;'>P/L %</th></tr></thead>")
     if positions:
+        sorted_positions = sorted(positions, key=lambda p: float(p.unrealized_pl), reverse=True)
         html.append("<tbody>")
-        for idx, p in enumerate(positions):
+        for idx, p in enumerate(sorted_positions):
             row_bg = '#fdfdff' if idx % 2 == 0 else '#f4f8ff'
-            html.append(f"<tr style='background:{row_bg};'><td style='padding:8px;border:1px solid #e2e9f9;'>{p.symbol}</td><td style='padding:8px;border:1px solid #e2e9f9;'>{p.qty}</td><td style='padding:8px;border:1px solid #e2e9f9;'>${float(p.avg_entry_price):,.2f}</td><td style='padding:8px;border:1px solid #e2e9f9;'>${float(p.current_price):,.2f}</td><td style='padding:8px;border:1px solid #e2e9f9;'>{_format_currency(float(p.unrealized_pl))}</td><td style='padding:8px;border:1px solid #e2e9f9;'>{float(p.unrealized_plpc) * 100:.2f}%</td></tr>")
+            pl_value = float(p.unrealized_pl)
+            pl_color = '#118032' if pl_value >= 0 else '#b00000'
+            val_pct = float(p.unrealized_plpc) * 100
+            html.append(f"<tr style='background:{row_bg};'><td style='padding:8px;border:1px solid #e2e9f9;'>{p.symbol}</td><td style='padding:8px;border:1px solid #e2e9f9;'>{p.qty}</td><td style='padding:8px;border:1px solid #e2e9f9;'>${float(p.avg_entry_price):,.2f}</td><td style='padding:8px;border:1px solid #e2e9f9;'>${float(p.current_price):,.2f}</td><td style='padding:8px;border:1px solid #e2e9f9;color:{pl_color};font-weight:600;'>{_format_currency(pl_value)}</td><td style='padding:8px;border:1px solid #e2e9f9;color:{pl_color};font-weight:600;'>{val_pct:.2f}%</td></tr>")
         html.append("</tbody>")
     else:
         html.append("<tbody><tr><td colspan='6' style='padding:8px;border:1px solid #e2e9f9;text-align:center;color:#667089;'>No open positions</td></tr></tbody>")
@@ -133,7 +170,7 @@ def build_eod_report(
         eod_html = "<p>No EOD close trades</p>"
     html.append(_build_html_section("EOD Close Trades", eod_html))
 
-    html.append(_build_html_section("Open Positions", _build_positions_table(positions)))
+    # Avoid duplicate open positions table; already included above in fancy section
     html.append("</body></html>")
 
     subject = f"{subject_prefix} - {report_date.isoformat()}"

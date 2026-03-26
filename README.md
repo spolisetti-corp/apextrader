@@ -1,73 +1,122 @@
 # ApexTrader 🚀
 
-Professional automated trading system with multi-strategy signal generation, tiered risk management, and PDT compliance.
+Developer-focused trading automation framework for Alpaca + E*TRADE.
 
-## Features
+## Why ApexTrader?
 
-| Feature | Detail |
-|---|---|
-| **Strategies** | Sweepea (Liquidity Sweep + Pinbar), Technical (RSI/MACD/MA), Momentum |
-| **Brokers** | Alpaca (stocks + options), E\*TRADE (stocks) |
-| **Order Types** | Bracket orders (auto SL/TP), Market, Limit (extended hours) |
-| **Risk Sizing** | ATR-based dynamic tiers · Risk-equalized position sizing |
-| **PDT Guard** | Rolling 7-day trade counter · Equity-threshold bypass |
-| **Adaptive Scan** | VIX-based intervals · Market-hours tuning · Position-count tuning |
-| **Extended Hours** | Pre-market 7 AM – After-hours 8 PM ET |
+- modular design for easy strategy/parameter swapping
+- adaptive scanning by volatility and market regime
+- robust risk controls (daily loss, profit target, PDT)
+- EOD report email with rich HTML (open positions, P&L, discovery candidates)
+- ready for backtesting/extension and integration with live broker accounts
 
-## Project Structure
+## Available strategies
 
-```
-apextrader/
-├── apextrader/
-│   ├── __init__.py
-│   ├── config.py              # All parameters & universe
-│   ├── strategies.py          # Sweepea, Technical, Momentum
-│   ├── executor_enhanced.py   # Order execution & PDT tracking
-│   ├── broker_factory.py      # Alpaca / E*TRADE factory
-│   └── utils.py               # Bars, indicators, sizing, VIX
-├── main.py                    # Entry point
-├── requirements.txt
-├── .env.example
-└── README.md
-```
+1. `SweepeaStrategy` — liquidity sweep + momentum pin-bar setups
+2. `GapBreakoutStrategy` — gap and range breakout
+3. `ORBStrategy` — opening range breakouts with follow-through logic
+4. `VWAPReclaimStrategy` — reclaim above VWAP with trigger levels
+5. `FloatRotationStrategy` — high float momentum rotation
+6. `TechnicalStrategy` — RSI/MACD/MA trend confirmations
+7. `MomentumStrategy` — pure momentum scoring
 
-## Quick Start
+## Quick local install (developers)
 
-```bash
-# 1. Clone & install
+```powershell
+# clone
 git clone <repo-url> apextrader
 cd apextrader
+
+# venv
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1  # PowerShell
+# Linux/macOS: source .venv/bin/activate
+
+# dependencies
 pip install -r requirements.txt
 
-# 2. Configure credentials
-cp .env.example .env
-# Edit .env with your Alpaca (or E*TRADE) credentials
+# env vars
+copy .env.example .env
+# edit .env with Alpaca/E*TRADE keys + optional email settings
+```
 
-# 3. Run (paper trading by default)
+### Run
+
+```powershell
+# single scan
+python main.py --once
+
+# normal loop
 python main.py
+
+# force run outside market hours
+python main.py --force
 ```
 
-## Configuration
+## Customize behavior (quick map)
 
-All parameters live in `apextrader/config.py`. Key settings:
+- `engine/config.py`: all runtime constants (scan intervals, volume filters, risk caps)
+- `main.py`: orchestration (scanning, execution, EOD close, notifications)
+- `engine/utils.py`: data services (`get_bars`, trend discovery, vix, alerts)
+- `engine/strategies.py`: strategy definitions for each entry/exit model
+- `engine/executor_enhanced.py`: order execution + profit/loss accounting + position protection
+- `engine/notifications.py`: EOD report templating + SMTP send
 
-```python
-MAX_POSITIONS       = 8       # Max concurrent positions
-RISK_PER_TRADE_PCT  = 1.0     # % of equity risked per trade
-DAILY_LOSS_LIMIT    = -500.0  # Stop trading if daily loss exceeds this
-DAILY_PROFIT_TARGET = 3500.0  # Stop trading once daily target is hit
-PAPER               = True    # Switch to False for live trading
+## EOD Email Configuration (as in .env)
+
+- `USE_EMAIL_NOTIFICATIONS=true`
+- `EMAIL_SMTP_SERVER` (smtp.gmail.com)
+- `EMAIL_SMTP_PORT=587`
+- `EMAIL_SMTP_USER` / `EMAIL_SMTP_PASSWORD`
+- `EMAIL_FROM_ADDRESS` / `EMAIL_TO_ADDRESSES`
+- `EMAIL_SUBJECT_PREFIX` (optional)
+
+### EOD report contents
+
+- market sentiment (SPY/VIX)
+- account snapshot (equity/buying power/PDT)
+- daily P&L + trades executed
+- closed positions (qty, strategy, P&L)
+- open positions table (sorted by unrealized P&L desc)
+- discovery candidates with momentum + sentiment in a bright card
+
+### Test harness
+
+```powershell
+python temp_notify_test.py
+python temp_notify_test_live.py
 ```
 
-## Tier System
+## Quick behavior references
 
-| Tier | ATR% | Take Profit | Trailing Stop |
-|---|---|---|---|
-| EXTREME | ≥ 7% | 50% | 15% |
-| HIGH | ≥ 5% | 40% | 10% |
-| MEDIUM | ≥ 3% | 35% | 7% |
-| NORMAL | < 3% | 25% | 5% |
+- `scan_trending_stocks()` updates `trending_stocks` from live sources
+- `scan_tradeideas_universe()` scrapes TradeIdeas if enabled
+- `scan_and_trade()` includes guardrails, filters, scanning, and execution
+- `report = build_eod_report(..., discovery_tickers=trending_stocks)`
+- `send_email(...)` uses SMTP with fallback plain text
 
-## ⚠️ Disclaimer
+## Performance & optimization roadmap
 
-This software is for **educational purposes only**. Trading involves significant risk of loss. Always test thoroughly on paper accounts before using real capital. Past performance does not guarantee future results.
+1. Refactor `main.py`: `scan_cycle()`, `signal_pipeline()`, `execute_actions()`, `eod_report()`
+2. Add type hints / mypy for easy maintainability
+3. Add tests for `engine/notifications.py`, `engine/utils.py`, `executor_enhanced` logic
+4. Cache API calls with `functools.lru_cache` or TTL to reduce repeated requests
+5. Add structured metrics and logging (scan duration, API rate, trade latency)
+
+## Optional commands
+
+- update symbol universe:
+  - `PRIORITY_1_MOMENTUM` and `PRIORITY_2_ESTABLISHED` in `engine/config.py`
+
+- live trend toggles (`True`/`False` in `.env`):
+  - `USE_LIVE_TRENDING`
+  - `USE_FINNHUB_DISCOVERY`
+  - `USE_TRADEIDEAS_DISCOVERY`
+
+- risk controls:
+  - `DAILY_LOSS_LIMIT`, `DAILY_PROFIT_TARGET`, `MAX_POSITIONS`, `RISK_PER_TRADE_PCT`
+
+## Disclaimer
+
+This software is for educational purposes. Trading carries risk; test in paper-mode first.
+

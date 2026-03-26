@@ -626,6 +626,7 @@ def start():
                             total_trades=trades,
                             eod_close_summary=eod_summary,
                             positions=positions,
+                            discovery_tickers=trending_stocks,
                         )
 
                         sent = send_email(report["subject"], report["text"], report["html"])
