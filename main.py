@@ -605,6 +605,7 @@ def start():
 
             if (time.time() - last_scan) >= (current_interval * 60):
                 executor.protect_positions()
+                executor.close_eod_positions()
                 try:
                     scan_and_trade()
                 except Exception as e:

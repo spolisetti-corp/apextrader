@@ -35,9 +35,10 @@ from .config import (
     MIN_BUYING_POWER_PCT, MIN_POSITION_DOLLARS, PDT_WARN_AT_REMAINING,
     TAKE_PROFIT_NORMAL, TAKE_PROFIT_HIGH, STOP_LOSS_PCT,
     ATR_TP_RATIO, MAX_SHORT_FLOAT_PCT, HIGH_SHORT_FLOAT_STOCKS,
+    EOD_CLOSE_ENABLED, EOD_CLOSE_TIME, EOD_CLOSE_STRATEGIES,
 )
 from .strategies import Signal
-from .utils import is_regular_hours, calculate_risk_adjusted_size, check_vix_roc_filter
+from .utils import is_regular_hours, calculate_risk_adjusted_size, check_vix_roc_filter, get_dynamic_tier
 
 log = logging.getLogger("ApexTrader")
 
@@ -113,6 +114,7 @@ class EnhancedExecutor:
         self._account_cache:  Optional[AccountSnapshot] = None
         self._account_ttl:    float = 10.0
         self._htb_cache:      set   = set()   # hard-to-borrow symbols — skip shorts this session
+        self._entry_log:   Dict[str, dict] = {}  # {symbol: {"strategy": str, "date": date}}
 
     # -- Position Cache ----------------------------------------------------
     def _find_weakest_position(self) -> Optional[str]:
@@ -382,12 +384,14 @@ class EnhancedExecutor:
         if self.use_bracket_orders and is_regular_hours():
             if self._create_bracket_order(signal, shares, risk_info, order_type):
                 self.pdt.add(datetime.date.today())
+                self._entry_log[signal.symbol] = {"strategy": signal.strategy, "date": datetime.date.today()}
                 self._get_positions(force_refresh=True)
                 self._get_account(force_refresh=True)
                 return True
 
         if self._create_simple_order(signal, shares, order_type):
             self.pdt.add(datetime.date.today())
+            self._entry_log[signal.symbol] = {"strategy": signal.strategy, "date": datetime.date.today()}
             self._get_positions(force_refresh=True)
             self._get_account(force_refresh=True)
             return True
@@ -496,11 +500,20 @@ class EnhancedExecutor:
                 current      = float(pos.current_price)
                 is_long_pos  = qty > 0
 
+                # Use tiered TP and trailing stop based on ATR volatility tier
+                tier_info  = get_dynamic_tier(sym, current)
+                tp_pct     = tier_info["tp"]
+                trail_pct  = tier_info["ts"]
+                tier_label = tier_info["tier"]
+
                 if is_long_pos:
-                    tp_price = round(entry   * (1 + TAKE_PROFIT_HIGH / 100), 2)
-                    sl_raw   = round(entry   * (1 - STOP_LOSS_PCT    / 100), 2)
-                    # SL must be strictly below current price for a sell-stop
-                    sl_price = sl_raw if sl_raw < current else round(current * (1 - STOP_LOSS_PCT / 100), 2)
+                    tp_price = round(entry * (1 + tp_pct / 100), 2)
+                    # Trail from current price if in profit, else from entry
+                    trail_base = current if current > entry else entry
+                    sl_price   = round(trail_base * (1 - trail_pct / 100), 2)
+                    # Must be strictly below current for a sell-stop
+                    if sl_price >= current:
+                        sl_price = round(current * (1 - trail_pct / 100), 2)
                     self.client.submit_order(LimitOrderRequest(
                         symbol=sym, qty=avail, side=OrderSide.SELL,
                         limit_price=tp_price, time_in_force=TimeInForce.GTC,
@@ -509,12 +522,15 @@ class EnhancedExecutor:
                         symbol=sym, qty=avail, side=OrderSide.SELL,
                         stop_price=sl_price, time_in_force=TimeInForce.GTC,
                     ))
-                    log.info(f"PROTECT LONG  {sym}: TP ${tp_price:.2f} (+{TAKE_PROFIT_HIGH:.0f}%) | SL ${sl_price:.2f}")
+                    log.info(f"PROTECT LONG  {sym} [{tier_label}]: TP ${tp_price:.2f} (+{tp_pct:.0f}%) | trail-SL ${sl_price:.2f} (-{trail_pct:.0f}%)")
                 else:
-                    tp_price = round(entry   * (1 - TAKE_PROFIT_HIGH / 100), 2)
-                    sl_raw   = round(entry   * (1 + STOP_LOSS_PCT    / 100), 2)
-                    # SL must be strictly above current price for a buy-stop (short cover)
-                    sl_price = sl_raw if sl_raw > current else round(current * (1 + STOP_LOSS_PCT / 100), 2)
+                    tp_price = round(entry * (1 - tp_pct / 100), 2)
+                    # Trail from current price if in profit (current < entry for short), else from entry
+                    trail_base = current if current < entry else entry
+                    sl_price   = round(trail_base * (1 + trail_pct / 100), 2)
+                    # Must be strictly above current for a buy-stop
+                    if sl_price <= current:
+                        sl_price = round(current * (1 + trail_pct / 100), 2)
                     self.client.submit_order(LimitOrderRequest(
                         symbol=sym, qty=avail, side=OrderSide.BUY,
                         limit_price=tp_price, time_in_force=TimeInForce.GTC,
@@ -523,11 +539,62 @@ class EnhancedExecutor:
                         symbol=sym, qty=avail, side=OrderSide.BUY,
                         stop_price=sl_price, time_in_force=TimeInForce.GTC,
                     ))
-                    log.info(f"PROTECT SHORT {sym}: TP ${tp_price:.2f} (-{TAKE_PROFIT_HIGH:.0f}%) | SL ${sl_price:.2f}")
+                    log.info(f"PROTECT SHORT {sym} [{tier_label}]: TP ${tp_price:.2f} (-{tp_pct:.0f}%) | trail-SL ${sl_price:.2f} (+{trail_pct:.0f}%)")
             except Exception as e:
                 log.error(f"protect_positions {sym}: {e}")
 
-    # ΓöÇΓöÇ Health ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
+    # ── EOD Close ─────────────────────────────────────────────────────────────
+    def close_eod_positions(self) -> None:
+        """Close all intraday-strategy positions at EOD_CLOSE_TIME.
+        Targets FloatRotation, GapBreakout, ORB, VWAPReclaim opened today."""
+        if not EOD_CLOSE_ENABLED:
+            return
+
+        import pytz
+        now_et = datetime.datetime.now(pytz.timezone("America/New_York"))
+        close_h, close_m = map(int, EOD_CLOSE_TIME.split(":"))
+        if now_et.hour < close_h or (now_et.hour == close_h and now_et.minute < close_m):
+            return  # Not yet EOD close time
+        if now_et.hour >= 16:
+            return  # Market already closed
+
+        today = datetime.date.today()
+        try:
+            positions = self.client.get_all_positions()
+        except Exception as e:
+            log.error(f"close_eod_positions: fetch failed: {e}")
+            return
+
+        for pos in positions:
+            sym = pos.symbol
+            qty = int(float(pos.qty))
+            if qty == 0:
+                continue
+
+            entry_info = self._entry_log.get(sym)
+            if not entry_info:
+                continue
+            if entry_info.get("date") != today:
+                continue
+            if entry_info.get("strategy") not in EOD_CLOSE_STRATEGIES:
+                continue
+
+            try:
+                side = OrderSide.SELL if qty > 0 else OrderSide.BUY
+                req  = MarketOrderRequest(
+                    symbol=sym, qty=abs(qty),
+                    side=side, time_in_force=TimeInForce.DAY,
+                )
+                self.client.submit_order(req)
+                self._entry_log.pop(sym, None)
+                log.info(
+                    f"EOD CLOSE {sym}: {abs(qty)} shares | "
+                    f"strategy={entry_info['strategy']} | P&L ${float(pos.unrealized_pl):.2f}"
+                )
+            except Exception as e:
+                log.error(f"EOD close failed {sym}: {e}")
+
+    # ── Health ─────────────────────────────────────────────────────────────────
     def get_health(self) -> Dict:
         try:
             acct = self._get_account(force_refresh=True)

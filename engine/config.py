@@ -224,7 +224,20 @@ AFTERHOURS_END   = "20:00"
 # market-hours gate when a high-confidence opportunity is spotted.
 FORCE_SCAN = os.getenv("FORCE_SCAN", "false").lower() in ("1", "true", "yes")
 
-# ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
+# ─────────────────────────────────────────────────────────────────
+# EOD (End-of-Day) Position Close
+# Intraday strategies should never be held overnight — close by EOD_CLOSE_TIME
+# ─────────────────────────────────────────────────────────────────
+EOD_CLOSE_ENABLED    = True
+EOD_CLOSE_TIME       = "15:50"   # Close intraday positions 10 min before market close
+EOD_CLOSE_STRATEGIES = {         # Strategy names that must be closed same day
+    "FloatRotation",
+    "GapBreakout",
+    "ORB",
+    "VWAPReclaim",
+}
+
+# ─────────────────────────────────────────────────────────────────
 # PDT Rules
 # ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
 PDT_ACCOUNT_MIN = 25000.0
