@@ -191,11 +191,11 @@ SENTIMENT_BULLISH_THRESHOLD = 0.6
 # Trade Ideas Discovery
 # Scrapes TIPro highshortfloat + marketscope360 with Selenium.
 # Requires: pip install selenium webdriver-manager pillow
-USE_TRADEIDEAS_DISCOVERY      = __import__('os').getenv('USE_TRADEIDEAS_DISCOVERY', 'false').lower() == 'true'
-TRADEIDEAS_SCAN_INTERVAL_MIN  = 30
+USE_TRADEIDEAS_DISCOVERY      = __import__('os').getenv('USE_TRADEIDEAS_DISCOVERY', 'true').lower() == 'true'
+TRADEIDEAS_SCAN_INTERVAL_MIN  = 15
 TRADEIDEAS_HEADLESS           = True
 TRADEIDEAS_CHROME_PROFILE     = __import__('os').getenv('TRADEIDEAS_CHROME_PROFILE', '')
-TRADEIDEAS_UPDATE_CONFIG_FILE = False
+TRADEIDEAS_UPDATE_CONFIG_FILE = True
 
 # ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
 # Daily Limits
