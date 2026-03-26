@@ -191,6 +191,16 @@ class EnhancedExecutor:
         if order_type == OrderType.SHORT and signal.symbol in self._htb_cache:
             return False, f"{signal.symbol} hard-to-borrow (cached)"
 
+        # Asset tradability check: skip halted or suspended symbols
+        try:
+            asset = self.client.get_asset(signal.symbol)
+            if str(getattr(asset, "status", "active")).lower() != "active":
+                return False, f"{signal.symbol} not tradable: asset status={getattr(asset, 'status', 'unknown')}"
+            if not getattr(asset, "tradable", True):
+                return False, f"{signal.symbol} not tradable: asset.tradable=False"
+        except Exception as e:
+            log.warning(f"{signal.symbol}: asset status check failed ({e}) — proceeding cautiously")
+
         # Pending order guard: don't submit a second order if one is already live/filling
         if signal.symbol in self.order_cache:
             cached_id = self.order_cache[signal.symbol]
@@ -714,6 +724,24 @@ class EnhancedExecutor:
                 time.sleep(0.3)
 
                 if regular:
+                    # If the original was a limit buy and the limit was more than 1%
+                    # below the current ask, the order was defensive/passive — don't
+                    # blast it to market (bad fill); just cancel and let the next
+                    # scan cycle re-evaluate.
+                    orig_limit = float(getattr(order, "limit_price", None) or 0)
+                    if orig_limit > 0 and str(order_type).lower() == "limit":
+                        try:
+                            quote = self.client.get_latest_quote(sym)
+                            cur_ask = float(getattr(quote, "ask_price", orig_limit))
+                        except Exception:
+                            cur_ask = orig_limit
+                        if cur_ask > 0 and orig_limit < cur_ask * 0.99:
+                            log.info(
+                                f"STALE ORDER {sym}: limit ${orig_limit:.2f} is defensive "
+                                f"(ask=${cur_ask:.2f}) — cancelling without re-entry"
+                            )
+                            continue  # skip re-submit; cancelled above
+
                     req = MarketOrderRequest(
                         symbol=sym, qty=qty, side=side,
                         time_in_force=TimeInForce.DAY,

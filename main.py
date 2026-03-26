@@ -107,9 +107,10 @@ def _save_quarterly_state():
 
 _load_quarterly_state()
 
-trending_stocks    = []
-last_trending_scan = 0
-last_ti_scan       = 0
+trending_stocks     = []
+last_trending_scan  = 0
+last_ti_scan        = 0
+_last_market_regime: str = "bull"  # retained across cycles; never resets to bull on error
 
 
 # ── Market Sentiment ────────────────────────────────────────────
@@ -461,8 +462,9 @@ def scan_and_trade():
     )
 
     # ── Market regime filter: SPY vs 200-day MA ──────────────────────
+    global _last_market_regime
     signals_cap = MAX_SIGNALS_PER_CYCLE
-    market_regime = "bull"  # default; updated below
+    market_regime = _last_market_regime  # retain previous; never default to bull on error
     if USE_MARKET_REGIME_FILTER:
         try:
             spy_hist = yf.Ticker("SPY").history(period="1y", interval="1d")
@@ -472,46 +474,19 @@ def scan_and_trade():
                 if spy_price < spy_ma200:
                     signals_cap = MAX_SIGNALS_PER_CYCLE
                     market_regime = "bear"
+                    _last_market_regime = market_regime
                     log.info(
                         f"BEAR REGIME: SPY ${spy_price:.2f} < 200MA ${spy_ma200:.2f} "
                         f"— swap-only mode; no new entries unless at max capacity"
                     )
                 else:
                     market_regime = "bull"
+                    _last_market_regime = market_regime
                     log.info(f"BULL REGIME: SPY ${spy_price:.2f} > 200MA ${spy_ma200:.2f}")
+            else:
+                log.warning("Market regime: insufficient SPY history — retaining previous regime")
         except Exception as e:
-            log.warning(f"Market regime check failed: {e}")
-
-    # ── Per-symbol scanner (runs in thread pool) ──────────────────────
-    def _scan_one(symbol: str):
-        # Pre-scan guardrails: RVOL, dollar-volume, gap-chase
-        if not _passes_guardrails(symbol):
-            return None
-        # Run ALL strategies; return the highest-confidence signal
-        candidates = []
-        for scanner in [gap_breakout.scan, orb.scan, float_rotation.scan,
-                        vwap_reclaim.scan, sweepea.scan]:
-            try:
-                sig = scanner(symbol)
-                if sig:
-                    candidates.append(sig)
-            except Exception:
-                pass
-        try:
-            sig = technical.scan(symbol, sentiment)
-            if sig:
-                candidates.append(sig)
-        except Exception:
-            pass
-        try:
-            sig = momentum.scan(symbol)
-            if sig:
-                candidates.append(sig)
-        except Exception:
-            pass
-        if not candidates:
-            return None
-        return max(candidates, key=lambda s: s.confidence)
+            log.error(f"Market regime check FAILED — retaining '{_last_market_regime}' regime: {e}")
 
     signals, hit_counts, scan_errors = scan_universe(scan_targets, sentiment)
 
