@@ -79,6 +79,34 @@ trades             = 0
 quarterly_start_equity: float = 0.0
 quarterly_reset               = None
 
+_QUARTERLY_STATE_FILE = __import__('pathlib').Path(__file__).parent / ".quarterly_state.json"
+
+def _load_quarterly_state():
+    """Load persisted quarter-start equity from disk (survives restarts)."""
+    global quarterly_start_equity, quarterly_reset
+    try:
+        import json, datetime as _dt
+        if _QUARTERLY_STATE_FILE.exists():
+            state = json.loads(_QUARTERLY_STATE_FILE.read_text())
+            quarterly_reset        = _dt.date.fromisoformat(state["quarterly_reset"])
+            quarterly_start_equity = float(state["quarterly_start_equity"])
+            log.info(f"Loaded quarterly state: start equity ${quarterly_start_equity:,.2f} since {quarterly_reset}")
+    except Exception as e:
+        log.warning(f"Could not load quarterly state: {e}")
+
+def _save_quarterly_state():
+    """Persist current quarter-start equity to disk."""
+    try:
+        import json
+        _QUARTERLY_STATE_FILE.write_text(json.dumps({
+            "quarterly_reset":        str(quarterly_reset),
+            "quarterly_start_equity": quarterly_start_equity,
+        }))
+    except Exception as e:
+        log.warning(f"Could not save quarterly state: {e}")
+
+_load_quarterly_state()
+
 trending_stocks    = []
 last_trending_scan = 0
 last_ti_scan       = 0
@@ -396,6 +424,7 @@ def scan_and_trade():
             if quarterly_reset != q_start:
                 quarterly_start_equity = _equity
                 quarterly_reset        = q_start
+                _save_quarterly_state()
                 log.info(f"New quarter {q_start} | Starting equity: ${quarterly_start_equity:,.2f}")
 
             if quarterly_start_equity > 0:
@@ -546,10 +575,21 @@ def scan_and_trade():
         log.info(f"Executing top {len(top_signals)} signal(s) (cap={signals_cap}, swap_only={swap_only})")
 
         for sig in top_signals:
+            # Re-check daily loss limit before each order (not just cycle start)
+            try:
+                _cur_acct = client.get_account()
+                daily_pnl = float(_cur_acct.equity) - daily_start_equity
+            except Exception:
+                pass
+            if daily_pnl <= DAILY_LOSS_LIMIT:
+                log.warning(
+                    f"Daily loss limit hit mid-cycle: ${daily_pnl:.2f} — halting remaining signals"
+                )
+                break
             log.info(f"EXECUTE: {sig.action.upper()} {sig.symbol} @ ${sig.price:.2f} | {sig.strategy} | {sig.reason}")
-            executor.execute(sig, swap_only=swap_only)
+            if executor.execute(sig, swap_only=swap_only):
+                trades += 1
             time.sleep(1)
-            trades += 1
     else:
         log.info("No signals found this cycle")
 

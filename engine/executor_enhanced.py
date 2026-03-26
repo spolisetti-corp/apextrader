@@ -114,7 +114,7 @@ class EnhancedExecutor:
         self._cache_timestamp: float = 0
         self._cache_ttl:       float = 5.0
         self._account_cache:  Optional[AccountSnapshot] = None
-        self._account_ttl:    float = 10.0
+        self._account_ttl:    float = 2.0   # tight TTL — buying power must be fresh between orders
         self._htb_cache:      set   = set()   # hard-to-borrow symbols — skip shorts this session
         self._entry_log:   Dict[str, dict] = {}  # {symbol: {"strategy": str, "date": date}}
         self._swap_cycle_closed: set = set()     # positions already swapped this scan cycle
@@ -475,6 +475,8 @@ class EnhancedExecutor:
                     time_in_force=TimeInForce.DAY,
                 )
             self.client.submit_order(req)
+            # Closing a short that was opened today is a day trade round-trip
+            self.pdt.add(datetime.date.today())
             log.info(f"COVER {signal.symbol}: {qty} @ ${signal.price:.2f} | {signal.strategy}")
             return True
         except Exception as e:

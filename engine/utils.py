@@ -368,9 +368,10 @@ def get_bars(symbol: str, period: str = "5d", interval: str = "15m") -> pd.DataF
                         latest = ET.localize(latest)
                     staleness = (datetime.datetime.now(ET) - latest).total_seconds()
                     if interval.endswith("m") and staleness > 120:
-                        log.warning(f"{symbol}: Alpaca data stale ({staleness:.0f}s), using yfinance")
+                        log.warning(f"{symbol}: Alpaca data stale ({staleness:.0f}s) — falling through to yfinance")
+                        # fall through to yfinance below (do NOT return stale data)
                     else:
-                        log.debug(f"{symbol}: Alpaca data OK")
+                        log.debug(f"{symbol}: Alpaca data OK ({staleness:.0f}s old)")
                         with _bar_cache_lock:
                             _bar_cache[cache_key] = data
                         return data
