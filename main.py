@@ -322,7 +322,7 @@ def scan_top3_only():
             log.info(f"#{idx}: {s.symbol} {s.action.upper()} ${s.price:.2f} conf={s.confidence:.0%} [{s.strategy}] - {s.reason}")
 
         try:
-            top3_report = build_top3_report(top3, datetime.date.today(), sentiment)
+            top3_report = build_top3_report(top3, datetime.date.today(), sentiment, regime="bull")
             sent = send_email(top3_report['subject'], top3_report['text'], top3_report['html'])
             log.info("Top3 scan email sent" if sent else "Top3 scan email skipped")
         except Exception as email_err:
@@ -403,6 +403,7 @@ def scan_and_trade():
 
     # ── Market regime filter: SPY vs 200-day MA ──────────────────────
     signals_cap = MAX_SIGNALS_PER_CYCLE
+    market_regime = "bull"  # default; updated below
     if USE_MARKET_REGIME_FILTER:
         try:
             spy_hist = yf.Ticker("SPY").history(period="1y", interval="1d")
@@ -411,11 +412,13 @@ def scan_and_trade():
                 spy_ma200 = float(spy_hist["Close"].rolling(200).mean().iloc[-1])
                 if spy_price < spy_ma200:
                     signals_cap = 0
+                    market_regime = "bear"
                     log.info(
                         f"BEAR REGIME: SPY ${spy_price:.2f} < 200MA ${spy_ma200:.2f} "
                         f"— pausing new entries; existing stops will manage open positions"
                     )
                 else:
+                    market_regime = "bull"
                     log.info(f"BULL REGIME: SPY ${spy_price:.2f} > 200MA ${spy_ma200:.2f}")
         except Exception as e:
             log.warning(f"Market regime check failed: {e}")
@@ -479,7 +482,7 @@ def scan_and_trade():
         # Email scan summary — only signals that pass the confidence gate
         try:
             email_picks = eligible[:3] if eligible else signals[:3]
-            top3_report = build_top3_report(email_picks, datetime.date.today(), sentiment)
+            top3_report = build_top3_report(email_picks, datetime.date.today(), sentiment, regime=market_regime)
             sent = send_email(top3_report['subject'], top3_report['text'], top3_report['html'])
             if sent:
                 log.info("Scan notification email sent")
