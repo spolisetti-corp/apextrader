@@ -21,8 +21,10 @@ from alpaca.trading.requests import (
     StopLossRequest,
     TakeProfitRequest,
     ReplaceOrderRequest,
+    TrailingStopOrderRequest,
 )
 from alpaca.trading.enums import OrderSide, TimeInForce, OrderClass
+from alpaca.trading.enums import OrderType as AlpacaOrderType
 
 from .config import (
     PDT_ACCOUNT_MIN, PDT_MAX_TRADES,
@@ -308,25 +310,38 @@ class EnhancedExecutor:
                 tp = round(signal.price * (1 - risk_info["tp"]            / 100), 2)
         return sl, tp
 
-    # ΓöÇΓöÇ Bracket Order ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
+    # ── Entry + Trailing Stop Order ──────────────────────────────────────────
     def _create_bracket_order(self, signal: Signal, shares: int, risk_info: Dict, order_type: OrderType) -> bool:
-        sl_price, tp_price = self._calculate_bracket_prices(signal, risk_info, order_type)
-        side = OrderSide.BUY if order_type == OrderType.LONG else OrderSide.SELL
+        """Submit market entry then a GTC trailing stop at risk_info['stop_loss_pct']%.
+        TP bracket leg is intentionally dropped — the trailing stop locks in gains
+        automatically; swap logic and EOD close handle opportunity exits."""
+        side      = OrderSide.BUY  if order_type == OrderType.LONG else OrderSide.SELL
+        stop_side = OrderSide.SELL if order_type == OrderType.LONG else OrderSide.BUY
+        trail_pct = risk_info["stop_loss_pct"]  # tiered: NORMAL=3%, MEDIUM=4%, HIGH=5%, EXTREME=7%
 
         try:
-            req = MarketOrderRequest(
-                symbol       = signal.symbol,
-                qty          = shares,
-                side         = side,
-                time_in_force= TimeInForce.DAY,
-                order_class  = OrderClass.BRACKET,
-                stop_loss    = StopLossRequest(stop_price=sl_price),
-                take_profit  = TakeProfitRequest(limit_price=tp_price),
-                extended_hours=False,
+            # 1. Market entry
+            entry_req = MarketOrderRequest(
+                symbol        = signal.symbol,
+                qty           = shares,
+                side          = side,
+                time_in_force = TimeInForce.DAY,
             )
-            order = self.client.submit_order(req)
+            order = self.client.submit_order(entry_req)
             self.order_cache[signal.symbol] = order.id
-            self._log_bracket(signal, shares, risk_info, sl_price, tp_price, order_type)
+
+            # 2. Trailing stop — trails the high-water mark at trail_pct below
+            ts_req = TrailingStopOrderRequest(
+                symbol        = signal.symbol,
+                qty           = shares,
+                side          = stop_side,
+                type          = AlpacaOrderType.TRAILING_STOP,
+                time_in_force = TimeInForce.GTC,
+                trail_percent = trail_pct,
+            )
+            self.client.submit_order(ts_req)
+
+            self._log_bracket(signal, shares, risk_info, trail_pct, None, order_type)
             return True
         except Exception as e:
             err = str(e)
@@ -339,21 +354,19 @@ class EnhancedExecutor:
                 log.error(f"Bracket order failed {signal.symbol}: {e}")
             return False
 
-    def _log_bracket(self, signal, shares, risk_info, sl, tp, order_type):
-        action    = "BUY"   if order_type == OrderType.LONG else "SHORT"
-        tp_sign   = "+"     if order_type == OrderType.LONG else "-"
+    def _log_bracket(self, signal, shares, risk_info, trail_pct, _tp_unused, order_type):
+        action    = "BUY"  if order_type == OrderType.LONG else "SHORT"
         tier      = risk_info["tier"]
-        tp_pct    = risk_info["tp"]
         atr_pct   = risk_info.get("atr_pct", 0)
         alloc_pct = risk_info["allocation_pct"]
 
         if USE_DYNAMIC_TIERS and atr_pct > 0 and USE_RISK_EQUALIZED_SIZING:
-            log.info(f"{action} BRACKET {signal.symbol}: {shares} @ ${signal.price:.2f} "
-                     f"({alloc_pct:.1f}% pos) | SL ${sl:.2f} | TP ${tp:.2f} ({tp_sign}{tp_pct:.0f}%) "
+            log.info(f"{action} {signal.symbol}: {shares} @ ${signal.price:.2f} "
+                     f"({alloc_pct:.1f}% pos) | TRAILING SL {trail_pct:.1f}% "
                      f"| Tier: {tier} (ATR {atr_pct:.1f}%) | {signal.strategy}")
         else:
-            log.info(f"{action} BRACKET {signal.symbol}: {shares} @ ${signal.price:.2f} "
-                     f"| SL ${sl:.2f} | TP ${tp:.2f} ({tp_sign}{tp_pct:.0f}%) | {signal.strategy}")
+            log.info(f"{action} {signal.symbol}: {shares} @ ${signal.price:.2f} "
+                     f"| TRAILING SL {trail_pct:.1f}% | Tier: {tier} | {signal.strategy}")
 
     # ΓöÇΓöÇ Simple Order ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
     def _create_simple_order(self, signal: Signal, shares: int, order_type: OrderType) -> bool:
@@ -521,76 +534,56 @@ class EnhancedExecutor:
     # ─── Protect Open Positions ──────────────────────────────────────────────
     def protect_positions(self) -> None:
         """
-        For every open position whose shares are free (qty_available > 0),
-        place GTC limit TP + stop-market SL orders.
-        Skips positions where all shares are already held_for_orders.
-        Adjusts SL to current price if position has moved past the entry-based SL.
+        For every open position whose shares are fully free (qty_available > 0
+        AND no existing sell/buy-to-cover order on that symbol), place a GTC
+        trailing stop.  Skips any position already covered by an active order.
         """
         try:
             positions   = self.client.get_all_positions()
             open_orders = self.client.get_orders()
-            covered     = {o.symbol for o in open_orders}
+            # Build covered set: any active order on the symbol blocks re-coverage
+            covered = {o.symbol for o in open_orders}
         except Exception as e:
             log.error(f"protect_positions: failed to fetch data: {e}")
             return
 
         for pos in positions:
             sym = pos.symbol
-            if sym in covered:
-                continue  # already has pending orders
 
-            # Skip if all shares are already committed to bracket legs
-            qty_available = int(float(getattr(pos, "qty_available", pos.qty)))
-            if qty_available == 0:
+            # Primary guard: don't add orders if symbol already has any active order
+            if sym in covered:
+                continue
+
+            # Secondary guard: skip if broker reports zero available qty
+            # Fall back to 0 (safe) rather than pos.qty if attribute is absent
+            try:
+                qty_available = int(float(pos.qty_available))
+            except (AttributeError, TypeError, ValueError):
+                qty_available = 0
+            if qty_available <= 0:
                 continue
 
             try:
-                qty          = int(float(pos.qty))
-                avail        = abs(qty_available)
-                entry        = float(pos.avg_entry_price)
-                current      = float(pos.current_price)
-                is_long_pos  = qty > 0
+                qty         = int(float(pos.qty))
+                avail       = abs(qty_available)
+                current     = float(pos.current_price)
+                is_long_pos = qty > 0
 
-                # Use tiered TP and trailing stop based on ATR volatility tier
                 tier_info  = get_dynamic_tier(sym, current)
-                tp_pct     = tier_info["tp"]
                 trail_pct  = tier_info["ts"]
                 tier_label = tier_info["tier"]
 
-                if is_long_pos:
-                    tp_price = round(entry * (1 + tp_pct / 100), 2)
-                    # Trail from current price if in profit, else from entry
-                    trail_base = current if current > entry else entry
-                    sl_price   = round(trail_base * (1 - trail_pct / 100), 2)
-                    # Must be strictly below current for a sell-stop
-                    if sl_price >= current:
-                        sl_price = round(current * (1 - trail_pct / 100), 2)
-                    self.client.submit_order(LimitOrderRequest(
-                        symbol=sym, qty=avail, side=OrderSide.SELL,
-                        limit_price=tp_price, time_in_force=TimeInForce.GTC,
-                    ))
-                    self.client.submit_order(StopOrderRequest(
-                        symbol=sym, qty=avail, side=OrderSide.SELL,
-                        stop_price=sl_price, time_in_force=TimeInForce.GTC,
-                    ))
-                    log.info(f"PROTECT LONG  {sym} [{tier_label}]: TP ${tp_price:.2f} (+{tp_pct:.0f}%) | trail-SL ${sl_price:.2f} (-{trail_pct:.0f}%)")
-                else:
-                    tp_price = round(entry * (1 - tp_pct / 100), 2)
-                    # Trail from current price if in profit (current < entry for short), else from entry
-                    trail_base = current if current < entry else entry
-                    sl_price   = round(trail_base * (1 + trail_pct / 100), 2)
-                    # Must be strictly above current for a buy-stop
-                    if sl_price <= current:
-                        sl_price = round(current * (1 + trail_pct / 100), 2)
-                    self.client.submit_order(LimitOrderRequest(
-                        symbol=sym, qty=avail, side=OrderSide.BUY,
-                        limit_price=tp_price, time_in_force=TimeInForce.GTC,
-                    ))
-                    self.client.submit_order(StopOrderRequest(
-                        symbol=sym, qty=avail, side=OrderSide.BUY,
-                        stop_price=sl_price, time_in_force=TimeInForce.GTC,
-                    ))
-                    log.info(f"PROTECT SHORT {sym} [{tier_label}]: TP ${tp_price:.2f} (-{tp_pct:.0f}%) | trail-SL ${sl_price:.2f} (+{trail_pct:.0f}%)")
+                stop_side = OrderSide.SELL if is_long_pos else OrderSide.BUY
+                self.client.submit_order(TrailingStopOrderRequest(
+                    symbol        = sym,
+                    qty           = avail,
+                    side          = stop_side,
+                    type          = AlpacaOrderType.TRAILING_STOP,
+                    time_in_force = TimeInForce.GTC,
+                    trail_percent = trail_pct,
+                ))
+                direction = "LONG" if is_long_pos else "SHORT"
+                log.info(f"PROTECT {direction} {sym} [{tier_label}]: trailing stop {trail_pct:.1f}% GTC")
             except Exception as e:
                 log.error(f"protect_positions {sym}: {e}")
 

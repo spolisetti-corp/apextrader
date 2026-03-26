@@ -89,13 +89,13 @@ def _build_positions_table(positions) -> str:
     )
 
 
-def build_top3_report(signals, report_date: date, sentiment: str = "neutral",
+def build_top5_report(signals, report_date: date, sentiment: str = "neutral",
                       regime: str = "bull") -> Dict[str, str]:
-    subject = f"\U0001f4c8 ApexTrader Top 3 Picks \u2014 {report_date.strftime('%b %d, %Y')}"
+    subject = f"\U0001f4c8 ApexTrader Top 5 Picks \u2014 {report_date.strftime('%b %d, %Y')}"
 
     # Plain text
     text_lines = [
-        f"ApexTrader Top 3 Scan Picks — {report_date.isoformat()}",
+        f"ApexTrader Top 5 Scan Picks — {report_date.isoformat()}",
         f"Market Sentiment: {sentiment.upper()} | Regime: {regime.upper()}",
         "",
     ]
@@ -120,11 +120,11 @@ def build_top3_report(signals, report_date: date, sentiment: str = "neutral",
         "Technical":       "Multi-indicator confluence — RSI, MACD, MA aligned",
     }
 
-    medals = ["\U0001f947", "\U0001f948", "\U0001f949"]
+    medals = ["\U0001f947", "\U0001f948", "\U0001f949", "\U0001f3c5", "\U0001f396\ufe0f"]
     action_colors = {"buy": "#10b981", "sell": "#f43f5e", "short": "#f43f5e"}
 
     cards = ""
-    for i, s in enumerate(signals[:3]):
+    for i, s in enumerate(signals[:5]):
         medal  = medals[i] if i < len(medals) else f"#{i+1}"
         acolor = action_colors.get(s.action.lower(), "#3b82f6")
         conf_pct = int(s.confidence * 100)

@@ -54,7 +54,7 @@ from engine.strategies import (
     GapBreakoutStrategy, ORBStrategy, VWAPReclaimStrategy, FloatRotationStrategy,
 )
 from engine.executor_enhanced import EnhancedExecutor
-from engine.notifications import build_eod_report, build_top3_report, send_email
+from engine.notifications import build_eod_report, build_top5_report, send_email
 from engine.scan import get_scan_targets, scan_universe, filter_signals
 
 # ── Initialise ──────────────────────────────────────────────────
@@ -355,22 +355,22 @@ def scan_top3_only():
             )
         except Exception:
             _fresh_held = _excluded
-        top3 = [s for s in signals if s.symbol not in _fresh_held][:3]
-        if not top3:
-            log.info("No signals found in Top3 mode (all candidates already held)")
+        top5 = [s for s in signals if s.symbol not in _fresh_held][:5]
+        if not top5:
+            log.info("No signals found in Top5 mode (all candidates already held)")
             return
-        log.info("TOP 3 SCAN PICKS:")
-        for idx, s in enumerate(top3, start=1):
+        log.info("TOP 5 SCAN PICKS:")
+        for idx, s in enumerate(top5, start=1):
             log.info(f"#{idx}: {s.symbol} {s.action.upper()} ${s.price:.2f} conf={s.confidence:.0%} [{s.strategy}] - {s.reason}")
 
         try:
-            top3_report = build_top3_report(top3, datetime.date.today(), sentiment, regime="bull")
-            sent = send_email(top3_report['subject'], top3_report['text'], top3_report['html'])
-            log.info("Top3 scan email sent" if sent else "Top3 scan email skipped")
+            top5_report = build_top5_report(top5, datetime.date.today(), sentiment, regime="bull")
+            sent = send_email(top5_report['subject'], top5_report['text'], top5_report['html'])
+            log.info("Top5 scan email sent" if sent else "Top5 scan email skipped")
         except Exception as email_err:
             log.warning(f"Scan notification email failed: {email_err}")
     else:
-        log.info("No signals found in Top3 mode")
+        log.info("No signals found in Top5 mode")
 
 
 def scan_and_trade():
@@ -526,8 +526,8 @@ def scan_and_trade():
 
         # ── Top 3 eligible picks ──────────────────────────────────────────
         log.info("——————————————————————————————")
-        log.info("TOP 3 ELIGIBLE PICKS:")
-        for idx, s in enumerate(eligible[:3], start=1):
+        log.info("TOP 5 ELIGIBLE PICKS:")
+        for idx, s in enumerate(eligible[:5], start=1):
             log.info(
                 f"#{idx}: {s.symbol} {s.action.upper()} ${s.price:.2f} "
                 f"conf={s.confidence:.0%} [{s.strategy}] - {s.reason}"
@@ -536,10 +536,10 @@ def scan_and_trade():
 
         # ── Email notification ────────────────────────────────────────────
         try:
-            email_picks = eligible[:3]
+            email_picks = eligible[:5]
             if email_picks:
-                top3_report = build_top3_report(email_picks, datetime.date.today(), sentiment, regime=market_regime)
-                sent = send_email(top3_report['subject'], top3_report['text'], top3_report['html'])
+                top5_report = build_top5_report(email_picks, datetime.date.today(), sentiment, regime=market_regime)
+                sent = send_email(top5_report['subject'], top5_report['text'], top5_report['html'])
                 log.info("Scan notification email sent" if sent else "Scan notification email skipped (disabled)")
         except Exception as email_err:
             log.warning(f"Scan notification email failed: {email_err}")
