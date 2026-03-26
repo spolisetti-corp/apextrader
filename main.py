@@ -471,9 +471,15 @@ def scan_and_trade():
             )
         log.info("——————————————————————————————")
 
-        # Email scan summary (optional, if enabled)
+        # Symbols already excluded pre-scan; apply sniper gates only
+        eligible = filter_signals(signals, long_only=LONG_ONLY_MODE, min_conf=MIN_SIGNAL_CONFIDENCE)
+        log.info(f"Pre-scan excluded: {len(_excluded)} symbols | Raw eligible: {len(eligible)}")
+        log.info(f"Confidence gate ({MIN_SIGNAL_CONFIDENCE:.0%}): {len(eligible)} signal(s) qualify")
+
+        # Email scan summary — only signals that pass the confidence gate
         try:
-            top3_report = build_top3_report(signals[:3], datetime.date.today(), sentiment)
+            email_picks = eligible[:3] if eligible else signals[:3]
+            top3_report = build_top3_report(email_picks, datetime.date.today(), sentiment)
             sent = send_email(top3_report['subject'], top3_report['text'], top3_report['html'])
             if sent:
                 log.info("Scan notification email sent")
@@ -481,11 +487,6 @@ def scan_and_trade():
                 log.info("Scan notification email skipped (disabled)")
         except Exception as email_err:
             log.warning(f"Scan notification email failed: {email_err}")
-
-        # Symbols already excluded pre-scan; apply sniper gates only
-        eligible = filter_signals(signals, long_only=LONG_ONLY_MODE, min_conf=MIN_SIGNAL_CONFIDENCE)
-        log.info(f"Pre-scan excluded: {len(_excluded)} symbols | Raw eligible: {len(eligible)}")
-        log.info(f"Confidence gate ({MIN_SIGNAL_CONFIDENCE:.0%}): {len(eligible)} signal(s) qualify")
 
         top_signals = eligible[:signals_cap]
         log.info(f"Executing top {len(top_signals)} eligible signal(s) (cap={signals_cap})")
