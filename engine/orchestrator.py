@@ -3,6 +3,7 @@ import time
 import schedule
 import pytz
 from concurrent.futures import ThreadPoolExecutor
+from functools import lru_cache
 
 from alpaca.trading.client import TradingClient
 from engine.config import (
@@ -39,6 +40,7 @@ class TradingOrchestrator:
         self.last_trending_scan = 0
         self.last_ti_scan = 0
 
+    @lru_cache(maxsize=1)
     def _get_market_sentiment(self) -> str:
         try:
             spy = get_bars('SPY', '5d', '1h')
@@ -54,6 +56,9 @@ class TradingOrchestrator:
             return 'neutral'
         except Exception:
             return 'neutral'
+
+    def _refresh_market_sentiment_cache(self):
+        self._get_market_sentiment.cache_clear()
 
     def _scan_trending_stocks(self):
         current_time = time.time()
@@ -186,6 +191,7 @@ class TradingOrchestrator:
         except RuntimeError:
             return
 
+        self._refresh_market_sentiment_cache()
         sentiment = self._get_market_sentiment()
         self._scan_trending_stocks()
         self._scan_tradeideas_universe()

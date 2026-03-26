@@ -75,12 +75,7 @@ def select_top_signals(signals, max_count):
 def scan_with_pool(symbols, sentiment, max_workers=8, timeout=30):
     signals = []
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
-        futures = {executor.submit(scan_one, s, sentiment): s for s in symbols}
-        for f in as_completed(futures, timeout=timeout):
-            try:
-                sig = f.result()
-                if sig:
-                    signals.append(sig)
-            except Exception:
-                continue
+        for sig in executor.map(lambda s: scan_one(s, sentiment), symbols):
+            if sig:
+                signals.append(sig)
     return signals
