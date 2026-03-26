@@ -415,13 +415,12 @@ def scrape_tradeideas(
                     print(f"[OK   ] config.py: +{added} new tickers added to {scan['target']}")
                 else:
                     print(f"[INFO ] config.py: all tickers already present in {scan['target']}")
-                # highshortfloat scan → also sync HIGH_SHORT_FLOAT_STOCKS set
-                if scan_key == "highshortfloat":
-                    hsf_added = _patch_high_short_float(tickers)
-                    if hsf_added:
-                        print(f"[OK   ] config.py: +{hsf_added} new tickers added to HIGH_SHORT_FLOAT_STOCKS")
-                    else:
-                        print(f"[INFO ] config.py: HIGH_SHORT_FLOAT_STOCKS already up to date")
+                # both scans → also sync HIGH_SHORT_FLOAT_STOCKS set
+                hsf_added = _patch_high_short_float(tickers)
+                if hsf_added:
+                    print(f"[OK   ] config.py: +{hsf_added} new tickers added to HIGH_SHORT_FLOAT_STOCKS")
+                else:
+                    print(f"[INFO ] config.py: HIGH_SHORT_FLOAT_STOCKS already up to date")
 
             # Navigate away so the tab goes blank
             try:
