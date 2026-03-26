@@ -1,9 +1,12 @@
 import datetime
+import logging
 import time
 import schedule
 import pytz
 from concurrent.futures import ThreadPoolExecutor
 from functools import lru_cache
+
+log = logging.getLogger('ApexTrader')
 
 from alpaca.trading.client import TradingClient
 from engine.config import (
@@ -106,6 +109,10 @@ class TradingOrchestrator:
 
         self.trending_stocks = momentum_stocks
         self.last_trending_scan = current_time
+
+        # Log best latest tickers for observability
+        top_symbols = [s.get('symbol', 'N/A') for s in momentum_stocks[:8]]
+        log.info(f"Latest discovered tickers: {', '.join(top_symbols)}")
 
     def _scan_tradeideas_universe(self):
         from engine.config import (
