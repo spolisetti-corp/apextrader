@@ -197,55 +197,32 @@ class EnhancedExecutor:
         bp_capacity = max(1, int(acct.buying_power / MIN_POSITION_DOLLARS))
         effective_max = min(MAX_POSITIONS, bp_capacity)
 
-        if swap_only and positions.total_count > 0:
-            # Bear regime with existing positions: swap weakest for better signal
+        # ── Max positions gate (must come first) ────────────────────────────
+        if positions.total_count >= effective_max:
             if not (SWAP_ON_FULL and signal.confidence >= SWAP_MIN_CONFIDENCE):
                 return False, (
-                    f"Bear regime: swap-only — confidence {signal.confidence:.0%} below "
-                    f"SWAP_MIN_CONFIDENCE or SWAP_ON_FULL disabled"
+                    f"Max positions: {positions.total_count}/{effective_max} "
+                    f"(config {MAX_POSITIONS}, BP ${acct.buying_power:,.0f})"
                 )
+            # Bear or bull: close weakest to make room
+            label = "SWAP (bear)" if swap_only else "SWAP"
             weakest = self._find_weakest_position()
             if not weakest:
-                return False, "Bear regime: swap-only — no closable positions to swap"
+                return False, (
+                    f"Max positions: {positions.total_count}/{effective_max} — no swappable position found"
+                )
             log.info(
-                f"SWAP (bear): closing {weakest} (weakest) to make room for "
+                f"{label}: closing {weakest} (weakest) to make room for "
                 f"{signal.symbol} (conf={signal.confidence:.0%})"
             )
             try:
                 self.client.close_position(weakest)
                 self._swap_cycle_closed.add(weakest)
-                self._get_positions(force_refresh=True)   # refresh so max check sees updated count
+                positions = self._get_positions(force_refresh=True)
             except Exception as e:
                 log.warning(f"SWAP close failed for {weakest}: {e}")
                 return False, f"Swap close failed: {e}"
-            # re-fetch updated positions after close
-            positions = self._get_positions()
-        # swap_only + no positions → fall through to normal entry (portfolio is empty)
-
-        if positions.total_count >= effective_max:
-            # Normal full-portfolio swap or block
-            if SWAP_ON_FULL and signal.confidence >= SWAP_MIN_CONFIDENCE:
-                weakest = self._find_weakest_position()
-                if weakest:
-                    log.info(
-                        f"SWAP: closing {weakest} (weakest) to make room for "
-                        f"{signal.symbol} (conf={signal.confidence:.0%})"
-                    )
-                    try:
-                        self.client.close_position(weakest)
-                        self._swap_cycle_closed.add(weakest)
-                    except Exception as e:
-                        log.warning(f"SWAP close failed for {weakest}: {e}")
-                        return False, f"Swap close failed: {e}"
-                else:
-                    return False, (
-                        f"Max positions: {positions.total_count}/{effective_max} — no swappable position found"
-                    )
-            else:
-                return False, (
-                    f"Max positions: {positions.total_count}/{effective_max} "
-                    f"(config {MAX_POSITIONS}, BP ${acct.buying_power:,.0f})"
-                )
+        # Below max: bear mode still allows entry freely (no forced swap)
 
         if positions.has_position(signal.symbol):
             if order_type == OrderType.LONG  and positions.is_long(signal.symbol):
