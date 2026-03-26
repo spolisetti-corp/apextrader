@@ -333,33 +333,3 @@ def send_email(subject: str, text: str, html: Optional[str] = None) -> bool:
         server.quit()
 
     return True
-
-
-    server = smtplib.SMTP(smtp_server, smtp_port, timeout=30)
-    try:
-        server.starttls()
-        server.login(smtp_user, smtp_pass)
-        server.sendmail(from_address, to_addresses, msg.as_string())
-    finally:
-        server.quit()
-
-    return True
-
-    msg = MIMEMultipart("alternative")
-    msg["Subject"] = subject
-    msg["From"] = EMAIL_FROM_ADDRESS
-    msg["To"] = ", ".join(EMAIL_TO_ADDRESSES)
-
-    msg.attach(MIMEText(text, "plain"))
-    if html:
-        msg.attach(MIMEText(html, "html"))
-
-    server = smtplib.SMTP(EMAIL_SMTP_SERVER, EMAIL_SMTP_PORT, timeout=30)
-    try:
-        server.starttls()
-        server.login(EMAIL_SMTP_USER, EMAIL_SMTP_PASSWORD)
-        server.sendmail(EMAIL_FROM_ADDRESS, EMAIL_TO_ADDRESSES, msg.as_string())
-    finally:
-        server.quit()
-
-    return True
