@@ -4,9 +4,9 @@
 $taskName = 'ApexTraderAutoRun'
 $taskDescription = 'Run ApexTrader trading bot every 5 minutes in local environment'
 
-$action = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument '-NoProfile -WindowStyle Hidden -Command "cd C:\Users\user\Desktop\wsapex\apextrader; .\\run_local_ps.ps1 | Tee-Object -FilePath .\\apextrader.log"'
+$action = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument '-NoProfile -WindowStyle Hidden -Command "cd C:\Users\user\Desktop\wsapex\apextrader; .\\venv\\Scripts\\python.exe scripts\\run_autobot.py | Tee-Object -FilePath .\\autobot_scheduler.log"'
 $trigger = New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(1)
-$trigger.RepetitionInterval = [TimeSpan]::FromMinutes(5)
+$trigger.RepetitionInterval = [TimeSpan]::FromDays(1)
 $trigger.RepetitionDuration = [TimeSpan]::MaxValue
 
 $principal = New-ScheduledTaskPrincipal -UserId "$env:UserName" -LogonType Interactive -RunLevel Highest
