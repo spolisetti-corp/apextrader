@@ -386,6 +386,9 @@ def scan_and_trade():
     sentiment = get_market_sentiment()
     log.info(f"Market sentiment: {sentiment}")
 
+    # ── Upgrade stale unfilled orders before scanning ─────────────────
+    executor.update_stale_orders()
+
     scan_trending_stocks()
     scan_tradeideas_universe()
 

@@ -34,6 +34,24 @@ ETRADE_SANDBOX         = os.getenv("ETRADE_SANDBOX", "false").lower() == "true"
 # Priority 3: Market ETFs for context
 # ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
 PRIORITY_1_MOMENTUM = [
+    # Trade-Ideas PRIORITY_1_MOMENTUM top-priority update 2026-03-26 12:08
+    "EUDA", "DWSN", "OKUR",
+    # Trade-Ideas PRIORITY_1_MOMENTUM top-priority update 2026-03-26 11:21
+    "UUUG", "IRE", "NSRX",
+    # Trade-Ideas PRIORITY_1_MOMENTUM top-priority update 2026-03-26 11:04
+    "PROF",
+    # Trade-Ideas PRIORITY_1_MOMENTUM top-priority update 2026-03-26 10:58
+    "RDTL",
+    # Trade-Ideas PRIORITY_1_MOMENTUM top-priority update 2026-03-26 10:41
+    "MGTX", "LMRI", "RIOX",
+    # Trade-Ideas PRIORITY_1_MOMENTUM top-priority update 2026-03-26 10:22
+    "QVCGA", "CIFG", "NOAH", "IREG", "ISSC",
+    # Trade-Ideas PRIORITY_1_MOMENTUM top-priority update 2026-03-26 10:05
+    "EAF", "ICU", "CNVS", "XYF", "DERM", "PONY", "WATT",
+    # Trade-Ideas PRIORITY_1_MOMENTUM top-priority update 2026-03-26 09:47
+    "SION", "RENX", "MULL",
+    # Trade-Ideas PRIORITY_1_MOMENTUM top-priority update 2026-03-26 09:27
+    "HNRG", "GLWG",
     # Trade-Ideas PRIORITY_1_MOMENTUM top-priority update 2026-03-26 09:05
     "FATN", "CHAC", "SLON",
     # Trade-Ideas PRIORITY_1_MOMENTUM top-priority update 2026-03-26 08:53
@@ -87,6 +105,24 @@ PRIORITY_1_MOMENTUM = [
 
 
 PRIORITY_2_ESTABLISHED = [
+    # Trade-Ideas PRIORITY_2_ESTABLISHED top-priority update 2026-03-26 12:08
+    "NFE", "ORIC", "TTEC",
+    # Trade-Ideas PRIORITY_2_ESTABLISHED top-priority update 2026-03-26 11:20
+    "SKIL",
+    # Trade-Ideas PRIORITY_2_ESTABLISHED top-priority update 2026-03-26 11:02
+    "VSTM", "NVTS",
+    # Trade-Ideas PRIORITY_2_ESTABLISHED top-priority update 2026-03-26 10:57
+    "BMEA", "KULR", "HTZ", "RETO",
+    # Trade-Ideas PRIORITY_2_ESTABLISHED top-priority update 2026-03-26 10:38
+    "LE", "DNA",
+    # Trade-Ideas PRIORITY_2_ESTABLISHED top-priority update 2026-03-26 10:21
+    "NTLA", "XRX", "KLRS", "SCVL", "SATS", "FLNC",
+    # Trade-Ideas PRIORITY_2_ESTABLISHED top-priority update 2026-03-26 10:04
+    "PALI", "KVYO", "RNAC", "BTBT", "APLD",
+    # Trade-Ideas PRIORITY_2_ESTABLISHED top-priority update 2026-03-26 09:47
+    "AVTX", "GLSI", "TEAD", "TSSI",
+    # Trade-Ideas PRIORITY_2_ESTABLISHED top-priority update 2026-03-26 09:27
+    "TECX", "DNUT", "CVI", "SKLZ", "MKT",
     # Trade-Ideas PRIORITY_2_ESTABLISHED top-priority update 2026-03-26 09:05
     "VRCA", "IBTA", "TBCH", "ARCT", "OXM",
     # Trade-Ideas PRIORITY_2_ESTABLISHED top-priority update 2026-03-26 08:52
@@ -284,6 +320,9 @@ EOD_CLOSE_STRATEGIES = {         # Strategy names that must be closed same day
     "VWAPReclaim",
 }
 
+# Stale order upgrade: unfilled orders older than this get re-submitted as market/limit
+STALE_ORDER_MINUTES  = 3         # minutes before an unfilled order is considered stale
+
 # ─────────────────────────────────────────────────────────────────
 # PDT Rules
 # ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
@@ -394,24 +433,47 @@ ATR_STOP_MULTIPLIER      = 1.5        # Stop loss = entry − ATR × 1.5
 ATR_TP_RATIO             = 2.0        # Take-profit at 2:1 R:R (risk × 2)
 MAX_SHORT_FLOAT_PCT      = 20.0       # Never exceed this % of equity per squeeze ticker
 HIGH_SHORT_FLOAT_STOCKS  = {
-    "AAP", "ABTS", "AGQ", "AIFF", "AIRS", "ALBT",
-    "ANAB", "ANNA", "ANNX", "APGE", "APP", "APPX",
-    "ARCT", "ARTL", "ARWR", "ASST", "ATPC", "BABX",
-    "BATL", "BBW", "BCRX", "BETR", "BFLY", "BIRD",
-    "BMNZ", "BNAI", "BOXL", "BTBD", "CAR", "CGEM",
-    "CHAC", "CRCA", "CRCG", "CYN", "DBI", "DJI",
-    "DOCN", "DUST", "DVLT", "DXST", "DXYZ", "ERAS",
-    "ETHD", "ETHT", "EWTX", "EYE", "FATN", "FBIO",
-    "FCHL", "FFAI", "FOSL", "GDXD", "GDXU", "GOGO",
-    "GRND", "HCTI", "HUMA", "HUT", "HYPD", "IBRX",
-    "IBTA", "IDYA", "INDO", "JNUG", "KIDZ", "KOD",
-    "KORU", "KRRO", "LASE", "LENZ", "LOVE", "MARA",
-    "MED", "MLKN", "MRAL", "MRNO", "MUX", "NAVN",
-    "NGNE", "NUGT", "OGEN", "OLPX", "ORGO", "OXM",
-    "PGEN", "PLCE", "PROP", "QNCX", "RBNE", "SHMD",
-    "SHNY", "SLON", "SMCX", "SMCZ", "SNBR", "SND",
-    "SNSE", "SOLT", "SOWG", "SOXS", "SPIR", "TASK",
-    "TBCH", "TERN", "TNGX", "TPET", "UAMY", "UGRO",
-    "UPXI", "VCX", "VRCA", "WKHS", "WVE", "WYFI",
-    "YANG", "YINN", "ZSL",
+    "AAP", "ABTS", "ADMA", "AESI", "AGQ", "AIFF",
+    "AIRS", "ALBT", "ANAB", "ANNA", "ANNX", "APGE",
+    "APLD", "APP", "APPX", "ARCT", "ARTL", "ARWR",
+    "ASPI", "ASST", "ASTI", "ASTS", "ATPC", "AVTX",
+    "AVXL", "BABX", "BATL", "BBW", "BCRX", "BEAM",
+    "BETR", "BFLY", "BHVN", "BIRD", "BMEA", "BMNZ",
+    "BNAI", "BOXL", "BTBD", "BTBT", "BTDR", "BZUN",
+    "CAR", "CBUS", "CDIO", "CELC", "CGEM", "CHAC",
+    "CIFG", "CIFR", "CISS", "CNVS", "CNXC", "CRCA",
+    "CRCG", "CVI", "CVV", "CYN", "DAMD", "DBI",
+    "DERM", "DJI", "DNA", "DNUT", "DOCN", "DRVN",
+    "DUST", "DVLT", "DWSN", "DXST", "DXYZ", "EAF",
+    "EDSA", "ELVN", "ERAS", "ETHD", "ETHT", "EUDA",
+    "EVMN", "EVTV", "EWTX", "EYE", "FATN", "FBIO",
+    "FBYD", "FCHL", "FEED", "FFAI", "FGL", "FLNC",
+    "FOSL", "FOUR", "GDXD", "GDXU", "GLSI", "GLUE",
+    "GLWG", "GOGO", "GRND", "HCTI", "HNRG", "HPK",
+    "HRTX", "HTCO", "HTZ", "HUMA", "HUT", "HYPD",
+    "IBRX", "IBTA", "ICU", "IDYA", "INDI", "INDO",
+    "IRE", "IREG", "ISSC", "JBLU", "JDZG", "JNUG",
+    "KALV", "KIDZ", "KLRS", "KOD", "KORU", "KPTI",
+    "KRRO", "KULR", "KVYO", "LASE", "LE", "LENZ",
+    "LICN", "LMRI", "LOVE", "LUD", "LUNR", "LVWR",
+    "MARA", "MED", "MGTX", "MKDW", "MKT", "MLKN",
+    "MRAL", "MRLN", "MRNO", "MULL", "MUU", "MUX",
+    "MVIS", "NAMM", "NAUT", "NAVN", "NBIS", "NDRA",
+    "NEXT", "NFE", "NGNE", "NOAH", "NOTE", "NSRX",
+    "NTLA", "NUGT", "NVTS", "OGEN", "OKUR", "OLPX",
+    "ORGO", "ORIC", "OXM", "PALI", "PGEN", "PLCE",
+    "PONY", "PROF", "PROP", "QNCX", "QNTM", "QVCGA",
+    "RBNE", "RCAT", "RCAX", "RDTL", "RENX", "RETO",
+    "RIME", "RIOX", "RKLX", "RKLZ", "RNAC", "ROMA",
+    "RVI", "RXT", "RZLT", "SATS", "SCVL", "SER",
+    "SHMD", "SHNY", "SION", "SKIL", "SKIN", "SKLZ",
+    "SLON", "SMCX", "SMCZ", "SMX", "SNBR", "SND",
+    "SNSE", "SOC", "SOLT", "SOWG", "SOXS", "SPIR",
+    "SPRY", "SRPT", "SUNE", "SWMR", "TASK", "TBCH",
+    "TEAD", "TECX", "TERN", "TNGX", "TPET", "TRON",
+    "TSSI", "TTEC", "UAMY", "UGRO", "UPXI", "UUUG",
+    "VCX", "VIVO", "VNET", "VRCA", "VSTM", "VTIX",
+    "WATT", "WKHS", "WS", "WTI", "WULF", "WVE",
+    "WYFI", "XRX", "XYF", "YANG", "YDDL", "YINN",
+    "ZSL",
 }

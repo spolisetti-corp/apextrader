@@ -20,6 +20,7 @@ from alpaca.trading.requests import (
     StopOrderRequest,
     StopLossRequest,
     TakeProfitRequest,
+    ReplaceOrderRequest,
 )
 from alpaca.trading.enums import OrderSide, TimeInForce, OrderClass
 
@@ -36,6 +37,7 @@ from .config import (
     TAKE_PROFIT_NORMAL, TAKE_PROFIT_HIGH, STOP_LOSS_PCT,
     ATR_TP_RATIO, MAX_SHORT_FLOAT_PCT, HIGH_SHORT_FLOAT_STOCKS,
     EOD_CLOSE_ENABLED, EOD_CLOSE_TIME, EOD_CLOSE_STRATEGIES,
+    STALE_ORDER_MINUTES,
 )
 from .strategies import Signal
 from .utils import is_regular_hours, calculate_risk_adjusted_size, check_vix_roc_filter, get_dynamic_tier
@@ -646,6 +648,83 @@ class EnhancedExecutor:
             "asof": now_et.isoformat(),
         }
         return summary
+
+    # ── Stale Order Updater ───────────────────────────────────────────────────
+    def update_stale_orders(self) -> None:
+        """
+        Find open orders older than STALE_ORDER_MINUTES and re-submit them:
+          - Regular hours   → cancel + market order (instant fill)
+          - Extended hours  → cancel + limit order at current price (IOC)
+        Only applies to entry/exit orders (buy/sell), not bracket legs (stop/limit TP-SL).
+        """
+        import time
+        try:
+            open_orders = self.client.get_orders()
+        except Exception as e:
+            log.warning(f"update_stale_orders: fetch failed: {e}")
+            return
+
+        now_utc = datetime.datetime.now(datetime.timezone.utc)
+        cutoff_secs = STALE_ORDER_MINUTES * 60
+        regular = is_regular_hours()
+
+        for order in open_orders:
+            # Only handle plain entry/exit orders, not bracket legs
+            order_type = getattr(order, "order_type", "") or ""
+            order_class = str(getattr(order, "order_class", "") or "")
+            if order_class in ("bracket", "oco"):
+                continue
+
+            created_at = getattr(order, "created_at", None)
+            if created_at is None:
+                continue
+
+            age_secs = (now_utc - created_at).total_seconds()
+            if age_secs < cutoff_secs:
+                continue
+
+            sym = order.symbol
+            qty = int(float(order.qty))
+            side = order.side  # OrderSide enum
+            order_id = str(order.id)
+
+            log.info(
+                f"STALE ORDER: {sym} {side} {qty} — age {age_secs/60:.1f}m "
+                f"→ {'market' if regular else 'limit @ current price'}"
+            )
+
+            try:
+                self.client.cancel_order_by_id(order_id)
+                time.sleep(0.3)
+
+                if regular:
+                    req = MarketOrderRequest(
+                        symbol=sym, qty=qty, side=side,
+                        time_in_force=TimeInForce.DAY,
+                    )
+                else:
+                    # Best-effort limit at current price for extended hours
+                    try:
+                        bar = self.client.get_latest_quote(sym)
+                        cur_price = round(
+                            (float(bar.ask_price) + float(bar.bid_price)) / 2, 2
+                        )
+                    except Exception:
+                        cur_price = float(getattr(order, "limit_price", None) or 0)
+                    if cur_price <= 0:
+                        log.warning(f"STALE ORDER {sym}: can't determine price, skipping")
+                        continue
+                    req = LimitOrderRequest(
+                        symbol=sym, qty=qty, side=side,
+                        limit_price=cur_price,
+                        time_in_force=TimeInForce.DAY,
+                        extended_hours=True,
+                    )
+
+                self.client.submit_order(req)
+                log.info(f"STALE ORDER {sym}: replaced successfully")
+            except Exception as e:
+                log.warning(f"STALE ORDER {sym}: replace failed: {e}")
 
     # ── Health ─────────────────────────────────────────────────────────────────
     def get_health(self) -> Dict:
