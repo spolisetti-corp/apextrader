@@ -317,7 +317,19 @@ def scan_top3_only():
     log.info(f"Scan errors: {scan_errors} | Signals: {len(signals)}")
 
     if signals:
-        top3 = signals[:3]
+        # Re-fetch live holdings so any position entered moments ago is also excluded
+        try:
+            _fresh_held = (
+                {p.symbol for p in client.get_all_positions()} |
+                {o.symbol for o in client.get_orders()
+                 if getattr(o, "status", "") in ("new", "partially_filled", "pending_new")}
+            )
+        except Exception:
+            _fresh_held = _excluded
+        top3 = [s for s in signals if s.symbol not in _fresh_held][:3]
+        if not top3:
+            log.info("No signals found in Top3 mode (all candidates already held)")
+            return
         log.info("TOP 3 SCAN PICKS:")
         for idx, s in enumerate(top3, start=1):
             log.info(f"#{idx}: {s.symbol} {s.action.upper()} ${s.price:.2f} conf={s.confidence:.0%} [{s.strategy}] - {s.reason}")
@@ -497,9 +509,18 @@ def scan_and_trade():
         log.info(f"Pre-scan excluded: {len(_excluded)} symbols | Raw eligible: {len(eligible)}")
         log.info(f"Confidence gate ({MIN_SIGNAL_CONFIDENCE:.0%}): {len(eligible)} signal(s) qualify")
 
-        # Email scan summary — only signals that pass the confidence gate
+        # Email scan summary — re-fetch live holdings to exclude already-held symbols
         try:
-            email_picks = eligible[:3] if eligible else signals[:3]
+            try:
+                _fresh_held = (
+                    {p.symbol for p in client.get_all_positions()} |
+                    {o.symbol for o in client.get_orders()
+                     if getattr(o, "status", "") in ("new", "partially_filled", "pending_new")}
+                )
+            except Exception:
+                _fresh_held = _excluded
+            _pool = [s for s in (eligible if eligible else signals) if s.symbol not in _fresh_held]
+            email_picks = _pool[:3]
             top3_report = build_top3_report(email_picks, datetime.date.today(), sentiment, regime=market_regime)
             sent = send_email(top3_report['subject'], top3_report['text'], top3_report['html'])
             if sent:
