@@ -491,44 +491,55 @@ def scan_and_trade():
     log.info(f"Total raw signals: {len(signals)}")
 
     if signals:
-        # Top 3 picks for this cycle
+        # ── Live re-fetch: positions + all active orders ──────────────────
+        # Done AFTER scan so any fills during the scan window are captured.
+        # This single set drives both the execution pool and the email picks.
+        try:
+            _live_positions = {p.symbol for p in client.get_all_positions()}
+            _live_orders    = {o.symbol for o in client.get_orders()}
+            _fresh_held     = _live_positions | _live_orders
+        except Exception as e:
+            log.warning(f"Live position re-fetch failed, falling back to pre-scan set: {e}")
+            _live_positions = _open_positions
+            _live_orders    = _open_orders
+            _fresh_held     = _excluded
+
+        log.info(
+            f"Live holdings: {len(_live_positions)} positions, "
+            f"{len(_live_orders)} active orders | {len(_fresh_held)} total excluded"
+        )
+
+        # ── Gate: confidence >= MIN_SIGNAL_CONFIDENCE, skip held symbols ──
+        eligible = [
+            s for s in filter_signals(signals, long_only=LONG_ONLY_MODE, min_conf=MIN_SIGNAL_CONFIDENCE)
+            if s.symbol not in _fresh_held
+        ]
+        log.info(f"Confidence gate ({MIN_SIGNAL_CONFIDENCE:.0%}) + position cross-ref: {len(eligible)} signal(s) qualify")
+
+        # ── Top 3 eligible picks ──────────────────────────────────────────
         log.info("——————————————————————————————")
-        log.info("TOP 3 SCAN PICKS:")
-        for idx, s in enumerate(signals[:3], start=1):
+        log.info("TOP 3 ELIGIBLE PICKS:")
+        for idx, s in enumerate(eligible[:3], start=1):
             log.info(
                 f"#{idx}: {s.symbol} {s.action.upper()} ${s.price:.2f} "
                 f"conf={s.confidence:.0%} [{s.strategy}] - {s.reason}"
             )
         log.info("——————————————————————————————")
 
-        # Symbols already excluded pre-scan; apply sniper gates only
-        eligible = filter_signals(signals, long_only=LONG_ONLY_MODE, min_conf=MIN_SIGNAL_CONFIDENCE)
-        log.info(f"Pre-scan excluded: {len(_excluded)} symbols | Raw eligible: {len(eligible)}")
-        log.info(f"Confidence gate ({MIN_SIGNAL_CONFIDENCE:.0%}): {len(eligible)} signal(s) qualify")
-
-        # Email scan summary — re-fetch live holdings to exclude already-held symbols
+        # ── Email notification ────────────────────────────────────────────
         try:
-            try:
-                _fresh_held = (
-                    {p.symbol for p in client.get_all_positions()} |
-                    {o.symbol for o in client.get_orders()}
-                )
-            except Exception:
-                _fresh_held = _excluded
-            _pool = [s for s in (eligible if eligible else signals) if s.symbol not in _fresh_held]
-            email_picks = _pool[:3]
-            top3_report = build_top3_report(email_picks, datetime.date.today(), sentiment, regime=market_regime)
-            sent = send_email(top3_report['subject'], top3_report['text'], top3_report['html'])
-            if sent:
-                log.info("Scan notification email sent")
-            else:
-                log.info("Scan notification email skipped (disabled)")
+            email_picks = eligible[:3]
+            if email_picks:
+                top3_report = build_top3_report(email_picks, datetime.date.today(), sentiment, regime=market_regime)
+                sent = send_email(top3_report['subject'], top3_report['text'], top3_report['html'])
+                log.info("Scan notification email sent" if sent else "Scan notification email skipped (disabled)")
         except Exception as email_err:
             log.warning(f"Scan notification email failed: {email_err}")
 
+        # ── Execute ───────────────────────────────────────────────────────
         top_signals = eligible[:signals_cap]
-        swap_only = (market_regime == "bear")
-        log.info(f"Executing top {len(top_signals)} eligible signal(s) (cap={signals_cap}, swap_only={swap_only})")
+        swap_only   = (market_regime == "bear")
+        log.info(f"Executing top {len(top_signals)} signal(s) (cap={signals_cap}, swap_only={swap_only})")
 
         for sig in top_signals:
             log.info(f"EXECUTE: {sig.action.upper()} {sig.symbol} @ ${sig.price:.2f} | {sig.strategy} | {sig.reason}")
