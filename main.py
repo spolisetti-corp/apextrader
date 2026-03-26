@@ -70,9 +70,10 @@ orb           = ORBStrategy()
 vwap_reclaim  = VWAPReclaimStrategy()
 float_rotation = FloatRotationStrategy()
 
-daily_pnl   = 0.0
-daily_reset = None
-trades      = 0
+daily_pnl          = 0.0
+daily_start_equity = 0.0
+daily_reset        = None
+trades             = 0
 
 # Quarterly tracking
 quarterly_start_equity: float = 0.0
@@ -332,17 +333,23 @@ def scan_top3_only():
 
 
 def scan_and_trade():
-    global daily_pnl, daily_reset, trades
+    global daily_pnl, daily_start_equity, daily_reset, trades
     global quarterly_start_equity, quarterly_reset
 
     import datetime
     today = datetime.date.today()
     if daily_reset != today:
+        try:
+            _day_acct          = client.get_account()
+            daily_start_equity = float(_day_acct.equity)
+        except Exception as e:
+            log.warning(f"Could not read start-of-day equity: {e}")
+            daily_start_equity = 0.0
         daily_pnl   = 0.0
         trades      = 0
         daily_reset = today
         log.info("=" * 70)
-        log.info(f"NEW DAY: {today}")
+        log.info(f"NEW DAY: {today} | Start equity: ${daily_start_equity:,.2f}")
         log.info("=" * 70)
 
     if not is_market_open():
@@ -351,12 +358,20 @@ def scan_and_trade():
             return
         log.warning("FORCE_SCAN active — bypassing market-hours gate")
 
+    # Compute daily P&L live from equity delta (catches all closed trades + unrealized)
+    if daily_start_equity > 0:
+        try:
+            _cur_acct = client.get_account()
+            daily_pnl = float(_cur_acct.equity) - daily_start_equity
+        except Exception as e:
+            log.warning(f"Could not refresh daily P&L: {e}")
+
     if daily_pnl <= DAILY_LOSS_LIMIT:
-        log.warning(f"Daily loss limit hit: ${daily_pnl:.2f}")
+        log.warning(f"Daily loss limit hit: ${daily_pnl:.2f} (started at ${daily_start_equity:,.2f}) — halting trades to preserve PDT budget")
         return
 
     if daily_pnl >= DAILY_PROFIT_TARGET:
-        log.info(f"Daily profit target reached: ${daily_pnl:.2f}")
+        log.info(f"Daily profit target reached: ${daily_pnl:.2f} (started at ${daily_start_equity:,.2f})")
         return
 
     # Quarterly profit target gate
