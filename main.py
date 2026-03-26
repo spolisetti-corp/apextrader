@@ -305,8 +305,7 @@ def scan_top3_only():
     scan_tradeideas_universe()
 
     _open_positions = {p.symbol for p in client.get_all_positions()}
-    _open_orders    = {o.symbol for o in client.get_orders()
-                       if getattr(o, "status", "") in ("new", "partially_filled", "pending_new")}
+    _open_orders    = {o.symbol for o in client.get_orders()}
     _excluded = _open_positions | _open_orders
 
     scan_targets = get_scan_targets(_excluded)
@@ -321,8 +320,7 @@ def scan_top3_only():
         try:
             _fresh_held = (
                 {p.symbol for p in client.get_all_positions()} |
-                {o.symbol for o in client.get_orders()
-                 if getattr(o, "status", "") in ("new", "partially_filled", "pending_new")}
+                {o.symbol for o in client.get_orders()}
             )
         except Exception:
             _fresh_held = _excluded
@@ -421,8 +419,7 @@ def scan_and_trade():
 
     # ── Pre-exclude symbols already held/ordered ─────────────────────────
     _open_positions = {p.symbol for p in client.get_all_positions()}
-    _open_orders    = {o.symbol for o in client.get_orders()
-                       if getattr(o, "status", "") in ("new", "partially_filled", "pending_new")}
+    _open_orders    = {o.symbol for o in client.get_orders()}
     _excluded = _open_positions | _open_orders
 
     scan_targets = get_scan_targets(_excluded)
@@ -514,8 +511,7 @@ def scan_and_trade():
             try:
                 _fresh_held = (
                     {p.symbol for p in client.get_all_positions()} |
-                    {o.symbol for o in client.get_orders()
-                     if getattr(o, "status", "") in ("new", "partially_filled", "pending_new")}
+                    {o.symbol for o in client.get_orders()}
                 )
             except Exception:
                 _fresh_held = _excluded
