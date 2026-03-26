@@ -181,11 +181,30 @@ class EnhancedExecutor:
         # Dynamic max positions: cap by buying power capacity
         bp_capacity = max(1, int(acct.buying_power / MIN_POSITION_DOLLARS))
         effective_max = min(MAX_POSITIONS, bp_capacity)
-        if swap_only and positions.total_count < effective_max:
-            return False, "Bear regime: swap-only mode — no new entries until at max capacity"
 
-        if positions.total_count >= effective_max:
-            # ── Swap: close weakest position to make room for a better signal ──
+        if swap_only:
+            # Bear regime: always swap weakest position — never open empty slots
+            if not (SWAP_ON_FULL and signal.confidence >= SWAP_MIN_CONFIDENCE):
+                return False, (
+                    f"Bear regime: swap-only — confidence {signal.confidence:.0%} below "
+                    f"SWAP_MIN_CONFIDENCE or SWAP_ON_FULL disabled"
+                )
+            weakest = self._find_weakest_position()
+            if not weakest:
+                return False, "Bear regime: swap-only — no open positions to swap"
+            log.info(
+                f"SWAP (bear): closing {weakest} (weakest) to make room for "
+                f"{signal.symbol} (conf={signal.confidence:.0%})"
+            )
+            try:
+                self.client.close_position(weakest)
+            except Exception as e:
+                log.warning(f"SWAP close failed for {weakest}: {e}")
+                return False, f"Swap close failed: {e}"
+            # fall through to enter new position
+
+        elif positions.total_count >= effective_max:
+            # Normal full-portfolio swap or block
             if SWAP_ON_FULL and signal.confidence >= SWAP_MIN_CONFIDENCE:
                 weakest = self._find_weakest_position()
                 if weakest:
