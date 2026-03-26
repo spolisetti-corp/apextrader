@@ -300,3 +300,20 @@ FLOAT_ROTATION = {
     "volume_float_ratio": 0.25,        # Today's volume already > 25% of float
     "min_price_up_pct":   5.0,         # Price must be up >5% on the day
 }
+
+# ─────────────────────────────────────────────────────────────────
+# Golden Ratio Scanner Guardrails
+# ─────────────────────────────────────────────────────────────────
+RVOL_MIN                 = 2.0         # Require relative volume ≥ 2x before entering
+MIN_DOLLAR_VOLUME        = 20_000_000  # Skip illiquid setups: price × day_vol < $20M
+MAX_GAP_CHASE_PCT        = 15.0       # Skip if already up >15% without consolidation
+GAP_CHASE_CONSOL_BARS    = 5          # Number of 1-min bars to check for tight base
+USE_MARKET_REGIME_FILTER = True       # SPY below 200-day MA → cut signals to 1
+MARKET_REGIME_SIGNALS_CAP = 1        # Max signals per cycle in bear regime
+ATR_STOP_MULTIPLIER      = 1.5        # Stop loss = entry − ATR × 1.5
+ATR_TP_RATIO             = 2.0        # Take-profit at 2:1 R:R (risk × 2)
+MAX_SHORT_FLOAT_PCT      = 20.0       # Never exceed this % of equity per squeeze ticker
+HIGH_SHORT_FLOAT_STOCKS  = {
+    "BFLY", "EWTX", "IDYA", "ANNX", "TNGX", "IBRX", "ERAS", "SPIR", "HUT", "EYE",
+    "FOSL", "ANAB", "DOCN", "TERN",
+}

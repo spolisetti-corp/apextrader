@@ -19,7 +19,10 @@ from typing import Optional
 import yfinance as yf
 
 from .utils import get_bars, calc_rsi, calc_macd
-from .config import SWEEPEA, TECHNICAL, MOMENTUM, GAP_BREAKOUT, ORB, VWAP_RECLAIM, FLOAT_ROTATION, LONG_ONLY_MODE
+from .config import (
+    SWEEPEA, TECHNICAL, MOMENTUM, GAP_BREAKOUT, ORB, VWAP_RECLAIM, FLOAT_ROTATION, LONG_ONLY_MODE,
+    ATR_STOP_MULTIPLIER, ATR_TP_RATIO,
+)
 
 ET = pytz.timezone("America/New_York")
 
@@ -32,15 +35,59 @@ class Signal:
     confidence: float
     reason:     str
     strategy:   str
+    atr_stop:   Optional[float] = None   # ATR-based stop distance ($); None = use % fallback
+
+
+def _calc_atr14(bars: pd.DataFrame, period: int = 14) -> float:
+    """Calculate Average True Range over the last `period` bars."""
+    try:
+        hi  = bars["high"]
+        lo  = bars["low"]
+        pc  = bars["close"].shift(1)
+        tr  = pd.concat([(hi - lo), (hi - pc).abs(), (lo - pc).abs()], axis=1).max(axis=1)
+        val = tr.rolling(period).mean().iloc[-1]
+        return float(val) if pd.notna(val) else 0.0
+    except Exception:
+        return 0.0
 
 
 # ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
 # Sweepea Strategy
 # ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
 class SweepeaStrategy:
-    """Liquidity Sweep + Pinbar with Donchian Channel swing detection."""
+    """Liquidity Sweep + Pinbar with Donchian Channel swing detection.
+    Also fires on daily 8/20-EMA pullback after an initial squeeze (secondary move)."""
 
     def scan(self, symbol: str) -> Optional[Signal]:
+        # ── Path A: daily 8/20-EMA pullback (post-squeeze secondary entry) ──────
+        try:
+            daily = get_bars(symbol, "90d", "1d")
+            if not daily.empty and len(daily) >= 25:
+                daily = daily.copy()
+                daily["ema8"]  = daily["close"].ewm(span=8,  adjust=False).mean()
+                daily["ema20"] = daily["close"].ewm(span=20, adjust=False).mean()
+                cur  = daily.iloc[-1]
+                prev = daily.iloc[-2]
+                # Price touched or slightly undercut EMA and recovered above it
+                pb8  = (cur["low"] <= float(cur["ema8"])  * 1.005
+                        and cur["close"] >= float(cur["ema8"]) * 0.995)
+                pb20 = (cur["low"] <= float(cur["ema20"]) * 1.005
+                        and cur["close"] >= float(cur["ema20"]) * 0.995)
+                # Prior trend must be up (close > 8-bar lookback mean)
+                uptrend = float(prev["close"]) > float(daily["close"].iloc[-10:-2].mean())
+                if (pb8 or pb20) and uptrend:
+                    atr14    = _calc_atr14(daily)
+                    ema_lbl  = "8-EMA" if pb8 else "20-EMA"
+                    return Signal(
+                        symbol, "buy", float(cur["close"]), 0.82,
+                        f"Daily Sweepea pullback to {ema_lbl} | ATR ${atr14:.2f}",
+                        "Sweepea",
+                        atr_stop=atr14 * ATR_STOP_MULTIPLIER if atr14 > 0 else None,
+                    )
+        except Exception:
+            pass
+
+        # ── Path B: intraday liquidity sweep + pinbar ────────────────────────────
         bars = get_bars(symbol, "10d", f"{SWEEPEA['timeframe']}m")
         if bars.empty or len(bars) < 30:
             return None
@@ -257,11 +304,13 @@ class GapBreakoutStrategy:
         if price < prior_close * (1 + GAP_BREAKOUT["min_gap_pct"] / 100 * 0.5):
             return None
 
+        atr14 = _calc_atr14(daily)
         confidence = min(0.65 + (gap_pct / 100), 0.95)
         return Signal(
             symbol, "buy", price, confidence,
             f"Gap up {gap_pct:.1f}% from ${prior_close:.2f} | volume x{vol_ratio:.1f}",
             "GapBreakout",
+            atr_stop=atr14 * ATR_STOP_MULTIPLIER if atr14 > 0 else None,
         )
 
 
@@ -438,10 +487,13 @@ class FloatRotationStrategy:
         if vol_float_ratio < FLOAT_ROTATION["volume_float_ratio"]:
             return None
 
-        float_m = shares_float / 1_000_000
+        float_m    = shares_float / 1_000_000
         confidence = min(0.72 + vol_float_ratio * 0.1, 0.96)
+        daily_bars = get_bars(symbol, "5d", "1d")
+        atr14      = _calc_atr14(daily_bars) if not daily_bars.empty and len(daily_bars) >= 5 else 0.0
         return Signal(
             symbol, "buy", price, confidence,
             f"Float rotation: {vol_float_ratio:.1f}x float ({float_m:.1f}M) | +{price_chg:.1f}% day",
             "FloatRotation",
+            atr_stop=atr14 * ATR_STOP_MULTIPLIER if atr14 > 0 else None,
         )

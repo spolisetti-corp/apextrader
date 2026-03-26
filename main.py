@@ -4,14 +4,18 @@ Professional automated trading system.
 """
 
 import time
+import datetime
 import threading
 import schedule
+import pytz
 import yfinance as yf
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dotenv import load_dotenv
 from alpaca.trading.client import TradingClient
 
 load_dotenv()
+
+_ET = pytz.timezone("America/New_York")
 
 from engine.config import (
     API_KEY, API_SECRET, PAPER,
@@ -34,12 +38,15 @@ from engine.config import (
     HIGH_POSITION_INTERVAL, NORMAL_POSITION_INTERVAL, LOW_POSITION_INTERVAL,
     LONG_ONLY_MODE, MIN_SIGNAL_CONFIDENCE, MAX_SIGNALS_PER_CYCLE,
     SCAN_WORKERS, SCAN_SYMBOL_TIMEOUT,
+    RVOL_MIN, MIN_DOLLAR_VOLUME, MAX_GAP_CHASE_PCT, GAP_CHASE_CONSOL_BARS,
+    USE_MARKET_REGIME_FILTER, MARKET_REGIME_SIGNALS_CAP,
 )
 from engine.utils import (
     setup_logging, is_market_open, get_vix, clear_bar_cache,
     get_trending_tickers, filter_trending_momentum,
     get_finnhub_trending_tickers, check_sentiment_gate,
     get_vix_interval, get_market_hours_interval, get_position_tuning_interval,
+    get_bars,
 )
 from engine.strategies import (
     SweepeaStrategy, TechnicalStrategy, MomentumStrategy,
@@ -89,6 +96,50 @@ def get_market_sentiment() -> str:
         return "neutral"
     except Exception:
         return "neutral"
+
+
+# ── Golden Ratio Pre-Scan Guardrails ────────────────────────────
+def _passes_guardrails(symbol: str) -> bool:
+    """Quick pre-scan gates: RVOL ≥ 2x, dollar-volume ≥ $20M, gap-chase guard.
+    Returns False to skip the symbol; never raises."""
+    try:
+        intraday = get_bars(symbol, "1d", "1m")
+        if intraday.empty or len(intraday) < 5:
+            return True  # not enough data — let strategies decide
+
+        price   = float(intraday["close"].iloc[-1])
+        day_vol = float(intraday["volume"].sum())
+
+        # Dollar-volume gate
+        if price * day_vol < MIN_DOLLAR_VOLUME:
+            return False
+
+        # RVOL gate: project today's volume to EOD vs historical daily average
+        daily = get_bars(symbol, "5d", "1d")
+        if not daily.empty and len(daily) >= 2:
+            avg_daily_vol = float(daily["volume"].iloc[:-1].mean())
+            if avg_daily_vol > 0:
+                now_et      = datetime.datetime.now(_ET)
+                mkt_open    = now_et.replace(hour=9, minute=30, second=0, microsecond=0)
+                elapsed_min = max((now_et - mkt_open).total_seconds() / 60, 1.0)
+                elapsed_frac = min(elapsed_min / 390.0, 1.0)
+                rvol = (day_vol / max(elapsed_frac, 0.02)) / avg_daily_vol
+                if rvol < RVOL_MIN:
+                    return False
+
+        # Gap-chase guard: skip if up >15% on day without a tight 5-bar base
+        open_px = float(intraday["open"].iloc[0])
+        if open_px > 0:
+            day_gain = ((price - open_px) / open_px) * 100
+            if day_gain > MAX_GAP_CHASE_PCT:
+                last_n = intraday.iloc[-GAP_CHASE_CONSOL_BARS:]
+                bar_range = float(last_n["high"].max() - last_n["low"].min())
+                if bar_range > price * 0.02:   # range > 2% = no consolidation
+                    return False
+
+        return True
+    except Exception:
+        return True   # never block on guardrail errors
 
 
 # ── Trending Scan ───────────────────────────────────────────────
@@ -318,22 +369,55 @@ def scan_and_trade():
     # ── Clear bar cache for this cycle ──────────────────────────────
     clear_bar_cache()
 
+    # ── Market regime filter: SPY vs 200-day MA ──────────────────────
+    signals_cap = MAX_SIGNALS_PER_CYCLE
+    if USE_MARKET_REGIME_FILTER:
+        try:
+            spy_hist = yf.Ticker("SPY").history(period="1y", interval="1d")
+            if len(spy_hist) >= 200:
+                spy_price = float(spy_hist["Close"].iloc[-1])
+                spy_ma200 = float(spy_hist["Close"].rolling(200).mean().iloc[-1])
+                if spy_price < spy_ma200:
+                    signals_cap = MARKET_REGIME_SIGNALS_CAP
+                    log.info(
+                        f"BEAR REGIME: SPY ${spy_price:.2f} < 200MA ${spy_ma200:.2f} "
+                        f"— capping to {signals_cap} signal(s)"
+                    )
+                else:
+                    log.info(f"BULL REGIME: SPY ${spy_price:.2f} > 200MA ${spy_ma200:.2f}")
+        except Exception as e:
+            log.warning(f"Market regime check failed: {e}")
+
     # ── Per-symbol scanner (runs in thread pool) ──────────────────────
     def _scan_one(symbol: str):
-        for scanner in [
-            gap_breakout.scan,
-            orb.scan,
-            float_rotation.scan,
-            vwap_reclaim.scan,
-            sweepea.scan,
-        ]:
-            sig = scanner(symbol)
+        # Pre-scan guardrails: RVOL, dollar-volume, gap-chase
+        if not _passes_guardrails(symbol):
+            return None
+        # Run ALL strategies; return the highest-confidence signal
+        candidates = []
+        for scanner in [gap_breakout.scan, orb.scan, float_rotation.scan,
+                        vwap_reclaim.scan, sweepea.scan]:
+            try:
+                sig = scanner(symbol)
+                if sig:
+                    candidates.append(sig)
+            except Exception:
+                pass
+        try:
+            sig = technical.scan(symbol, sentiment)
             if sig:
-                return sig
-        sig = technical.scan(symbol, sentiment)
-        if sig:
-            return sig
-        return momentum.scan(symbol)
+                candidates.append(sig)
+        except Exception:
+            pass
+        try:
+            sig = momentum.scan(symbol)
+            if sig:
+                candidates.append(sig)
+        except Exception:
+            pass
+        if not candidates:
+            return None
+        return max(candidates, key=lambda s: s.confidence)
 
     signals      = []
     hit_counts   = {}
@@ -375,8 +459,8 @@ def scan_and_trade():
         eligible = [s for s in eligible if s.confidence >= MIN_SIGNAL_CONFIDENCE]
         log.info(f"Confidence gate ({MIN_SIGNAL_CONFIDENCE:.0%}): {len(eligible)} signal(s) qualify")
 
-        top_signals = eligible[:MAX_SIGNALS_PER_CYCLE]
-        log.info(f"Executing top {len(top_signals)} eligible signal(s)")
+        top_signals = eligible[:signals_cap]
+        log.info(f"Executing top {len(top_signals)} eligible signal(s) (cap={signals_cap})")
 
         for sig in top_signals:
             log.info(f"EXECUTE: {sig.action.upper()} {sig.symbol} @ ${sig.price:.2f} | {sig.strategy} | {sig.reason}")

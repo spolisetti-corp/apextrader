@@ -32,6 +32,7 @@ from .config import (
     USE_VIX_ROC_FILTER,
     MIN_BUYING_POWER_PCT, MIN_POSITION_DOLLARS, PDT_WARN_AT_REMAINING,
     TAKE_PROFIT_NORMAL, TAKE_PROFIT_HIGH, STOP_LOSS_PCT,
+    ATR_TP_RATIO, MAX_SHORT_FLOAT_PCT, HIGH_SHORT_FLOAT_STOCKS,
 )
 from .strategies import Signal
 from .utils import is_regular_hours, calculate_risk_adjusted_size, check_vix_roc_filter
@@ -204,14 +205,25 @@ class EnhancedExecutor:
             )
         return shares, None
 
-    # ΓöÇΓöÇ Bracket Prices ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
-    def _calculate_bracket_prices(self, signal: Signal, risk_info: Dict, order_type: OrderType) -> Tuple[float, float]:
-        if order_type == OrderType.LONG:
-            sl = round(signal.price * (1 - risk_info["stop_loss_pct"] / 100), 2)
-            tp = round(signal.price * (1 + risk_info["tp"]            / 100), 2)
+    # ── Bracket Prices ──────────────────────────────────────────────────────────
+    def _calculate_bracket_prices(self, signal: Signal, risk_info: Dict, order_type: OrderType) -> tuple:
+        if signal.atr_stop and signal.atr_stop > 0:
+            # ATR-based 2:1 R:R — stop at 1.5×ATR, target at 2× the risk
+            risk_dist = signal.atr_stop
+            if order_type == OrderType.LONG:
+                sl = round(signal.price - risk_dist, 2)
+                tp = round(signal.price + ATR_TP_RATIO * risk_dist, 2)
+            else:
+                sl = round(signal.price + risk_dist, 2)
+                tp = round(signal.price - ATR_TP_RATIO * risk_dist, 2)
         else:
-            sl = round(signal.price * (1 + risk_info["stop_loss_pct"] / 100), 2)
-            tp = round(signal.price * (1 - risk_info["tp"]            / 100), 2)
+            # Percentage-based fallback
+            if order_type == OrderType.LONG:
+                sl = round(signal.price * (1 - risk_info["stop_loss_pct"] / 100), 2)
+                tp = round(signal.price * (1 + risk_info["tp"]            / 100), 2)
+            else:
+                sl = round(signal.price * (1 + risk_info["stop_loss_pct"] / 100), 2)
+                tp = round(signal.price * (1 - risk_info["tp"]            / 100), 2)
         return sl, tp
 
     # ΓöÇΓöÇ Bracket Order ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
@@ -318,6 +330,19 @@ class EnhancedExecutor:
         if shares < 1:
             log.info(f"Skip {signal.symbol}: {skip_reason}")
             return False
+
+        # Short-float position cap: never exceed 20% of equity in a single squeeze ticker
+        if signal.symbol in HIGH_SHORT_FLOAT_STOCKS:
+            cap_shares = max(0, int(acct.equity * (MAX_SHORT_FLOAT_PCT / 100) / signal.price))
+            if shares > cap_shares:
+                log.info(
+                    f"Short-float cap {signal.symbol}: {shares}→{cap_shares} shares "
+                    f"({MAX_SHORT_FLOAT_PCT:.0f}% equity max, equity ${acct.equity:,.0f})"
+                )
+                shares = cap_shares
+            if shares < 1:
+                log.info(f"Skip {signal.symbol}: too small after short-float cap")
+                return False
 
         if self.use_bracket_orders and is_regular_hours():
             if self._create_bracket_order(signal, shares, risk_info, order_type):
