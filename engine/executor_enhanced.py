@@ -419,6 +419,7 @@ class EnhancedExecutor:
             if self._create_bracket_order(signal, shares, risk_info, order_type):
                 self.pdt.add(datetime.date.today())
                 self._entry_log[signal.symbol] = {"strategy": signal.strategy, "date": datetime.date.today()}
+                self._swap_cycle_closed.add(signal.symbol)  # protect from same-cycle swap-out
                 self._get_positions(force_refresh=True)
                 self._get_account(force_refresh=True)
                 return True
@@ -426,6 +427,7 @@ class EnhancedExecutor:
         if self._create_simple_order(signal, shares, order_type):
             self.pdt.add(datetime.date.today())
             self._entry_log[signal.symbol] = {"strategy": signal.strategy, "date": datetime.date.today()}
+            self._swap_cycle_closed.add(signal.symbol)  # protect from same-cycle swap-out
             self._get_positions(force_refresh=True)
             self._get_account(force_refresh=True)
             return True
