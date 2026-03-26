@@ -34,6 +34,14 @@ ETRADE_SANDBOX         = os.getenv("ETRADE_SANDBOX", "false").lower() == "true"
 # Priority 3: Market ETFs for context
 # ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
 PRIORITY_1_MOMENTUM = [
+    # Trade-Ideas PRIORITY_1_MOMENTUM top-priority update 2026-03-26 16:07
+    "CBIO", "REED",
+    # Trade-Ideas PRIORITY_1_MOMENTUM top-priority update 2026-03-26 15:34
+    "ONDG",
+    # Trade-Ideas PRIORITY_1_MOMENTUM top-priority update 2026-03-26 14:21
+    "OKLS", "METU",
+    # Trade-Ideas PRIORITY_1_MOMENTUM top-priority update 2026-03-26 13:42
+    "NBIG",
     # Trade-Ideas PRIORITY_1_MOMENTUM top-priority update 2026-03-26 12:58
     "TURB", "QBTZ",
     # Trade-Ideas PRIORITY_1_MOMENTUM top-priority update 2026-03-26 12:08
@@ -107,6 +115,12 @@ PRIORITY_1_MOMENTUM = [
 
 
 PRIORITY_2_ESTABLISHED = [
+    # Trade-Ideas PRIORITY_2_ESTABLISHED top-priority update 2026-03-26 15:33
+    "MDGL", "EVH",
+    # Trade-Ideas PRIORITY_2_ESTABLISHED top-priority update 2026-03-26 14:38
+    "TRIP",
+    # Trade-Ideas PRIORITY_2_ESTABLISHED top-priority update 2026-03-26 14:00
+    "LCID",
     # Trade-Ideas PRIORITY_2_ESTABLISHED top-priority update 2026-03-26 13:07
     "CORZ",
     # Trade-Ideas PRIORITY_2_ESTABLISHED top-priority update 2026-03-26 12:49
@@ -353,7 +367,7 @@ MIN_POSITION_DOLLARS  = 500.0  # Minimum trade size in $ — skip if downsized b
 PDT_WARN_AT_REMAINING = 1      # Warn log when PDT trades remaining falls to this level
 
 # Sniper Mode Controls
-LONG_ONLY_MODE        = True   # Disable all short entries — eliminates margin, HTB, and 2x BP requirements
+LONG_ONLY_MODE        = False  # Shorts enabled — requires margin, HTB check, 2x BP per short position
 MIN_SIGNAL_CONFIDENCE = 0.82   # Execute signals with confidence >= this
 MAX_SIGNALS_PER_CYCLE = 3      # Execute at most this many signals per scan cycle
 
@@ -445,42 +459,45 @@ HIGH_SHORT_FLOAT_STOCKS  = {
     "ASPI", "ASST", "ASTI", "ASTS", "ATPC", "AVTX",
     "AVXL", "BABX", "BATL", "BBW", "BCRX", "BEAM",
     "BETR", "BF", "BFLY", "BHVN", "BIAF", "BIRD",
-    "BMEA", "BMNZ", "BNAI", "BOXL", "BTBD", "BTBT",
-    "BTDR", "BZUN", "CAR", "CBUS", "CDIO", "CELC",
-    "CGEM", "CHAC", "CIFG", "CIFR", "CISS", "CNVS",
-    "CNXC", "CORZ", "CRCA", "CRCG", "CVI", "CVV",
-    "CYN", "DAMD", "DBI", "DERM", "DJI", "DNA",
-    "DNUT", "DOCN", "DRVN", "DUST", "DVLT", "DWSN",
-    "DXST", "DXYZ", "EAF", "EDSA", "ELVN", "ERAS",
-    "ETHD", "ETHT", "EUDA", "EVMN", "EVTV", "EWTX",
-    "EYE", "FATN", "FBIO", "FBYD", "FCHL", "FEED",
-    "FFAI", "FGL", "FLNC", "FOSL", "FOUR", "GDXD",
-    "GDXU", "GLSI", "GLUE", "GLWG", "GOGO", "GRND",
-    "HCTI", "HNRG", "HPK", "HRTX", "HTCO", "HTZ",
-    "HUMA", "HUT", "HYPD", "IBRX", "IBTA", "ICU",
-    "IDYA", "INDI", "INDO", "IRE", "IREG", "ISSC",
-    "JBLU", "JDZG", "JNUG", "KALV", "KIDZ", "KLRS",
-    "KOD", "KORU", "KPTI", "KRRO", "KULR", "KVYO",
-    "LASE", "LE", "LENZ", "LICN", "LMRI", "LOVE",
-    "LUD", "LUNR", "LVWR", "MARA", "MED", "MGTX",
-    "MKDW", "MKT", "MLKN", "MRAL", "MRLN", "MRNO",
-    "MULL", "MUU", "MUX", "MVIS", "NAMM", "NAUT",
-    "NAVN", "NBIS", "NDRA", "NEXT", "NFE", "NGNE",
-    "NOAH", "NOTE", "NSRX", "NTLA", "NUGT", "NVTS",
-    "OGEN", "OKLO", "OKUR", "OLPX", "ORGN", "ORGO",
+    "BKSY", "BMEA", "BMNZ", "BNAI", "BOXL", "BTBD",
+    "BTBT", "BTDR", "BZUN", "CAR", "CBIO", "CBUS",
+    "CDIO", "CELC", "CGEM", "CHAC", "CIFG", "CIFR",
+    "CISS", "CNVS", "CNXC", "CORZ", "CRCA", "CRCG",
+    "CVI", "CVV", "CYN", "DAMD", "DBI", "DERM",
+    "DJI", "DNA", "DNTH", "DNUT", "DOCN", "DRVN",
+    "DUST", "DVLT", "DWSN", "DXST", "DXYZ", "EAF",
+    "EDSA", "ELVN", "ERAS", "ETHD", "ETHT", "EUDA",
+    "EVH", "EVMN", "EVTV", "EWTX", "EYE", "FATN",
+    "FBIO", "FBYD", "FCHL", "FEED", "FFAI", "FGL",
+    "FLNC", "FOSL", "FOUR", "GDXD", "GDXU", "GLSI",
+    "GLUE", "GLWG", "GOGO", "GRND", "HCTI", "HNRG",
+    "HPK", "HRTX", "HTCO", "HTZ", "HUMA", "HUT",
+    "HYPD", "IBRX", "IBTA", "ICU", "IDYA", "INDI",
+    "INDO", "IONZ", "IRE", "IREG", "ISSC", "JBLU",
+    "JDZG", "JNUG", "KALV", "KIDZ", "KLRS", "KOD",
+    "KORU", "KPTI", "KRRO", "KULR", "KVYO", "LASE",
+    "LCID", "LE", "LENZ", "LICN", "LMRI", "LOVE",
+    "LUD", "LUNR", "LVWR", "MARA", "MDGL", "MED",
+    "METU", "MGTX", "MKDW", "MKT", "MLKN", "MRAL",
+    "MRLN", "MRNO", "MULL", "MUU", "MUX", "MVIS",
+    "NAMM", "NAUT", "NAVN", "NBIG", "NBIS", "NDRA",
+    "NEXT", "NFE", "NGNE", "NOAH", "NOTE", "NSRX",
+    "NTLA", "NUGT", "NVTS", "OGEN", "OKLO", "OKLS",
+    "OKUR", "OLPX", "ONDG", "ONDS", "ORGN", "ORGO",
     "ORIC", "OXM", "PALI", "PGEN", "PLCE", "PONY",
-    "PROF", "PROP", "QBTZ", "QNCX", "QNTM", "QVCGA",
-    "RBNE", "RCAT", "RCAX", "RDTL", "RENX", "RETO",
-    "RIME", "RIOX", "RKLX", "RKLZ", "RNAC", "ROMA",
-    "RVI", "RXT", "RZLT", "SATS", "SCVL", "SER",
-    "SHMD", "SHNY", "SION", "SKIL", "SKIN", "SKLZ",
-    "SLON", "SMCX", "SMCZ", "SMX", "SNBR", "SND",
-    "SNSE", "SOC", "SOLT", "SOWG", "SOXS", "SPIR",
-    "SPRY", "SRPT", "SUNE", "SWMR", "TASK", "TBCH",
-    "TEAD", "TECX", "TERN", "TNGX", "TPET", "TRON",
-    "TSSI", "TTEC", "TURB", "UAMY", "UGRO", "UPXI",
-    "UUUG", "VCX", "VIVO", "VNET", "VRCA", "VSTM",
-    "VTIX", "WATT", "WKHS", "WS", "WTI", "WULF",
-    "WVE", "WYFI", "XRX", "XYF", "YANG", "YDDL",
-    "YINN", "ZSL",
+    "PROF", "PROP", "QBTZ", "QNCX", "QNRX", "QNTM",
+    "QVCGA", "RBNE", "RCAT", "RCAX", "RDTL", "REED",
+    "RENX", "RETO", "RIME", "RIOX", "RKLX", "RKLZ",
+    "RNAC", "ROMA", "RVI", "RXT", "RZLT", "SATS",
+    "SCVL", "SER", "SHMD", "SHNY", "SION", "SKIL",
+    "SKIN", "SKLZ", "SLON", "SMCX", "SMCZ", "SMX",
+    "SNBR", "SND", "SNSE", "SOC", "SOLT", "SOWG",
+    "SOXS", "SPIR", "SPRY", "SRPT", "SUNE", "SWMR",
+    "TASK", "TBCH", "TEAD", "TECX", "TERN", "TNGX",
+    "TPET", "TRIP", "TRON", "TSSI", "TTEC", "TURB",
+    "UAMY", "UGRO", "UPXI", "UUUG", "VCIC", "VCX",
+    "VIVO", "VNET", "VRCA", "VSTM", "VTIX", "WATT",
+    "WKHS", "WOLF", "WS", "WTI", "WULF", "WVE",
+    "WYFI", "XRX", "XYF", "YANG", "YDDL", "YINN",
+    "ZSL",
 }
