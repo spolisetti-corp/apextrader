@@ -478,6 +478,19 @@ def scan_and_trade():
 
     log.info(f"Total raw signals: {len(signals)}")
 
+    # ── Always log top-5 raw signals (informational, regardless of execution) ──
+    if signals:
+        top5_raw = sorted(signals, key=lambda s: s.confidence, reverse=True)[:5]
+        log.info("── TOP 5 RAW SIGNALS (pre-filter) ──────────────────────────────")
+        for idx, s in enumerate(top5_raw, start=1):
+            log.info(
+                f"  #{idx}: {s.symbol} {s.action.upper()} ${s.price:.2f} "
+                f"conf={s.confidence:.0%} [{s.strategy}] — {s.reason}"
+            )
+        log.info("────────────────────────────────────────────────────────────────")
+    else:
+        log.info("── TOP 5 RAW SIGNALS: none this cycle ──────────────────────────")
+
     if signals:
         # ── Live re-fetch: positions + pending BUY orders (order book cross-ref) ─
         # Buy-side only: stop-loss/TP sell legs are already covered by positions.
