@@ -305,7 +305,8 @@ def scan_top3_only():
     scan_tradeideas_universe()
 
     _open_positions = {p.symbol for p in client.get_all_positions()}
-    _open_orders    = {o.symbol for o in client.get_orders()}
+    _open_orders    = {o.symbol for o in client.get_orders()
+                       if str(getattr(o, 'side', '')).lower() == 'buy'}
     _excluded = _open_positions | _open_orders
 
     scan_targets = get_scan_targets(_excluded)
@@ -419,7 +420,8 @@ def scan_and_trade():
 
     # ── Pre-exclude symbols already held/ordered ─────────────────────────
     _open_positions = {p.symbol for p in client.get_all_positions()}
-    _open_orders    = {o.symbol for o in client.get_orders()}
+    _open_orders    = {o.symbol for o in client.get_orders()
+                       if str(getattr(o, 'side', '')).lower() == 'buy'}
     _excluded = _open_positions | _open_orders
 
     scan_targets = get_scan_targets(_excluded)
@@ -491,12 +493,13 @@ def scan_and_trade():
     log.info(f"Total raw signals: {len(signals)}")
 
     if signals:
-        # ── Live re-fetch: positions + all active orders ──────────────────
+        # ── Live re-fetch: positions + pending BUY orders (order book cross-ref) ─
+        # Buy-side only: stop-loss/TP sell legs are already covered by positions.
         # Done AFTER scan so any fills during the scan window are captured.
-        # This single set drives both the execution pool and the email picks.
         try:
             _live_positions = {p.symbol for p in client.get_all_positions()}
-            _live_orders    = {o.symbol for o in client.get_orders()}
+            _live_orders    = {o.symbol for o in client.get_orders()
+                               if str(getattr(o, 'side', '')).lower() == 'buy'}
             _fresh_held     = _live_positions | _live_orders
         except Exception as e:
             log.warning(f"Live position re-fetch failed, falling back to pre-scan set: {e}")
