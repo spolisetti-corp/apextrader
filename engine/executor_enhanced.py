@@ -191,6 +191,21 @@ class EnhancedExecutor:
         if order_type == OrderType.SHORT and signal.symbol in self._htb_cache:
             return False, f"{signal.symbol} hard-to-borrow (cached)"
 
+        # Pending order guard: don't submit a second order if one is already live/filling
+        if signal.symbol in self.order_cache:
+            cached_id = self.order_cache[signal.symbol]
+            try:
+                cached_order = self.client.get_order_by_id(cached_id)
+                active_statuses = {"new", "partially_filled", "pending_new", "accepted", "held"}
+                if str(getattr(cached_order, "status", "")).lower() in active_statuses:
+                    return False, f"Pending order already active for {signal.symbol} (id={cached_id})"
+                else:
+                    # Order is filled/cancelled — remove stale cache entry
+                    del self.order_cache[signal.symbol]
+            except Exception:
+                # Can't verify → remove stale entry and proceed cautiously
+                del self.order_cache[signal.symbol]
+
         positions = self._get_positions()
 
         # Dynamic max positions: cap by buying power capacity
