@@ -21,7 +21,7 @@ import yfinance as yf
 from .utils import get_bars, calc_rsi, calc_macd
 from .config import (
     SWEEPEA, TECHNICAL, MOMENTUM, GAP_BREAKOUT, ORB, VWAP_RECLAIM, FLOAT_ROTATION, LONG_ONLY_MODE,
-    ATR_STOP_MULTIPLIER, ATR_TP_RATIO,
+    ATR_STOP_MULTIPLIER, ATR_TP_RATIO, HIGH_SHORT_FLOAT_STOCKS,
 )
 
 ET = pytz.timezone("America/New_York")
@@ -158,7 +158,79 @@ class SweepeaStrategy:
         return None
 
 
-# ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
+# ──────────────────────────────────────────────────────────────────────────────
+# TrendBreaker Strategy
+# ──────────────────────────────────────────────────────────────────────────────
+class TrendBreakerStrategy:
+    """Detects upside trend breaks on high short float stocks.
+
+    Pattern (short-squeeze breakout):
+      - Stock was below 20-day SMA for ≥5 consecutive days (bears in control)
+      - Current price breaks back above 20SMA AND above 10-day high
+      - Volume spike ≥2x average (shorts forced to cover)
+      - RSI crossing above 50 (momentum flip confirmation)
+      - Bonus: in HIGH_SHORT_FLOAT_STOCKS set → higher confidence
+    """
+
+    def scan(self, symbol: str) -> Optional[Signal]:
+        daily = get_bars(symbol, "60d", "1d")
+        if daily.empty or len(daily) < 22:
+            return None
+
+        closes  = daily["close"]
+        volumes = daily["volume"]
+        sma20   = closes.rolling(20).mean()
+        price   = float(closes.iloc[-1])
+        sma20_now = float(sma20.iloc[-1])
+        if sma20_now <= 0:
+            return None
+
+        # Was below 20SMA for at least 5 of the last 6 days (excl. today)
+        below_count = sum(closes.iloc[-7:-1].values < sma20.iloc[-7:-1].values)
+        if below_count < 5:
+            return None
+
+        # Today broke back above 20SMA
+        if price <= sma20_now:
+            return None
+
+        # Price must also clear the 10-day high (prior to today)
+        high_10d = float(daily["high"].iloc[-11:-1].max())
+        if price < high_10d * 1.002:   # requires at least a clean break (0.2% above)
+            return None
+
+        # Volume spike: today vs 20-day average
+        vol_today = float(volumes.iloc[-1])
+        vol_avg   = float(volumes.iloc[-21:-1].mean())
+        if vol_avg <= 0:
+            return None
+        vol_ratio = vol_today / vol_avg
+        if vol_ratio < 2.0:
+            return None
+
+        # RSI crossing above 50
+        rsi = calc_rsi(closes, period=14)
+        rsi_now  = float(rsi.iloc[-1])
+        rsi_prev = float(rsi.iloc[-2])
+        if not (rsi_now > 50 and rsi_prev <= 55):   # just crossed or near cross
+            return None
+
+        atr14 = _calc_atr14(daily)
+
+        # Confidence: base 0.80, +0.05 if in high short float set, scales with vol_ratio
+        confidence = 0.80 + min((vol_ratio - 2.0) * 0.02, 0.08)
+        if symbol in HIGH_SHORT_FLOAT_STOCKS:
+            confidence = min(confidence + 0.05, 0.95)
+
+        return Signal(
+            symbol, "buy", price, round(confidence, 2),
+            f"Trend break above 20SMA + 10d high | vol x{vol_ratio:.1f} | RSI {rsi_now:.0f}",
+            "TrendBreaker",
+            atr_stop=atr14 * ATR_STOP_MULTIPLIER if atr14 > 0 else None,
+        )
+
+
+# ──────────────────────────────────────────────────────────────────────────────
 # Technical Strategy
 # ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
 class TechnicalStrategy:

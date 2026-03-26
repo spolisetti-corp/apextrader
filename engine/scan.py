@@ -25,6 +25,7 @@ from .strategies import (
     MomentumStrategy,
     TechnicalStrategy,
     SweepeaStrategy,
+    TrendBreakerStrategy,
 )
 
 
@@ -89,6 +90,7 @@ def scan_universe(scan_targets: List[str], sentiment: str) -> Tuple[List, Dict[s
         MomentumStrategy(),
         TechnicalStrategy(),
         SweepeaStrategy(),
+        TrendBreakerStrategy(),
     ]
 
     signals = []
