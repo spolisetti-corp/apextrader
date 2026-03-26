@@ -175,15 +175,21 @@ class TradingOrchestrator:
             pass
 
     def run_one_cycle(self):
+        cycle_start = time.time()
         today = datetime.date.today()
         if self.daily_reset != today:
             self.daily_pnl = 0.0
             self.trades = 0
             self.daily_reset = today
+            log.info(f"New trading day started: {today}")
+
+        log.info(f"Cycle start: daily_pnl={self.daily_pnl:.2f}, trades={self.trades}")
 
         if self.daily_pnl <= DAILY_LOSS_LIMIT:
+            log.warning(f"Daily loss limit hit: {self.daily_pnl:.2f}")
             return
         if self.daily_pnl >= DAILY_PROFIT_TARGET:
+            log.info(f"Daily profit target reached: {self.daily_pnl:.2f}")
             return
 
         try:
@@ -217,15 +223,18 @@ class TradingOrchestrator:
         top_signals = select_top_signals(signals,
                                          MARKET_REGIME_SIGNALS_CAP if USE_MARKET_REGIME_FILTER else len(signals))
 
+        log.info(f"Scan finished: {len(signals)} signals found, {len(top_signals)} selected")
+
         if top_signals:
-            # risk filters
             filtered = [s for s in top_signals if not (s.action != 'buy' and False)]
+            log.info(f"Executing {len(filtered)} order(s)")
             for sig in filtered:
                 self.executor.execute(sig)
                 time.sleep(1)
                 self.trades += 1
 
-        # status crunch
+        elapsed = time.time() - cycle_start
+        log.info(f"Cycle complete in {elapsed:.1f}s. Total trades={self.trades}, daily_pnl={self.daily_pnl:.2f}")
         return True
 
     def run_eod_check(self):

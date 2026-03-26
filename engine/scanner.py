@@ -1,11 +1,14 @@
+import logging
 import time
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import ThreadPoolExecutor
 
 from engine.utils import get_bars, is_market_open
 from engine.strategies import (
     SweepeaStrategy, TechnicalStrategy, MomentumStrategy,
     GapBreakoutStrategy, ORBStrategy, VWAPReclaimStrategy, FloatRotationStrategy,
 )
+
+log = logging.getLogger('ApexTrader')
 
 # Maintain one shared strategy suite (reused across cycles)
 sweepea = SweepeaStrategy()
@@ -32,7 +35,9 @@ def _passes_guardrails(symbol: str) -> bool:
 
 
 def scan_one(symbol: str, sentiment: str):
+    start = time.time()
     if not _passes_guardrails(symbol):
+        log.debug(f"Guardrail skip: {symbol}")
         return None
 
     candidates = []
@@ -42,27 +47,33 @@ def scan_one(symbol: str, sentiment: str):
             sig = scanner(symbol)
             if sig:
                 candidates.append(sig)
-        except Exception:
+        except Exception as err:
+            log.debug(f"Strategy scan error for {symbol} in {scanner.__name__}: {err}")
             continue
 
     try:
         sig = technical.scan(symbol, sentiment)
         if sig:
             candidates.append(sig)
-    except Exception:
-        pass
+    except Exception as err:
+        log.debug(f"Technical scan error for {symbol}: {err}")
 
     try:
         sig = momentum.scan(symbol)
         if sig:
             candidates.append(sig)
-    except Exception:
-        pass
+    except Exception as err:
+        log.debug(f"Momentum scan error for {symbol}: {err}")
+
+    elapsed = time.time() - start
 
     if not candidates:
+        log.debug(f"No candidates for {symbol} (took {elapsed:.2f}s)")
         return None
 
-    return max(candidates, key=lambda s: s.confidence)
+    best = max(candidates, key=lambda s: s.confidence)
+    log.debug(f"Selected {best.symbol} @ {best.confidence:.2f} for {symbol} (took {elapsed:.2f}s)")
+    return best
 
 
 def select_top_signals(signals, max_count):
