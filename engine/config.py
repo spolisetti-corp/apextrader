@@ -34,6 +34,8 @@ ETRADE_SANDBOX         = os.getenv("ETRADE_SANDBOX", "false").lower() == "true"
 # Priority 3: Market ETFs for context
 # ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
 PRIORITY_1_MOMENTUM = [
+    # Trade-Ideas PRIORITY_1_MOMENTUM top-priority update 2026-03-26 07:01
+    "OLPX", "KOD", "ZSL", "ETHD", "BMNZ", "YANG", "SND", "OCGN", "HOLO", "GLL", "NEXT", "SBIT", "GDXU", "ETHT", "YINN", "SHNY", "MRAL", "TECK", "SIVR", "PSLV", "MUU", "CRCA", "UXRP", "XXRP", "ETHA", "CWEB",
     # Trade-Ideas PRIORITY_1_MOMENTUM top-priority update 2026-03-26 00:07
     "SLND", "BTBD", "FCHL", "NAVN", "RVI", "CBUS", "MLKN", "WS",
     # Extreme momentum (100%+ gainers) - HIGHEST PRIORITY
@@ -69,6 +71,8 @@ PRIORITY_1_MOMENTUM = [
 
 
 PRIORITY_2_ESTABLISHED = [
+    # Trade-Ideas PRIORITY_2_ESTABLISHED top-priority update 2026-03-26 07:01
+    "DVLT", "AESI", "LOVE", "SPRY", "LXEO", "MVIS", "HUMA", "MNTS", "BEAM", "ABEO", "SOC", "WTI", "IMRX", "IPW", "BHVN", "IMCR", "FRGT", "VTS", "FFAI", "GOGO", "CISS", "SGRY", "HRTX", "ALBT", "PFSA", "STIM", "UPXI", "MUX", "INDI", "UAMY",
     # Trade-Ideas PRIORITY_2_ESTABLISHED top-priority update 2026-03-26 00:07
     "PROP", "PGEN", "CRVS", "BOXL", "LVWR", "CYN", "IMTE", "TPET", "ABSI", "BBW",
     # Tech giants (stable, liquid)
