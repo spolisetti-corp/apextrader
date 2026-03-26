@@ -6,9 +6,8 @@ Contains reusable scanning functions for main loop and run_top3 tools.
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import List, Dict, Tuple, Set
 
+from . import config as _cfg
 from .config import (
-    PRIORITY_1_MOMENTUM,
-    PRIORITY_2_ESTABLISHED,
     SCAN_MAX_SYMBOLS,
     SCAN_WORKERS,
     SCAN_SYMBOL_TIMEOUT,
@@ -56,10 +55,14 @@ def get_scan_targets(excluded: Set[str] = None) -> List[str]:
     if excluded is None:
         excluded = set()
 
+    # Read live from config module so Trade Ideas scrape updates are reflected
+    p1 = _cfg.PRIORITY_1_MOMENTUM
+    p2 = _cfg.PRIORITY_2_ESTABLISHED
+
     targets = []
     seen = set()
 
-    for s in PRIORITY_1_MOMENTUM + PRIORITY_2_ESTABLISHED[:10]:
+    for s in p1 + p2[:10]:
         if s not in seen and s not in excluded:
             seen.add(s)
             targets.append(s)
