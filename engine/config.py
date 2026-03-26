@@ -124,10 +124,6 @@ DELISTED_STOCKS = [
     "IMV", "EKV", "AMTK", "SUNE", "BTU",
     # Index tickers (not tradeable)
     "DJI", "$DJI",
-    # Leveraged / inverse ETFs — generate false Sweepea/strategy signals
-    "ZSL", "GLL", "YANG", "YINN", "LABD", "SBIT", "GDXD", "GDXU",
-    "SOXS", "CONL", "MSTX", "SMCX", "SMCZ", "IONL", "KORU",
-    "ETHD", "ETHT", "ETHA", "UXRP", "XXRP", "CWEB",
 ]
 
 # Remove delisted from live lists
