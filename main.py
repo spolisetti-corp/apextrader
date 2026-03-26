@@ -55,6 +55,7 @@ from engine.strategies import (
 )
 from engine.executor_enhanced import EnhancedExecutor
 from engine.notifications import build_eod_report, send_email
+from engine.orchestrator import TradingOrchestrator
 
 # ── Initialise ──────────────────────────────────────────────────
 log      = setup_logging()
@@ -558,97 +559,8 @@ def get_adaptive_interval() -> int:
 
 # ── Start (continuous loop for local/server deployment) ─────────
 def start():
-    log.info("=" * 70)
-    log.info("APEXTRADER - Priority-Based Momentum Trading")
-    log.info("=" * 70)
-    log.info("Strategies: Sweepea | Technical | Momentum")
-    log.info(f"Priority 1 (Momentum): {len(PRIORITY_1_MOMENTUM)} stocks")
-    log.info(f"Priority 2 (Established): {len(PRIORITY_2_ESTABLISHED)} stocks")
-    log.info(f"Total Universe: {sum(len(v) for v in STOCKS.values())} stocks")
-    log.info(f"Scan: {'ADAPTIVE (VIX-based)' if ADAPTIVE_INTERVALS else f'{SCAN_INTERVAL_MIN} min fixed'}")
-    log.info("=" * 70)
-
-    try:
-        account = client.get_account()
-        log.info(f"Equity:          ${float(account.equity):,.2f}")
-        log.info(f"Buying Power:    ${float(account.buying_power):,.2f}")
-        log.info(f"PDT Status:      {'Yes' if account.pattern_day_trader else 'No'}")
-        log.info(f"Day Trade Count: {account.daytrade_count}")
-    except Exception as e:
-        log.error(f"Account info error: {e}")
-
-    log.info("=" * 70)
-    log.info("Starting… Press Ctrl+C to stop")
-    log.info("=" * 70)
-
-    # Protect any existing positions that have no orders
-    executor.protect_positions()
-
-    try:
-        scan_and_trade()
-    except Exception as e:
-        log.error(f"Initial scan error: {e}")
-
-    last_vix_check   = time.time()
-    current_interval = get_adaptive_interval()
-    last_scan        = time.time()
-
-    schedule.every(30).minutes.do(log_status)
-
-    try:
-        while True:
-            if ADAPTIVE_INTERVALS and (time.time() - last_vix_check) >= 900:
-                new_interval = get_adaptive_interval()
-                if new_interval != current_interval:
-                    log.info(f"Scan interval: {current_interval} → {new_interval} min")
-                    current_interval = new_interval
-                last_vix_check = time.time()
-
-            if (time.time() - last_scan) >= (current_interval * 60):
-                executor.protect_positions()
-                eod_summary = executor.close_eod_positions()
-
-                if eod_summary:
-                    try:
-                        account   = client.get_account()
-                        positions = client.get_all_positions()
-                        market_summary = get_market_sentiment()
-
-                        report = build_eod_report(
-                            report_date=datetime.date.today(),
-                            market_summary=market_summary,
-                            account_summary={
-                                "equity": float(account.equity),
-                                "buying_power": float(account.buying_power),
-                                "pdt_protected": account.pattern_day_trader,
-                            },
-                            daily_pnl=daily_pnl,
-                            total_trades=trades,
-                            eod_close_summary=eod_summary,
-                            positions=positions,
-                            discovery_tickers=trending_stocks,
-                        )
-
-                        sent = send_email(report["subject"], report["text"], report["html"])
-                        if sent:
-                            log.info("EOD notification email sent.")
-                        else:
-                            log.info("EOD notification email skipped (disabled in config).")
-                    except Exception as e:
-                        log.error(f"EOD email error: {e}")
-
-                try:
-                    scan_and_trade()
-                except Exception as e:
-                    log.error(f"Scan cycle error: {e}")
-                last_scan = time.time()
-
-            schedule.run_pending()
-            time.sleep(30)
-
-    except KeyboardInterrupt:
-        log.info("Stopped by user")
-        log_status()
+    orchestrator = TradingOrchestrator(client, executor)
+    orchestrator.loop()
 
 
 if __name__ == "__main__":
@@ -671,15 +583,15 @@ if __name__ == "__main__":
     if args.force:
         import engine.config as _cfg
         _cfg.FORCE_SCAN = True
-        # also re-export so scan_and_trade sees it
-        globals()["FORCE_SCAN"] = True
+
+    orchestrator = TradingOrchestrator(client, executor)
 
     if args.once:
         log.info("=" * 70)
         log.info("APEXTRADER — Single Scan Cycle (GitHub Actions)")
         log.info("=" * 70)
-        scan_and_trade()
-        log_status()
+        orchestrator.run_one_cycle()
+        orchestrator.log_status()
         sys.exit(0)
     else:
         start()
