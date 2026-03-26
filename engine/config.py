@@ -34,6 +34,10 @@ ETRADE_SANDBOX         = os.getenv("ETRADE_SANDBOX", "false").lower() == "true"
 # Priority 3: Market ETFs for context
 # ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
 PRIORITY_1_MOMENTUM = [
+    # Trade-Ideas PRIORITY_1_MOMENTUM top-priority update 2026-03-26 08:21
+    "DUST", "MASK", "MSOX", "FGL", "HYMC",
+    # Trade-Ideas PRIORITY_1_MOMENTUM top-priority update 2026-03-26 08:15
+    "AIFF", "USAS", "ARWR",
     # Trade-Ideas PRIORITY_1_MOMENTUM top-priority update 2026-03-26 07:57
     "WVE",
     # Trade-Ideas PRIORITY_1_MOMENTUM top-priority update 2026-03-26 07:45
@@ -77,6 +81,8 @@ PRIORITY_1_MOMENTUM = [
 
 
 PRIORITY_2_ESTABLISHED = [
+    # Trade-Ideas PRIORITY_2_ESTABLISHED top-priority update 2026-03-26 08:20
+    "WKHS", "OGEN", "LENZ", "CGEM", "GRND", "EVTV", "SNSE", "CHRS", "CDIO", "ARRY", "DRVN", "KRRO",
     # Trade-Ideas PRIORITY_2_ESTABLISHED top-priority update 2026-03-26 07:57
     "GEF", "MRNO", "INMB", "PGY", "ENVX",
     # Trade-Ideas PRIORITY_2_ESTABLISHED top-priority update 2026-03-26 07:45
@@ -105,7 +111,7 @@ PRIORITY_2_ESTABLISHED = [
 PRIORITY_3_MARKET = ["SPY", "QQQ", "IWM", "^VIX"]
 
 # Delisted or broken tickers — filtered out at runtime
-DELISTED_STOCKS = ["IMV", "EKV", "AMTK", "SUNE", "BTU"]
+DELISTED_STOCKS = ["IMV", "EKV", "AMTK", "SUNE", "BTU", "DJI", "$DJI"]
 
 # Remove delisted from live lists
 PRIORITY_1_MOMENTUM = [s for s in PRIORITY_1_MOMENTUM if s not in DELISTED_STOCKS]
