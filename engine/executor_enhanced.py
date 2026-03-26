@@ -544,26 +544,32 @@ class EnhancedExecutor:
                 log.error(f"protect_positions {sym}: {e}")
 
     # ── EOD Close ─────────────────────────────────────────────────────────────
-    def close_eod_positions(self) -> None:
+    def close_eod_positions(self) -> Optional[dict]:
         """Close all intraday-strategy positions at EOD_CLOSE_TIME.
         Targets FloatRotation, GapBreakout, ORB, VWAPReclaim opened today."""
         if not EOD_CLOSE_ENABLED:
-            return
+            return None
 
         import pytz
         now_et = datetime.datetime.now(pytz.timezone("America/New_York"))
         close_h, close_m = map(int, EOD_CLOSE_TIME.split(":"))
         if now_et.hour < close_h or (now_et.hour == close_h and now_et.minute < close_m):
-            return  # Not yet EOD close time
+            return None  # Not yet EOD close time
         if now_et.hour >= 16:
-            return  # Market already closed
+            return None  # Market already closed
 
         today = datetime.date.today()
+        if getattr(self, "_eod_close_done", None) == today:
+            return None  # EOD close already processed for today
+
         try:
             positions = self.client.get_all_positions()
         except Exception as e:
             log.error(f"close_eod_positions: fetch failed: {e}")
-            return
+            return None
+
+        closed_items = []
+        failed_items = []
 
         for pos in positions:
             sym = pos.symbol
@@ -581,18 +587,40 @@ class EnhancedExecutor:
 
             try:
                 side = OrderSide.SELL if qty > 0 else OrderSide.BUY
-                req  = MarketOrderRequest(
+                req = MarketOrderRequest(
                     symbol=sym, qty=abs(qty),
                     side=side, time_in_force=TimeInForce.DAY,
                 )
                 self.client.submit_order(req)
                 self._entry_log.pop(sym, None)
+
+                pnl = float(pos.unrealized_pl)
+                closed_items.append({
+                    "symbol": sym,
+                    "qty": abs(qty),
+                    "strategy": entry_info.get("strategy", "unknown"),
+                    "pnl": pnl,
+                })
+
                 log.info(
                     f"EOD CLOSE {sym}: {abs(qty)} shares | "
-                    f"strategy={entry_info['strategy']} | P&L ${float(pos.unrealized_pl):.2f}"
+                    f"strategy={entry_info['strategy']} | P&L ${pnl:.2f}"
                 )
             except Exception as e:
+                failed_items.append({"symbol": sym, "error": str(e)})
                 log.error(f"EOD close failed {sym}: {e}")
+
+        self._eod_close_done = today
+
+        summary = {
+            "date": today.isoformat(),
+            "closed_count": len(closed_items),
+            "failed_count": len(failed_items),
+            "closed_items": closed_items,
+            "failed_items": failed_items,
+            "asof": now_et.isoformat(),
+        }
+        return summary
 
     # ── Health ─────────────────────────────────────────────────────────────────
     def get_health(self) -> Dict:

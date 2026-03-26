@@ -243,6 +243,18 @@ EOD_CLOSE_STRATEGIES = {         # Strategy names that must be closed same day
 PDT_ACCOUNT_MIN = 25000.0
 PDT_MAX_TRADES  = 3
 
+# ─────────────────────────────────────────────────────────────────
+# Email Notifications
+# ─────────────────────────────────────────────────────────────────
+USE_EMAIL_NOTIFICATIONS = os.getenv("USE_EMAIL_NOTIFICATIONS", "false").lower() in ("1", "true", "yes")
+EMAIL_SMTP_SERVER       = os.getenv("EMAIL_SMTP_SERVER", "smtp.gmail.com")
+EMAIL_SMTP_PORT         = int(os.getenv("EMAIL_SMTP_PORT", "587"))
+EMAIL_SMTP_USER         = os.getenv("EMAIL_SMTP_USER", "")
+EMAIL_SMTP_PASSWORD     = os.getenv("EMAIL_SMTP_PASSWORD", "")
+EMAIL_FROM_ADDRESS      = os.getenv("EMAIL_FROM_ADDRESS", "apextrader_bot@gmail.com")
+EMAIL_TO_ADDRESSES      = [a.strip() for a in os.getenv("EMAIL_TO_ADDRESSES", "spolisetti.archive@gmail.com,alerts@apextrader.example.com").split(",") if a.strip()]
+EMAIL_SUBJECT_PREFIX    = os.getenv("EMAIL_SUBJECT_PREFIX", "ApexTrader EOD Report")
+
 # Enterprise Risk Controls
 MIN_BUYING_POWER_PCT  = 10.0   # Reserve this % of equity as free buffer (never spend it)
 MIN_POSITION_DOLLARS  = 500.0  # Minimum trade size in $ — skip if downsized below this

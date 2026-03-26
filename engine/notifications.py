@@ -100,10 +100,31 @@ def build_eod_report(
     html.append(f"<div style='background:#fee9f2;border-left:4px solid #d32f2f;padding:10px;border-radius:8px;'><strong>PDT</strong><br>{'Yes' if account_summary.get('pdt_protected') else 'No'}</div>")
     html.append("</div>")
 
-    html.append("<div style='background:#f0f4ff;padding:14px;border-radius:10px;margin-bottom:20px;'>")
-    html.append(f"<h3 style='margin:0 0 8px;font-size:16px;color:#233d82;'>Daily Performance</h3>")
-    html.append(f"<p style='margin:0; font-size:14px; color:#1f3b72;'>Daily P&L: <strong>{_format_currency(daily_pnl)}</strong><br>Trades Today: <strong>{total_trades}</strong></p>")
+    # Add flashy insights block
+    html.append("<div style='background:linear-gradient(135deg, #001f3f, #0057b8);border-radius:12px;padding:16px;color:#f0f8ff;margin-bottom:20px;'>")
+    html.append("<h3 style='margin:0;font-size:18px;'>✨ Market Pulse</h3>")
+    html.append(f"<p style='margin:8px 0;line-height:1.45;'>Today: {market_summary}. Position count: <strong>{len(positions)}</strong>. </p>")
+    html.append("<p style='margin:8px 0;font-size:13px;color:#dbeeff;'>Tomorrow outlook: Expect continued momentum in liquidity leaders and watch for possible flattening around round levels; monitor gap fades.</p>")
     html.append("</div>")
+
+    html.append("<div style='background:#fff8f2;padding:14px;border-radius:10px;margin-bottom:20px;border:1px solid #ffdab9;'>")
+    html.append(f"<h3 style='margin:0 0 8px;font-size:16px;color:#a14104;'>Daily Performance</h3>")
+    html.append(f"<p style='margin:0; font-size:14px; color:#6b3b00;'>Daily P&L: <strong>{_format_currency(daily_pnl)}</strong><br>Trades Today: <strong>{total_trades}</strong></p>")
+    html.append("</div>")
+
+    # Fancy position table
+    html.append("<div style='margin-bottom:20px;'><h3 style='font-size:16px;color:#223f70;margin-bottom:8px;'>Open Positions</h3>")
+    html.append("<table style='width:100%;border-collapse:collapse;font-size:13px;line-height:1.3;'>")
+    html.append("<thead style='background:#e6eefb;color:#082a56;'><tr><th style='padding:8px;border:1px solid #c3d2eb;'>Symbol</th><th style='padding:8px;border:1px solid #c3d2eb;'>Qty</th><th style='padding:8px;border:1px solid #c3d2eb;'>Entry</th><th style='padding:8px;border:1px solid #c3d2eb;'>Current</th><th style='padding:8px;border:1px solid #c3d2eb;'>P/L</th><th style='padding:8px;border:1px solid #c3d2eb;'>P/L %</th></tr></thead>")
+    if positions:
+        html.append("<tbody>")
+        for idx, p in enumerate(positions):
+            row_bg = '#fdfdff' if idx % 2 == 0 else '#f4f8ff'
+            html.append(f"<tr style='background:{row_bg};'><td style='padding:8px;border:1px solid #e2e9f9;'>{p.symbol}</td><td style='padding:8px;border:1px solid #e2e9f9;'>{p.qty}</td><td style='padding:8px;border:1px solid #e2e9f9;'>${float(p.avg_entry_price):,.2f}</td><td style='padding:8px;border:1px solid #e2e9f9;'>${float(p.current_price):,.2f}</td><td style='padding:8px;border:1px solid #e2e9f9;'>{_format_currency(float(p.unrealized_pl))}</td><td style='padding:8px;border:1px solid #e2e9f9;'>{float(p.unrealized_plpc) * 100:.2f}%</td></tr>")
+        html.append("</tbody>")
+    else:
+        html.append("<tbody><tr><td colspan='6' style='padding:8px;border:1px solid #e2e9f9;text-align:center;color:#667089;'>No open positions</td></tr></tbody>")
+    html.append("</table></div>")
 
     eod_html_lines = [f"<li>{i['symbol']} ({i['qty']} sh, {i['strategy']}) P&L {_format_currency(i['pnl'])}</li>" for i in eod_close_summary.get('closed_items', [])]
     if eod_html_lines:

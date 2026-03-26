@@ -54,6 +54,7 @@ from engine.strategies import (
     GapBreakoutStrategy, ORBStrategy, VWAPReclaimStrategy, FloatRotationStrategy,
 )
 from engine.executor_enhanced import EnhancedExecutor
+from engine.notifications import build_eod_report, send_email
 
 # ── Initialise ──────────────────────────────────────────────────
 log      = setup_logging()
@@ -605,7 +606,36 @@ def start():
 
             if (time.time() - last_scan) >= (current_interval * 60):
                 executor.protect_positions()
-                executor.close_eod_positions()
+                eod_summary = executor.close_eod_positions()
+
+                if eod_summary:
+                    try:
+                        account   = client.get_account()
+                        positions = client.get_all_positions()
+                        market_summary = get_market_sentiment()
+
+                        report = build_eod_report(
+                            report_date=datetime.date.today(),
+                            market_summary=market_summary,
+                            account_summary={
+                                "equity": float(account.equity),
+                                "buying_power": float(account.buying_power),
+                                "pdt_protected": account.pattern_day_trader,
+                            },
+                            daily_pnl=daily_pnl,
+                            total_trades=trades,
+                            eod_close_summary=eod_summary,
+                            positions=positions,
+                        )
+
+                        sent = send_email(report["subject"], report["text"], report["html"])
+                        if sent:
+                            log.info("EOD notification email sent.")
+                        else:
+                            log.info("EOD notification email skipped (disabled in config).")
+                    except Exception as e:
+                        log.error(f"EOD email error: {e}")
+
                 try:
                     scan_and_trade()
                 except Exception as e:
