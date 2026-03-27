@@ -396,7 +396,7 @@ EARLY_SQUEEZE = {
 # Fires only in bear regime (SPY < 200SMA). Inverse of TrendBreaker.
 # ─────────────────────────────────────────────────────────────────
 BEAR_BREAKDOWN = {
-    "volume_multiplier":  1.5,   # Volume today vs 20-day avg
+    "volume_multiplier":  1.3,   # Volume today vs 20-day avg (loosened for extreme-VIX tape)
     "rsi_max":           62,    # Don't short if RSI too high — raised 55→62 to catch earlier distributions
     "rsi_min":           25,    # Don't short already deeply oversold
     "above_sma_min_days": 2,    # Was above/at 20SMA for ≥N of last 10 days (fresh break)
