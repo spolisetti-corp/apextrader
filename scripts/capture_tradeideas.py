@@ -115,6 +115,8 @@ _TICKER_RE = re.compile(r'\b([A-Z]{2,5})\b')
 # How long to wait (seconds) for page to render
 TABLE_WAIT_SEC = 20
 PAGE_LOAD_SEC  = 15
+RENDER_GRACE_SEC = 2
+DROPDOWN_REFRESH_SEC = 2
 
 
 # ── Selenium driver ───────────────────────────────────────────────
@@ -477,8 +479,8 @@ def scrape_tradeideas(
                 except Exception:
                     continue
 
-            # Grace period for React heatmap to fully render
-            time.sleep(10)
+            # Short grace period for React heatmap to render.
+            time.sleep(RENDER_GRACE_SEC)
 
             # Optionally select 'Change Last 30 Min (%)' dropdown
             if select_30min:
@@ -486,7 +488,7 @@ def scrape_tradeideas(
                 if not found:
                     print("[WARN ] Could not find 30-min dropdown — scraping current view")
                 else:
-                    time.sleep(6)   # wait for tiles to refresh after selection
+                    time.sleep(DROPDOWN_REFRESH_SEC)   # wait for tiles to refresh after selection
 
             tickers = _extract_tickers(driver)
             results[scan_key] = tickers

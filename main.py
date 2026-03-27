@@ -6,6 +6,7 @@ Professional automated trading system.
 import time
 import datetime
 import threading
+import concurrent.futures
 import schedule
 import pytz
 import yfinance as yf
@@ -238,17 +239,40 @@ def scan_tradeideas_universe():
         last_ti_scan = time.time()
         return
 
-    log.info("Scanning Trade Ideas: highshortfloat + marketscope360 …")
+    log.info("Scanning Trade Ideas universe (timeout-protected) …")
     try:
-        results = scrape_tradeideas(
-            update_config=TRADEIDEAS_UPDATE_CONFIG_FILE,
-            headless=TRADEIDEAS_HEADLESS,
-            chrome_profile=TRADEIDEAS_CHROME_PROFILE or None,
-            select_30min=True,
-        )
-        _target_map = {v["target"]: v["label"] for v in SCANS.values()}
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as _ti_pool:
+            _ti_future = _ti_pool.submit(
+                scrape_tradeideas,
+                update_config=TRADEIDEAS_UPDATE_CONFIG_FILE,
+                headless=TRADEIDEAS_HEADLESS,
+                chrome_profile=TRADEIDEAS_CHROME_PROFILE or None,
+                select_30min=True,
+            )
+            try:
+                # Do not let Selenium block the trading loop for minutes.
+                results = _ti_future.result(timeout=45)
+            except concurrent.futures.TimeoutError:
+                log.warning("Trade Ideas scan timed out after 45s — keeping existing universe for this cycle")
+                last_ti_scan = time.time()
+                return
+
         for scan_key, tickers in results.items():
-            target_list_name = SCANS[scan_key]["target"]
+            if scan_key in SCANS:
+                target_list_name = SCANS[scan_key]["target"]
+                label = SCANS[scan_key]["label"]
+                if target_list_name == "BOTH":
+                    # We consume BOTH via *_leaders / *_laggards synthetic keys below.
+                    continue
+            elif scan_key.endswith("_leaders"):
+                target_list_name = "PRIORITY_1_MOMENTUM"
+                label = "stock_race_central_leaders"
+            elif scan_key.endswith("_laggards"):
+                target_list_name = "PRIORITY_2_ESTABLISHED"
+                label = "stock_race_central_laggards"
+            else:
+                continue
+
             if target_list_name == "PRIORITY_1_MOMENTUM":
                 dest = PRIORITY_1_MOMENTUM
             else:
@@ -258,22 +282,23 @@ def scan_tradeideas_universe():
             new_tickers = [t for t in tickers if t not in existing]
             # Always re-promote ALL fresh TI tickers to the front so they
             # are scanned first every cycle.
+            tickers_set = set(tickers)
             fresh = [t for t in tickers if t in existing]   # already known but re-prioritise
-            demote = [t for t in dest if t not in set(tickers)]  # keep the rest after
+            demote = [t for t in dest if t not in tickers_set]  # keep the rest after
             dest.clear()
             dest.extend(tickers[:50])                         # TI tickers first
             for t in demote:
-                if t not in set(dest):
+                if t not in tickers_set and t not in dest:
                     dest.append(t)
             if new_tickers:
                 log.info(
-                    f"Trade Ideas {SCANS[scan_key]['label']}: "
+                    f"Trade Ideas {label}: "
                     f"+{len(new_tickers)} new, {len(fresh)} re-promoted to top of {target_list_name} "
                     f"→ {tickers[:10]}"
                 )
             else:
                 log.info(
-                    f"Trade Ideas {SCANS[scan_key]['label']}: "
+                    f"Trade Ideas {label}: "
                     f"{len(fresh)} tickers re-promoted to top of {target_list_name}"
                 )
             log.info(
