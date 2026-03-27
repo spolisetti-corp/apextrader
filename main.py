@@ -251,6 +251,32 @@ def scan_trending_stocks():
 
 
 # ── Trade Ideas Universe Refresh ───────────────────────────────
+# UI labels, column headers, and other non-ticker strings the TI scraper sometimes
+# picks up alongside real symbols.  Anything in this set is silently dropped before
+# it can pollute the priority lists.
+_TI_SCRAPE_GARBAGE = {
+    "TI", "NASD", "SWING", "SMART", "CBD", "LLC", "DJI", "SPY", "ARTL",  # known artifacts
+    "BUY", "SELL", "SHORT", "LONG", "ALL", "NEW", "TOP", "HOT",            # action words
+    "NYSE", "AMEX", "OTC", "ETF", "ADR",                                   # exchange/type labels
+    "HIGH", "LOW", "OPEN", "CLOSE", "VOL", "RVOL", "FLOAT",               # column headers
+}
+
+def _is_valid_ti_ticker(sym: str) -> bool:
+    """Return False for obvious scraper garbage: too short, too long, non-alpha, or block-listed."""
+    if not sym or not isinstance(sym, str):
+        return False
+    s = sym.strip().upper()
+    if not s:
+        return False
+    # Must be 1–5 uppercase letters (optionally ending in one digit for share classes)
+    import re as _re
+    if not _re.fullmatch(r"[A-Z]{1,5}[0-9]?", s):
+        return False
+    if s in _TI_SCRAPE_GARBAGE:
+        return False
+    return True
+
+
 def _apply_tradeideas_results(results: dict, scans: dict) -> None:
     for scan_key, tickers in results.items():
         if scan_key in scans:
@@ -268,6 +294,7 @@ def _apply_tradeideas_results(results: dict, scans: dict) -> None:
             continue
 
         dest = PRIORITY_1_MOMENTUM if target_list_name == "PRIORITY_1_MOMENTUM" else PRIORITY_2_ESTABLISHED
+        tickers = [t for t in tickers if _is_valid_ti_ticker(t)]
         existing = set(dest)
         new_tickers = [t for t in tickers if t not in existing]
         tickers_set = set(tickers)
