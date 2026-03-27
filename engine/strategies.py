@@ -23,7 +23,7 @@ from .utils import get_bars, calc_rsi, calc_macd, get_premarket_bars
 from .config import (
     SWEEPEA, TECHNICAL, MOMENTUM, GAP_BREAKOUT, ORB, VWAP_RECLAIM, FLOAT_ROTATION, LONG_ONLY_MODE,
     ATR_STOP_MULTIPLIER, ATR_TP_RATIO, HIGH_SHORT_FLOAT_STOCKS,
-    PRE_MARKET_MOMENTUM, OPENING_BELL_SURGE, PM_HIGH_BREAKOUT, EARLY_SQUEEZE,
+    PRE_MARKET_MOMENTUM, OPENING_BELL_SURGE, PM_HIGH_BREAKOUT, EARLY_SQUEEZE, BEAR_BREAKDOWN,
 )
 
 ET = pytz.timezone("America/New_York")
@@ -859,5 +859,92 @@ class EarlySqueezeDetector:
             symbol, "buy", cur_price, confidence,
             f"Early squeeze: float {float_m:.1f}M | gap +{gap_pct:.1f}% | RVOL x{rvol:.1f} projected | above VWAP",
             "EarlySqueeze",
+            atr_stop=atr14 * ATR_STOP_MULTIPLIER if atr14 > 0 else None,
+        )
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Bear Breakdown Strategy
+# ──────────────────────────────────────────────────────────────────────────────
+class BearBreakdownStrategy:
+    """Short-entry: daily breakdown below 20-SMA + 10-day low with volume spike.
+
+    Only fires in bear regime (SPY < 200SMA). Inverse of TrendBreaker.
+
+    Pattern:
+      - Bear regime + shorts enabled
+      - Price below 50SMA (macro downtrend context)
+      - Was above/touching 20SMA for \u22652 of last 10 days (fresh, not exhausted break)
+      - Today closes below 20SMA AND at/below 10-day low (confirmed breakdown)
+      - Volume spike \u22651.5\u00d7 20-day avg (distribution volume)
+      - RSI 25-55: momentum still declining, not yet snap-back oversold
+    """
+
+    def scan(self, symbol: str) -> Optional[Signal]:
+        if LONG_ONLY_MODE or _is_bull_regime():
+            return None
+
+        daily = get_bars(symbol, "60d", "1d")
+        if daily.empty or len(daily) < 25:
+            return None
+
+        closes  = daily["close"]
+        volumes = daily["volume"]
+        sma20   = closes.rolling(20).mean()
+        sma50   = closes.rolling(50).mean()
+
+        price     = float(closes.iloc[-1])
+        sma20_now = float(sma20.iloc[-1])
+        sma50_now = float(sma50.iloc[-1])
+
+        if sma20_now <= 0 or sma50_now <= 0:
+            return None
+
+        # Macro context: price must be below 50SMA
+        if price >= sma50_now:
+            return None
+
+        # Today broke below 20SMA
+        if price >= sma20_now:
+            return None
+
+        # Was above/at 20SMA for at least N of the last 10 days (fresh breakdown)
+        recent_closes = closes.iloc[-11:-1]
+        recent_sma20  = sma20.iloc[-11:-1]
+        above_count   = int((recent_closes.values >= recent_sma20.values).sum())
+        if above_count < BEAR_BREAKDOWN["above_sma_min_days"]:
+            return None
+
+        # Also broke below 10-day low (confirms continuation, not just a 20SMA touch)
+        low_10d = float(daily["low"].iloc[-11:-1].min())
+        if price > low_10d * 0.998:
+            return None
+
+        # Volume spike vs 20-day avg
+        vol_today = float(volumes.iloc[-1])
+        vol_avg   = float(volumes.iloc[-21:-1].mean())
+        if vol_avg <= 0:
+            return None
+        vol_ratio = vol_today / vol_avg
+        if vol_ratio < BEAR_BREAKDOWN["volume_multiplier"]:
+            return None
+
+        # RSI: declining, not already oversold
+        rsi      = calc_rsi(closes, period=14)
+        rsi_now  = float(rsi.iloc[-1])
+        rsi_prev = float(rsi.iloc[-2])
+        if rsi_now >= BEAR_BREAKDOWN["rsi_max"] or rsi_now < BEAR_BREAKDOWN["rsi_min"]:
+            return None
+
+        atr14      = _calc_atr14(daily)
+        confidence = 0.78 + min((vol_ratio - 1.5) * 0.03, 0.10)
+        if rsi_now < rsi_prev:       # RSI still falling — extra confirmation
+            confidence += 0.02
+        confidence = round(min(confidence, 0.92), 2)
+
+        return Signal(
+            symbol, "short", price, confidence,
+            f"Bear breakdown: below 20SMA + 10d low | vol x{vol_ratio:.1f} | RSI {rsi_now:.0f}",
+            "BearBreakdown",
             atr_stop=atr14 * ATR_STOP_MULTIPLIER if atr14 > 0 else None,
         )

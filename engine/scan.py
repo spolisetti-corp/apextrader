@@ -39,6 +39,8 @@ from .strategies import (
     OpeningBellSurgeStrategy,
     PMHighBreakoutStrategy,
     EarlySqueezeDetector,
+    BearBreakdownStrategy,
+    _is_bull_regime,
 )
 
 
@@ -58,7 +60,9 @@ def _passes_guardrails(symbol: str) -> bool:
             return False
 
         # RVOL gate: only meaningful during regular market hours
-        if is_market_open():
+        # In bear regime, skip RVOL gate — breakdown volume is often distributed,
+        # not the spike pattern seen in squeeze/momentum setups.
+        if is_market_open() and _is_bull_regime():
             daily = get_bars(symbol, "5d", "1d")
             if not daily.empty and len(daily) >= 2:
                 avg_daily_vol = float(daily["volume"].iloc[:-1].mean())
@@ -130,6 +134,7 @@ def scan_universe(scan_targets: List[str], sentiment: str) -> Tuple[List, Dict[s
         OpeningBellSurgeStrategy(),
         PMHighBreakoutStrategy(),
         EarlySqueezeDetector(),
+        BearBreakdownStrategy(),
     ]
 
     signals = []

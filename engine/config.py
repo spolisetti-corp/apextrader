@@ -380,6 +380,17 @@ EARLY_SQUEEZE = {
 }
 
 # ─────────────────────────────────────────────────────────────────
+# Bear Breakdown Strategy (short-selling)
+# Fires only in bear regime (SPY < 200SMA). Inverse of TrendBreaker.
+# ─────────────────────────────────────────────────────────────────
+BEAR_BREAKDOWN = {
+    "volume_multiplier":  1.5,   # Volume today vs 20-day avg
+    "rsi_max":           55,    # Don't short if RSI too high (could bounce)
+    "rsi_min":           25,    # Don't short already deeply oversold
+    "above_sma_min_days": 2,    # Was above/at 20SMA for ≥N of last 10 days (fresh break)
+}
+
+# ─────────────────────────────────────────────────────────────────
 # Golden Ratio Scanner Guardrails
 # ─────────────────────────────────────────────────────────────────
 RVOL_MIN                 = 2.0         # Require relative volume ≥ 2x before entering
