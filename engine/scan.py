@@ -24,6 +24,7 @@ from .config import (
     BEAR_SHORT_UNIVERSE,
     BEAR_SHORT_TARGET_RESERVE,
 )
+from .universe import get_tier
 from .utils import clear_bar_cache, get_bars, is_market_open
 
 _ET  = pytz.timezone("America/New_York")
@@ -97,6 +98,10 @@ def get_scan_targets(excluded: Set[str] = None) -> List[str]:
     if excluded is None:
         excluded = set()
 
+    # Latest live universe tiers (TI/promotions) are the primary source.
+    live_p1 = list(get_tier(1))
+    live_p2 = list(get_tier(2))
+
     # Re-read universe.json live every cycle so TI-scraped tickers are reflected
     # immediately without restarting the bot.
     p1, p2, _p3 = _cfg.get_dynamic_universe()
@@ -120,18 +125,25 @@ def get_scan_targets(excluded: Set[str] = None) -> List[str]:
             targets.append(s)
 
     if in_bear:
-        # In bear regime, prioritize short universe first and reserve slots for it.
-        # This prevents P1/P2 alphabetical momentum names from crowding out all
-        # short candidates under the global SCAN_MAX_SYMBOLS cap.
-        short_cap = min(max(0, BEAR_SHORT_TARGET_RESERVE), SCAN_MAX_SYMBOLS)
-        _push(list(BEAR_SHORT_UNIVERSE), limit=short_cap)
-        # After reserved short slots, bias toward established/liquid names first
-        # to improve shortability/executability depth of backup candidates.
-        p2_bear = p2[:max(1, int(len(p2) * 0.75))]
-        p1_bear = p1[:max(1, int(len(p1) * 0.40))]
-        _push(p2_bear + p1_bear, limit=SCAN_MAX_SYMBOLS)
+        # Bear mode: scan the freshest TI/live picks first (mostly tier-2),
+        # then only use static/core lists as fallback if live tiers are short.
+        live_p2_cap = min(SCAN_MAX_SYMBOLS, max(1, int(SCAN_MAX_SYMBOLS * 0.7)))
+        _push(live_p2, limit=live_p2_cap)
+        _push(live_p1, limit=SCAN_MAX_SYMBOLS)
+
+        # Fallback path: if TI/live tiers do not fill scan capacity, backfill
+        # with static bear short universe and then merged config universe.
+        if len(targets) < SCAN_MAX_SYMBOLS:
+            short_cap = min(max(0, BEAR_SHORT_TARGET_RESERVE), SCAN_MAX_SYMBOLS)
+            _push(list(BEAR_SHORT_UNIVERSE), limit=short_cap)
+            p2_bear = p2[:max(1, int(len(p2) * 0.75))]
+            p1_bear = p1[:max(1, int(len(p1) * 0.40))]
+            _push(p2_bear + p1_bear, limit=SCAN_MAX_SYMBOLS)
     else:
-        _push(p1_slice + p2_slice, limit=SCAN_MAX_SYMBOLS)
+        # Bull/neutral: prefer freshest TI/live momentum + established tiers first.
+        _push(live_p1 + live_p2, limit=SCAN_MAX_SYMBOLS)
+        if len(targets) < SCAN_MAX_SYMBOLS:
+            _push(p1_slice + p2_slice, limit=SCAN_MAX_SYMBOLS)
 
     return targets
 
