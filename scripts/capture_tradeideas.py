@@ -262,17 +262,25 @@ def _normalize_tickers(symbols: list[str]) -> list[str]:
 
 
 def _write_live_picks(results: dict[str, list[str]]) -> None:
+    leaders = _normalize_tickers(results.get("stockracecentral_leaders", []))
+    laggards = _normalize_tickers(results.get("stockracecentral_laggards", []))
+    momentum = _normalize_tickers(results.get("marketscope360", []))
+    scan = _normalize_tickers(results.get("highshortfloat", []))
+    race_all = leaders + [t for t in laggards if t not in leaders]
+    if not race_all:
+        race_all = _normalize_tickers(results.get("stockracecentral", []))
+
     payload = {
         "version": 1,
         "generated_at": datetime.now().isoformat(timespec="seconds"),
-        "longs": _normalize_tickers(results.get("stockracecentral_leaders", [])),
-        "laggards": _normalize_tickers(results.get("stockracecentral_laggards", [])),
-        "momentum": _normalize_tickers(results.get("marketscope360", [])),
-        "scan": _normalize_tickers(results.get("highshortfloat", [])),
+        "longs": leaders,
+        "laggards": laggards,
+        "momentum": momentum,
+        "scan": scan,
         "sources": {
-            "highshortfloat": _normalize_tickers(results.get("highshortfloat", [])),
-            "marketscope360": _normalize_tickers(results.get("marketscope360", [])),
-            "stockracecentral": _normalize_tickers(results.get("stockracecentral", [])),
+            "highshortfloat": scan,
+            "marketscope360": momentum,
+            "stockracecentral": race_all,
         },
     }
     LIVE_PICKS_FILE.write_text(json.dumps(payload, indent=2), encoding="utf-8")
