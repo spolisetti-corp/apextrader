@@ -119,6 +119,7 @@ class SweepeaStrategy:
         bars = get_bars(symbol, "10d", f"{SWEEPEA['timeframe']}m")
         if bars.empty or len(bars) < 30:
             return None
+        bars = bars.copy()
 
         # Moving averages
         bars["ma_fast"] = bars["close"].rolling(SWEEPEA["ma_fast"]).mean()
@@ -143,9 +144,25 @@ class SweepeaStrategy:
         if range_val == 0:
             return None
 
-        # Liquidity sweep detection
-        swept_below = cur["low"]  < (cur["swing_low"]  - SWEEPEA["min_sweep"])
-        swept_above = cur["high"] > (cur["swing_high"] + SWEEPEA["min_sweep"])
+        # Liquidity sweep detection with volatility-aware threshold.
+        # Absolute min_sweep alone is too small for high-priced names and too large
+        # for microcaps, so blend it with a small % of price and 15m ATR proxy.
+        tr = (bars["high"] - bars["low"]).rolling(14).mean()
+        atr14_i = float(tr.iloc[-2]) if not pd.isna(tr.iloc[-2]) else 0.0
+        sweep_threshold = max(
+            float(SWEEPEA["min_sweep"]),
+            float(cur["close"]) * 0.0015,   # 0.15% of price
+            atr14_i * 0.20,                  # 20% of local ATR
+        )
+
+        # Use configurable sweep_bars window (>=1).
+        sweep_bars = max(1, int(SWEEPEA.get("sweep_bars", 1)))
+        recent = bars.iloc[-(sweep_bars + 1):-1]
+        if recent.empty:
+            recent = bars.iloc[-2:-1]
+
+        swept_below = float(recent["low"].min())  < (float(cur["swing_low"])  - sweep_threshold)
+        swept_above = float(recent["high"].max()) > (float(cur["swing_high"]) + sweep_threshold)
 
         # Pinbar wick ratios
         lower_wick       = min(cur["open"], cur["close"]) - cur["low"]
@@ -154,10 +171,19 @@ class SweepeaStrategy:
         upper_wick_ratio = (upper_wick / range_val) * 100
 
         # Volume confirmation
-        high_volume = cur["volume"] > cur["vol_ma"]
+        high_volume = cur["volume"] >= (cur["vol_ma"] * 1.05)
 
         bull_pin = swept_below and lower_wick_ratio >= SWEEPEA["pinbar_threshold"] and high_volume
         bear_pin = swept_above and upper_wick_ratio >= SWEEPEA["pinbar_threshold"] and high_volume
+
+        # Optional Bollinger touch filter (configured but previously unused).
+        if SWEEPEA.get("use_bb", False):
+            if bull_pin and not pd.isna(cur["bb_lo"]):
+                if float(cur["low"]) > float(cur["bb_lo"]) * 1.01:
+                    bull_pin = False
+            if bear_pin and not pd.isna(cur["bb_up"]):
+                if float(cur["high"]) < float(cur["bb_up"]) * 0.99:
+                    bear_pin = False
 
         # MA Filter
         if SWEEPEA["use_ma"]:
@@ -176,12 +202,17 @@ class SweepeaStrategy:
                 if not (ma_touch and close_rejection):
                     return None
 
+        # Confidence scales with wick quality and volume expansion.
+        vol_ratio = float(cur["volume"] / cur["vol_ma"]) if cur["vol_ma"] and cur["vol_ma"] > 0 else 1.0
+        bull_conf = min(0.72 + max(lower_wick_ratio - SWEEPEA["pinbar_threshold"], 0) / 200 + max(vol_ratio - 1.0, 0) * 0.05, 0.88)
+        bear_conf = min(0.72 + max(upper_wick_ratio - SWEEPEA["pinbar_threshold"], 0) / 200 + max(vol_ratio - 1.0, 0) * 0.05, 0.88)
+
         if bull_pin and _is_bull_regime():
-            return Signal(symbol, "buy",  float(cur["close"]), 0.75,
-                          "Liquidity sweep + bullish pinbar", "Sweepea")
+            return Signal(symbol, "buy",  float(cur["close"]), bull_conf,
+                          f"Liquidity sweep + bullish pinbar | wick {lower_wick_ratio:.0f}% | vol x{vol_ratio:.1f}", "Sweepea")
         elif bear_pin and not LONG_ONLY_MODE:
-            return Signal(symbol, "sell", float(cur["close"]), 0.75,
-                          "Liquidity sweep + bearish pinbar", "Sweepea")
+            return Signal(symbol, "sell", float(cur["close"]), bear_conf,
+                          f"Liquidity sweep + bearish pinbar | wick {upper_wick_ratio:.0f}% | vol x{vol_ratio:.1f}", "Sweepea")
 
         return None
 
