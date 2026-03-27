@@ -303,14 +303,23 @@ def scan_tradeideas_universe():
     if (now - last_ti_scan) < (TRADEIDEAS_SCAN_INTERVAL_MIN * 60):
         return
 
-    log.info("Scanning Trade Ideas in background …")
+    ti_profile = (TRADEIDEAS_CHROME_PROFILE or "").strip()
+    if not ti_profile:
+        # Fallback to desktop Default profile so TI login/cookies can be reused.
+        ti_profile = "Default"
+    ti_headless = TRADEIDEAS_HEADLESS and (ti_profile != "Default")
+
+    log.info(
+        f"Scanning Trade Ideas in background (profile={ti_profile}, "
+        f"headless={'on' if ti_headless else 'off'}) …"
+    )
     _ti_started_at = now
     _ti_warned_running = False
     _ti_future = _ti_executor.submit(
         scrape_tradeideas,
         update_config=TRADEIDEAS_UPDATE_CONFIG_FILE,
-        headless=TRADEIDEAS_HEADLESS,
-        chrome_profile=TRADEIDEAS_CHROME_PROFILE or None,
+        headless=ti_headless,
+        chrome_profile=ti_profile,
         select_30min=True,
     )
 
