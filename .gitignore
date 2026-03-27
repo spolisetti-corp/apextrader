@@ -21,4 +21,5 @@ apextrader_task.xml
 screenshots/
 
 # Dynamic universe state (runtime-updated)
-data/universe.json
+data/*.json
+predictions/*.json
