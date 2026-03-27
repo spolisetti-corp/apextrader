@@ -37,7 +37,7 @@ from engine.config import (
     USE_POSITION_TUNING,
     HIGH_POSITION_INTERVAL, NORMAL_POSITION_INTERVAL, LOW_POSITION_INTERVAL,
     LONG_ONLY_MODE, MIN_SIGNAL_CONFIDENCE, MAX_SIGNALS_PER_CYCLE,
-    MIN_SHORT_CONFIDENCE_BEAR,
+    MIN_SHORT_CONFIDENCE_BEAR, SHORT_FAIL_COOLDOWN_MIN,
     SCAN_WORKERS, SCAN_SYMBOL_TIMEOUT, SCAN_MAX_SYMBOLS,
     RVOL_MIN, MIN_DOLLAR_VOLUME, MAX_GAP_CHASE_PCT, GAP_CHASE_CONSOL_BARS,
     USE_MARKET_REGIME_FILTER, MARKET_REGIME_SIGNALS_CAP, BEAR_SHORT_SIGNALS_CAP,
@@ -118,6 +118,7 @@ _ti_started_at = 0.0
 _ti_warned_running = False
 _ti_executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
 _last_market_regime: str = "bull"  # retained across cycles; never resets to bull on error
+_short_fail_cooldown: dict = {}      # {symbol: monotonic_expiry_ts}
 
 
 # ── Market Sentiment ────────────────────────────────────────────
@@ -703,7 +704,16 @@ def scan_and_trade():
             long_sigs  = [s for s in eligible if s.action == "buy"][:MARKET_REGIME_SIGNALS_CAP]
             short_candidates = [s for s in eligible if s.action in ("sell", "short")]
             short_queue = []
+            now_ts = time.monotonic()
+            expired = [sym for sym, ts in _short_fail_cooldown.items() if ts <= now_ts]
+            for sym in expired:
+                _short_fail_cooldown.pop(sym, None)
             for s in short_candidates:
+                cool_until = _short_fail_cooldown.get(s.symbol, 0.0)
+                if cool_until > now_ts:
+                    mins_left = (cool_until - now_ts) / 60.0
+                    log.info(f"Pre-skip {s.symbol} SHORT: cooldown {mins_left:.1f}m remaining")
+                    continue
                 try:
                     asset = client.get_asset(s.symbol)
                     raw_status = getattr(asset, "status", "active")
@@ -763,8 +773,13 @@ def scan_and_trade():
                 if executor.execute(sig, swap_only=False):
                     trades += 1
                     short_success += 1
+                    _short_fail_cooldown.pop(sig.symbol, None)
                 else:
-                    log.info(f"SHORT attempt failed for {sig.symbol} — trying next qualified candidate")
+                    _short_fail_cooldown[sig.symbol] = time.monotonic() + (SHORT_FAIL_COOLDOWN_MIN * 60)
+                    log.info(
+                        f"SHORT attempt failed for {sig.symbol} — cooldown {SHORT_FAIL_COOLDOWN_MIN}m; "
+                        "trying next qualified candidate"
+                    )
                 time.sleep(1)
         else:
             top_signals = eligible[:signals_cap]

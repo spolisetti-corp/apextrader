@@ -288,6 +288,7 @@ PDT_WARN_AT_REMAINING = 1      # Warn log when PDT trades remaining falls to thi
 LONG_ONLY_MODE        = False  # Shorts enabled — requires margin, HTB check, 2x BP per short position
 MIN_SIGNAL_CONFIDENCE = 0.82   # Execute signals with confidence >= this
 MIN_SHORT_CONFIDENCE_BEAR = 0.50  # In bear regime, allow Technical short setups at current confidence scale
+SHORT_FAIL_COOLDOWN_MIN = 20   # Re-try failed short symbols only after this cooldown window
 MAX_SIGNALS_PER_CYCLE = 5      # Execute at most this many signals per scan cycle
 
 # Parallel Scanning
