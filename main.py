@@ -525,6 +525,32 @@ def scan_and_trade():
             )
         log.info("——————————————————————————————")
 
+        # ── Persist day picks to predictions/day_picks.json ────────────────
+        try:
+            import json as _json
+            from pathlib import Path as _Path
+            _picks_path = _Path(__file__).parent / "predictions" / "day_picks.json"
+            _picks_path.parent.mkdir(parents=True, exist_ok=True)
+            _picks_data = {
+                "generated_at": datetime.datetime.now(_ET).isoformat(timespec="seconds"),
+                "date": str(datetime.date.today()),
+                "market_regime": market_regime,
+                "picks": [
+                    {
+                        "symbol":     s.symbol,
+                        "action":     s.action,
+                        "price":      round(s.price, 4),
+                        "confidence": round(s.confidence, 4),
+                        "strategy":   s.strategy,
+                        "reason":     s.reason,
+                    }
+                    for s in eligible[:5]
+                ],
+            }
+            _picks_path.write_text(_json.dumps(_picks_data, indent=2), encoding="utf-8")
+        except Exception as _e:
+            log.warning(f"day_picks.json write failed: {_e}")
+
         # ── Email notification ────────────────────────────────────────────
         notify_scan_results(eligible[:5], datetime.date.today(), sentiment, market_regime)
 
