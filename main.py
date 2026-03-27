@@ -701,7 +701,25 @@ def scan_and_trade():
             # Longs are cautious (swap-only, existing positions improved), shorts
             # go WITH the trend and are allowed as fresh entries.
             long_sigs  = [s for s in eligible if s.action == "buy" ][:MARKET_REGIME_SIGNALS_CAP]
-            short_sigs = [s for s in eligible if s.action in ("sell", "short")][:BEAR_SHORT_SIGNALS_CAP]
+            short_candidates = [s for s in eligible if s.action in ("sell", "short")]
+            short_sigs = []
+            for s in short_candidates:
+                try:
+                    asset = client.get_asset(s.symbol)
+                    status = str(getattr(asset, "status", "active")).lower()
+                    tradable = bool(getattr(asset, "tradable", True))
+                    shortable = bool(getattr(asset, "shortable", True))
+                    if status != "active" or not tradable or not shortable:
+                        log.info(
+                            f"Pre-skip {s.symbol} SHORT: "
+                            f"status={status}, tradable={tradable}, shortable={shortable}"
+                        )
+                        continue
+                except Exception as e:
+                    log.warning(f"Pre-check asset failed for {s.symbol}: {e} — keeping candidate")
+                short_sigs.append(s)
+                if len(short_sigs) >= BEAR_SHORT_SIGNALS_CAP:
+                    break
             top_signals = long_sigs + short_sigs
             log.info(
                 f"BEAR execution plan: {len(long_sigs)} long(s) swap-only, "
