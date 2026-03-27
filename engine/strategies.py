@@ -346,7 +346,7 @@ class TechnicalStrategy:
 
         if score >= 0.50:
             return Signal(symbol, "buy",   price, score,       ", ".join(reasons), "Technical")
-        elif not LONG_ONLY_MODE and score <= -0.55:
+        elif not LONG_ONLY_MODE and score <= -0.45:
             return Signal(symbol, "short", price, abs(score),  ", ".join(reasons), "Technical")
 
         return None
