@@ -58,6 +58,7 @@ try:
     from selenium.webdriver.common.by import By
     from selenium.webdriver.support.ui import WebDriverWait
     from selenium.webdriver.support import expected_conditions as EC
+    from selenium.common.exceptions import SessionNotCreatedException, TimeoutException
     from webdriver_manager.chrome import ChromeDriverManager
     SELENIUM_OK = True
 except ImportError:
@@ -148,7 +149,18 @@ def _build_driver(headless: bool = False, chrome_profile: Optional[str] = None) 
         opts.add_argument(f"--profile-directory={chrome_profile}")
 
     service = ChromeService(ChromeDriverManager().install())
-    driver  = webdriver.Chrome(service=service, options=opts)
+    try:
+        driver = webdriver.Chrome(service=service, options=opts)
+    except SessionNotCreatedException as e:
+        # Common case on Windows: profile is locked because normal Chrome is open.
+        # Do NOT fall back to anonymous mode; that often returns stale/public data.
+        if chrome_profile:
+            raise RuntimeError(
+                f"Chrome profile '{chrome_profile}' is locked/busy. "
+                "Close Chrome (or use a dedicated TI profile) before scraping."
+            ) from e
+        raise e
+    driver.set_page_load_timeout(45)
     driver.execute_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
     return driver
 
@@ -467,7 +479,10 @@ def scrape_tradeideas(
             label = scan["label"]
 
             print(f"\n[....] Loading {url}")
-            driver.get(url)
+            try:
+                driver.get(url)
+            except TimeoutException:
+                print(f"[WARN ] Page load timeout for {scan_key}; continuing with partial DOM")
 
             # Wait for body/div to appear
             for sel in ["body", "div"]:
