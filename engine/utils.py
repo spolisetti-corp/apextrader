@@ -422,6 +422,51 @@ def get_price(symbol: str) -> float:
         return 0.0
 
 
+def get_premarket_bars(symbol: str) -> pd.DataFrame:
+    """Fetch today's 1-min OHLCV bars including pre-market (7:00 AM ET onwards).
+
+    Uses yfinance with prepost=True.  Stored in the standard bar cache under
+    a '_prepost' key so it is invalidated by clear_bar_cache() each scan cycle.
+    Returns a DataFrame with a timezone-aware 'time' column (US/Eastern).
+    """
+    log = logging.getLogger("ApexTrader")
+    cache_key = (symbol, "1d_prepost", "1m")
+    with _bar_cache_lock:
+        if cache_key in _bar_cache:
+            return _bar_cache[cache_key]
+
+    result = pd.DataFrame()
+    try:
+        data = yf.Ticker(symbol).history(period="1d", interval="1m", prepost=True)
+        if not data.empty:
+            data = data.reset_index()
+            data.columns = [c.lower() for c in data.columns]
+            for col in ("datetime", "index"):
+                if col in data.columns:
+                    data = data.rename(columns={col: "time"})
+                    break
+
+            # Normalise timestamps to timezone-aware Eastern
+            if "time" in data.columns:
+                col = pd.to_datetime(data["time"])
+                try:
+                    if col.dt.tz is not None:
+                        col = col.dt.tz_convert(ET)
+                    else:
+                        col = col.dt.tz_localize("UTC").dt.tz_convert(ET)
+                except Exception:
+                    pass
+                data["time"] = col
+
+            result = data
+    except Exception as e:
+        log.debug(f"get_premarket_bars({symbol}): {e}")
+
+    with _bar_cache_lock:
+        _bar_cache[cache_key] = result
+    return result
+
+
 # ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
 # Technical Indicators
 # ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ

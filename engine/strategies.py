@@ -18,10 +18,11 @@ from typing import Optional
 
 import yfinance as yf
 
-from .utils import get_bars, calc_rsi, calc_macd
+from .utils import get_bars, calc_rsi, calc_macd, get_premarket_bars
 from .config import (
     SWEEPEA, TECHNICAL, MOMENTUM, GAP_BREAKOUT, ORB, VWAP_RECLAIM, FLOAT_ROTATION, LONG_ONLY_MODE,
     ATR_STOP_MULTIPLIER, ATR_TP_RATIO, HIGH_SHORT_FLOAT_STOCKS,
+    PRE_MARKET_MOMENTUM, OPENING_BELL_SURGE, PM_HIGH_BREAKOUT, EARLY_SQUEEZE,
 )
 
 ET = pytz.timezone("America/New_York")
@@ -567,5 +568,269 @@ class FloatRotationStrategy:
             symbol, "buy", price, confidence,
             f"Float rotation: {vol_float_ratio:.1f}x float ({float_m:.1f}M) | +{price_chg:.1f}% day",
             "FloatRotation",
+            atr_stop=atr14 * ATR_STOP_MULTIPLIER if atr14 > 0 else None,
+        )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Early Momentum / Opening Strategies
+# ─────────────────────────────────────────────────────────────────────────────
+
+class PreMarketMomentumStrategy:
+    """Fires 7:00–10:00 AM ET when a stock shows a gap ≥3%, strong pre-market
+    volume (≥15% of average daily vol), and an upward PM price trend.
+    Classic KOD / EEIQ style — catch the runner before the open.
+    """
+
+    def scan(self, symbol: str) -> Optional[Signal]:
+        now_et    = datetime.datetime.now(ET)
+        now_float = now_et.hour + now_et.minute / 60.0
+        # Valid window: 7:00 AM to configured end hour (default 10:00)
+        entry_end = PRE_MARKET_MOMENTUM.get("entry_window_end", 10.0)
+        if not (7.0 <= now_float < entry_end):
+            return None
+
+        pm_bars = get_premarket_bars(symbol)
+        if pm_bars.empty or "time" not in pm_bars.columns:
+            return None
+
+        # Pre-market bars only (before 9:30 ET)
+        pm_only = pm_bars[
+            (pm_bars["time"].dt.hour < 9)
+            | ((pm_bars["time"].dt.hour == 9) & (pm_bars["time"].dt.minute < 30))
+        ].copy()
+        if len(pm_only) < PRE_MARKET_MOMENTUM["pm_trend_bars"]:
+            return None
+
+        daily = get_bars(symbol, "5d", "1d")
+        if daily.empty or len(daily) < 2:
+            return None
+        prior_close   = float(daily["close"].iloc[-2])
+        avg_daily_vol = float(daily["volume"].iloc[:-1].mean())
+        if prior_close <= 0 or avg_daily_vol <= 0:
+            return None
+
+        pm_price = float(pm_only["close"].iloc[-1])
+        gap_pct  = ((pm_price - prior_close) / prior_close) * 100
+        if gap_pct < PRE_MARKET_MOMENTUM["min_gap_pct"]:
+            return None
+
+        pm_vol     = float(pm_only["volume"].sum())
+        pm_vol_pct = (pm_vol / avg_daily_vol) * 100
+        if pm_vol_pct < PRE_MARKET_MOMENTUM["pm_vol_pct_of_avg"]:
+            return None
+
+        # Last N PM bars must show upward trend (final close > initial close)
+        n      = PRE_MARKET_MOMENTUM["pm_trend_bars"]
+        trend  = pm_only["close"].values[-n:]
+        if trend[-1] <= trend[0]:
+            return None
+
+        atr14      = _calc_atr14(daily)
+        confidence = min(0.68 + (gap_pct / 50) * 0.15 + (pm_vol_pct / 100) * 0.10, 0.94)
+        return Signal(
+            symbol, "buy", pm_price, confidence,
+            f"Pre-mkt momentum: gap +{gap_pct:.1f}% | PM vol {pm_vol_pct:.0f}% of avg daily",
+            "PreMarketMomentum",
+            atr_stop=atr14 * ATR_STOP_MULTIPLIER if atr14 > 0 else None,
+        )
+
+
+class OpeningBellSurgeStrategy:
+    """Fires 9:30–9:45 AM ET when the first N 1-min bars show volume ≥4×
+    the expected baseline AND price is up ≥2% from the open.
+    Catches explosive gap-and-go moves right at the bell.
+    """
+
+    def scan(self, symbol: str) -> Optional[Signal]:
+        now_et       = datetime.datetime.now(ET)
+        market_open  = now_et.replace(hour=9, minute=30, second=0, microsecond=0)
+        mins_since   = (now_et - market_open).total_seconds() / 60.0
+        window       = OPENING_BELL_SURGE["window_min"]
+        if not (0.0 <= mins_since <= window):
+            return None
+
+        intraday = get_bars(symbol, "1d", "1m")
+        surge_n  = OPENING_BELL_SURGE["surge_bars"]
+        if intraday.empty or len(intraday) < surge_n:
+            return None
+
+        open_bars  = intraday.iloc[:surge_n]
+        open_vol   = float(open_bars["volume"].sum())
+        open_px    = float(open_bars["open"].iloc[0])
+        cur_price  = float(intraday["close"].iloc[-1])
+
+        avg_1min_vol = float(intraday["volume"].mean())
+        if avg_1min_vol <= 0:
+            return None
+
+        vol_ratio = open_vol / (avg_1min_vol * surge_n)
+        if vol_ratio < OPENING_BELL_SURGE["vol_multiplier"]:
+            return None
+
+        if open_px <= 0:
+            return None
+        price_up_pct = ((cur_price - open_px) / open_px) * 100
+        if price_up_pct < OPENING_BELL_SURGE["min_price_up_pct"]:
+            return None
+
+        # First candle must be bullish
+        if open_bars["close"].iloc[0] < open_bars["open"].iloc[0]:
+            return None
+
+        daily = get_bars(symbol, "5d", "1d")
+        atr14 = _calc_atr14(daily) if not daily.empty and len(daily) >= 5 else 0.0
+        confidence = min(0.70 + (vol_ratio - OPENING_BELL_SURGE["vol_multiplier"]) * 0.03, 0.95)
+        return Signal(
+            symbol, "buy", cur_price, confidence,
+            f"Opening bell surge: vol x{vol_ratio:.1f} first {surge_n} bars | +{price_up_pct:.1f}% from open",
+            "OpeningBellSurge",
+            atr_stop=atr14 * ATR_STOP_MULTIPLIER if atr14 > 0 else None,
+        )
+
+
+class PMHighBreakoutStrategy:
+    """Fires 9:31–10:30 AM ET when the regular session price breaks out
+    above the pre-market high with volume confirmation.  The breakout must
+    be fresh (prior bar still ≤ PM high) to avoid chasing old moves.
+    """
+
+    def scan(self, symbol: str) -> Optional[Signal]:
+        now_et      = datetime.datetime.now(ET)
+        market_open = now_et.replace(hour=9, minute=30, second=0, microsecond=0)
+        mins_since  = (now_et - market_open).total_seconds() / 60.0
+        window      = PM_HIGH_BREAKOUT["entry_window_min"]
+        if not (1.0 <= mins_since <= window):
+            return None
+
+        pm_bars = get_premarket_bars(symbol)
+        if pm_bars.empty or "time" not in pm_bars.columns:
+            return None
+        pm_only = pm_bars[
+            (pm_bars["time"].dt.hour < 9)
+            | ((pm_bars["time"].dt.hour == 9) & (pm_bars["time"].dt.minute < 30))
+        ]
+        if len(pm_only) < 3:
+            return None
+        pm_high = float(pm_only["high"].max())
+        if pm_high <= 0:
+            return None
+
+        intraday = get_bars(symbol, "1d", "1m")
+        if intraday.empty or len(intraday) < 3:
+            return None
+
+        cur_price  = float(intraday["close"].iloc[-1])
+        prev_price = float(intraday["close"].iloc[-2])
+
+        breakout_level = pm_high * (1 + PM_HIGH_BREAKOUT["breakout_buffer_pct"] / 100)
+        # Require fresh breakout: current bar above buffer, prior bar not already extended
+        if not (cur_price >= breakout_level and prev_price <= pm_high * 1.005):
+            return None
+
+        vol_recent = float(intraday["volume"].iloc[-3:].mean())
+        vol_avg    = float(intraday["volume"].mean())
+        if vol_avg <= 0:
+            return None
+        vol_ratio = vol_recent / vol_avg
+        if vol_ratio < PM_HIGH_BREAKOUT["volume_surge"]:
+            return None
+
+        daily = get_bars(symbol, "5d", "1d")
+        if daily.empty or len(daily) < 2:
+            return None
+        prior_close = float(daily["close"].iloc[-2])
+        gap_pct     = ((pm_high - prior_close) / prior_close) * 100 if prior_close > 0 else 0.0
+
+        atr14      = _calc_atr14(daily)
+        confidence = min(0.73 + (vol_ratio - 1.5) * 0.04, 0.94)
+        return Signal(
+            symbol, "buy", cur_price, confidence,
+            f"PM high breakout: cleared ${pm_high:.2f} | gap {gap_pct:+.1f}% | vol x{vol_ratio:.1f}",
+            "PMHighBreakout",
+            atr_stop=atr14 * ATR_STOP_MULTIPLIER if atr14 > 0 else None,
+        )
+
+
+class EarlySqueezeDetector:
+    """Fires 9:30–10:15 AM ET for low-float stocks showing gap + projected
+    RVOL >4× + price above VWAP + RSI not yet overbought.
+    Designed to catch KOD / EEIQ / IMTE style small-float squeeze plays.
+    """
+
+    _float_cache: dict = {}
+
+    def _get_float(self, symbol: str) -> Optional[float]:
+        if symbol in self._float_cache:
+            return self._float_cache[symbol]
+        try:
+            info = yf.Ticker(symbol).fast_info
+            sf   = getattr(info, "shares_float", None)
+            if sf and sf > 0:
+                self._float_cache[symbol] = float(sf)
+                return float(sf)
+        except Exception:
+            pass
+        return None
+
+    def scan(self, symbol: str) -> Optional[Signal]:
+        now_et      = datetime.datetime.now(ET)
+        market_open = now_et.replace(hour=9, minute=30, second=0, microsecond=0)
+        mins_since  = (now_et - market_open).total_seconds() / 60.0
+        if not (0.0 <= mins_since <= EARLY_SQUEEZE["entry_window_min"]):
+            return None
+
+        shares_float = self._get_float(symbol)
+        if shares_float is None or shares_float > EARLY_SQUEEZE["max_float_shares"]:
+            return None
+
+        daily = get_bars(symbol, "5d", "1d")
+        if daily.empty or len(daily) < 2:
+            return None
+        prior_close   = float(daily["close"].iloc[-2])
+        avg_daily_vol = float(daily["volume"].iloc[:-1].mean())
+        if prior_close <= 0 or avg_daily_vol <= 0:
+            return None
+
+        intraday = get_bars(symbol, "1d", "1m")
+        if intraday.empty or len(intraday) < 5:
+            return None
+
+        open_px   = float(intraday["open"].iloc[0])
+        cur_price = float(intraday["close"].iloc[-1])
+        gap_pct   = ((open_px - prior_close) / prior_close) * 100
+        if gap_pct < EARLY_SQUEEZE["min_gap_pct"]:
+            return None
+
+        # Projected full-day RVOL
+        day_vol       = float(intraday["volume"].sum())
+        elapsed_frac  = max(mins_since / 390.0, 0.005)
+        projected_vol = day_vol / elapsed_frac
+        rvol          = projected_vol / avg_daily_vol
+        if rvol < EARLY_SQUEEZE["rvol_multiplier"]:
+            return None
+
+        # VWAP check — price must be above session VWAP
+        df       = intraday.copy()
+        df["tp"] = (df["high"] + df["low"] + df["close"]) / 3
+        cum_tpv  = (df["tp"] * df["volume"]).cumsum()
+        cum_vol  = df["volume"].cumsum().replace(0, float("nan"))
+        vwap_now = float((cum_tpv / cum_vol).iloc[-1])
+        if cur_price < vwap_now:
+            return None
+
+        # RSI check — not yet overbought
+        rsi = calc_rsi(df["close"])
+        if not rsi.empty and not pd.isna(rsi.iloc[-1]):
+            if rsi.iloc[-1] > EARLY_SQUEEZE["rsi_max"]:
+                return None
+
+        float_m    = shares_float / 1_000_000
+        atr14      = _calc_atr14(daily)
+        confidence = min(0.75 + (rvol / 10) * 0.04 + (gap_pct / 50) * 0.08, 0.96)
+        return Signal(
+            symbol, "buy", cur_price, confidence,
+            f"Early squeeze: float {float_m:.1f}M | gap +{gap_pct:.1f}% | RVOL x{rvol:.1f} projected | above VWAP",
+            "EarlySqueeze",
             atr_stop=atr14 * ATR_STOP_MULTIPLIER if atr14 > 0 else None,
         )

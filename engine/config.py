@@ -344,6 +344,10 @@ EOD_CLOSE_STRATEGIES = {         # Strategy names that must be closed same day
     "GapBreakout",
     "ORB",
     "VWAPReclaim",
+    "PreMarketMomentum",
+    "OpeningBellSurge",
+    "PMHighBreakout",
+    "EarlySqueeze",
 }
 
 # Stale order upgrade: unfilled orders older than this get re-submitted as market/limit
@@ -444,6 +448,37 @@ FLOAT_ROTATION = {
     "max_float_shares":   15_000_000,  # Only stocks with float < 15M shares
     "volume_float_ratio": 0.25,        # Today's volume already > 25% of float
     "min_price_up_pct":   5.0,         # Price must be up >5% on the day
+}
+
+# ─────────────────────────────────────────────────────────────────
+# Early Momentum / Opening Strategies
+# ─────────────────────────────────────────────────────────────────
+PRE_MARKET_MOMENTUM = {
+    "min_gap_pct":       3.0,   # Gap from prior close must be >= 3%
+    "pm_vol_pct_of_avg": 15.0,  # Pre-market volume must be >= 15% of avg daily vol
+    "pm_trend_bars":     5,     # Last N pre-market bars must trend up
+    "entry_window_end":  10.0,  # Stop firing after 10:00 AM ET (hour decimal)
+}
+
+OPENING_BELL_SURGE = {
+    "surge_bars":      5,     # Number of first 1-min bars after open to measure
+    "vol_multiplier":  4.0,   # First N bars total vol vs baseline (N * avg_1min)
+    "min_price_up_pct": 2.0,  # Price must be up >= 2% from open after N bars
+    "window_min":      15,    # Only valid for first 15 min after open
+}
+
+PM_HIGH_BREAKOUT = {
+    "breakout_buffer_pct": 0.2,  # Must clear PM high by 0.2%
+    "volume_surge":        1.5,  # Volume in last 3 bars vs session avg
+    "entry_window_min":    60,   # Only valid for first 60 min after open
+}
+
+EARLY_SQUEEZE = {
+    "max_float_shares":  20_000_000,  # Low-float stocks only
+    "min_gap_pct":        3.0,         # Gap from prior close >= 3%
+    "rvol_multiplier":    4.0,         # Projected full-day RVOL must exceed 4x
+    "entry_window_min":  45,           # Only valid for first 45 min after open
+    "rsi_max":           75,           # Not yet overbought
 }
 
 # ─────────────────────────────────────────────────────────────────
