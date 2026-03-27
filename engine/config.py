@@ -68,28 +68,39 @@ PRIORITY_2_ESTABLISHED = [s for s in PRIORITY_2_ESTABLISHED if s not in DELISTED
 # ─── Dynamic universe: load TTL-managed tickers from data/universe.json ───────
 # Trade Ideas updates and prediction picks live there, NOT in this file.
 # Universe TTL: tier-1 = 14 days, tier-2 = 30 days, tier-3 (following) = 7 days.
+#
+# get_dynamic_universe() is called live each scan cycle so newly scraped TI
+# tickers are picked up without restarting the bot.
 from engine.universe import get_tier as _get_tier  # noqa: E402
 
-_dyn1 = _get_tier(1)
-_dyn2 = _get_tier(2)
-_dyn3 = _get_tier(3)
 
-# Merge: JSON tickers first (freshest) then core seed, dedup, exclude delisted
-_seen: set = set(DELISTED_STOCKS)
-
-def _merge(a: list, b: list) -> list:
+def _merge_live(dyn: list, core: list, exclude: set) -> list:
+    seen: set = set(exclude)
     out = []
-    for s in list(a) + list(b):
-        if s not in _seen:
-            _seen.add(s)
+    for s in list(dyn) + list(core):
+        if s not in seen:
+            seen.add(s)
             out.append(s)
     return out
 
-PRIORITY_1_MOMENTUM    = _merge(_dyn1, PRIORITY_1_MOMENTUM)
-PRIORITY_2_ESTABLISHED = _merge(_dyn2, PRIORITY_2_ESTABLISHED)
-PRIORITY_FOLLOWING     = _merge(_dyn3, [])
 
-del _get_tier, _dyn1, _dyn2, _dyn3, _seen, _merge
+def get_dynamic_universe() -> tuple:
+    """Return (p1, p2, p3) merged lists, re-reading universe.json on every call."""
+    _ex = set(DELISTED_STOCKS)
+    p1 = _merge_live(_get_tier(1), PRIORITY_1_MOMENTUM,    _ex)
+    p2 = _merge_live(_get_tier(2), PRIORITY_2_ESTABLISHED, _ex)
+    p3 = _merge_live(_get_tier(3), [],                     _ex)
+    return p1, p2, p3
+
+
+# Module-level lists: populated once at startup as fallback / for any code that
+# imports them directly.  get_scan_targets() always calls get_dynamic_universe()
+# so the running bot never relies on these being fresh.
+_dyn1, _dyn2, _dyn3 = get_dynamic_universe()
+PRIORITY_1_MOMENTUM    = _dyn1
+PRIORITY_2_ESTABLISHED = _dyn2
+PRIORITY_FOLLOWING     = _dyn3
+del _dyn1, _dyn2, _dyn3
 
 STOCKS = {
     "priority_1": PRIORITY_1_MOMENTUM,
@@ -384,58 +395,60 @@ HIGH_SHORT_FLOAT_STOCKS  = {
     "AIFF", "AIRS", "ALBT", "ANAB", "ANNA", "ANNX",
     "APGE", "APLD", "APP", "APPX", "ARCT", "ARTL",
     "ARWR", "ASPI", "ASST", "ASTI", "ASTS", "ATAI",
-    "ATPC", "AVTX", "AVXL", "AXTI", "BABX", "BAK",
-    "BATL", "BBNX", "BBW", "BCRX", "BEAM", "BETR",
-    "BF", "BFLY", "BHVN", "BIAF", "BIRD", "BITU",
-    "BKSY", "BLSH", "BMEA", "BMNZ", "BNAI", "BOIL",
-    "BOXL", "BTBD", "BTBT", "BTDR", "BZUN", "CAR",
-    "CBIO", "CBUS", "CDIO", "CELC", "CGEM", "CGON",
-    "CHAC", "CHPT", "CIFG", "CIFR", "CISS", "CNVS",
-    "CNXC", "CONL", "CORZ", "CRCA", "CRCG", "CRDF",
-    "CRK", "CRVS", "CRWD", "CRWG", "CRWL", "CVI",
-    "CVV", "CYN", "DAMD", "DBI", "DERM", "DJI",
-    "DNA", "DNTH", "DNUT", "DOCN", "DRVN", "DTCX",
-    "DUST", "DVLT", "DWSN", "DXST", "DXYZ", "EAF",
-    "EBS", "EDSA", "EEIQ", "ELVN", "ERAS", "ETHD",
-    "ETHT", "EUDA", "EVH", "EVMN", "EVTV", "EWTX",
-    "EYE", "FATN", "FBIO", "FBYD", "FCHL", "FEED",
-    "FFAI", "FGL", "FLNC", "FOSL", "FOUR", "FROG",
-    "GDXD", "GDXU", "GEF", "GLND", "GLSI", "GLUE",
-    "GLWG", "GNPX", "GOGO", "GRND", "GRPN", "HCTI",
-    "HNRG", "HOOG", "HPK", "HRTX", "HTCO", "HTZ",
-    "HUBC", "HUMA", "HUT", "HYPD", "IBRX", "IBTA",
-    "ICU", "IDYA", "IEP", "IMAX", "IMTE", "INDI",
-    "INDO", "IONZ", "IRE", "IREG", "ISSC", "IXHL",
-    "JBLU", "JDZG", "JNUG", "KALV", "KIDZ", "KLRS",
-    "KOD", "KOLD", "KORU", "KPTI", "KRRO", "KRUS",
-    "KULR", "KVYO", "LAR", "LASE", "LBGJ", "LCID",
-    "LE", "LENZ", "LEU", "LGVN", "LICN", "LMRI",
-    "LOVE", "LUD", "LUNR", "LVWR", "MARA", "MDCX",
-    "MDGL", "MED", "METU", "MGTX", "MKDW", "MKT",
-    "MLKN", "MNTS", "MRAL", "MRLN", "MRNO", "MSTX",
-    "MULL", "MUU", "MUX", "MVIS", "MVO", "NAMM",
-    "NAUT", "NAVN", "NBIG", "NBIL", "NBIS", "NCI",
-    "NDRA", "NEXT", "NFE", "NGNE", "NMAX", "NOAH",
-    "NOTE", "NSRX", "NTLA", "NUGT", "NVTS", "OGEN",
-    "OKLO", "OKLS", "OKUR", "OLPX", "ONCO", "ONDG",
+    "ATPC", "AVTX", "AVXL", "AXTI", "AZ", "BABX",
+    "BAK", "BATL", "BBNX", "BBW", "BCRX", "BEAM",
+    "BETR", "BF", "BFLY", "BHVN", "BIAF", "BIRD",
+    "BITU", "BKSY", "BLSH", "BMEA", "BMNZ", "BNAI",
+    "BNRG", "BOIL", "BOXL", "BTBD", "BTBT", "BTDR",
+    "BZUN", "CAR", "CBIO", "CBUS", "CDIO", "CELC",
+    "CGEM", "CGON", "CHAC", "CHPT", "CIFG", "CIFR",
+    "CISS", "CNVS", "CNXC", "CONL", "CORZ", "CRCA",
+    "CRCG", "CRDF", "CRK", "CRVS", "CRWD", "CRWG",
+    "CRWL", "CVI", "CVV", "CYN", "DAMD", "DBI",
+    "DERM", "DJI", "DNA", "DNTH", "DNUT", "DOCN",
+    "DRVN", "DTCX", "DUST", "DVLT", "DWSN", "DXST",
+    "DXYZ", "EAF", "EBS", "EDSA", "EEIQ", "ELVN",
+    "ERAS", "ETHD", "ETHT", "ETR", "EUDA", "EVH",
+    "EVMN", "EVTV", "EWTX", "EYE", "FATN", "FBIO",
+    "FBYD", "FCHL", "FEED", "FFAI", "FGL", "FLNC",
+    "FOSL", "FOUR", "FROG", "GDXD", "GDXU", "GEF",
+    "GLND", "GLSI", "GLUE", "GLWG", "GNPX", "GOGO",
+    "GRND", "GRPN", "HCTI", "HNRG", "HOOG", "HPK",
+    "HRTX", "HTCO", "HTZ", "HUBC", "HUMA", "HUT",
+    "HYPD", "IBRX", "IBTA", "ICU", "IDYA", "IEP",
+    "IMAX", "IMTE", "INDI", "INDO", "IONZ", "IRE",
+    "IREG", "ISSC", "IXHL", "JBLU", "JDZG", "JNUG",
+    "KALV", "KIDZ", "KLRS", "KOD", "KOLD", "KORU",
+    "KPTI", "KRRO", "KRUS", "KULR", "KVYO", "LAR",
+    "LASE", "LBGJ", "LCID", "LE", "LENZ", "LEU",
+    "LGN", "LGVN", "LICN", "LMRI", "LOVE", "LUD",
+    "LUNR", "LVWR", "MARA", "MDCX", "MDGL", "MED",
+    "METU", "MGTX", "MKDW", "MKT", "MLKN", "MNTS",
+    "MRAL", "MRLN", "MRNO", "MSTX", "MULL", "MUU",
+    "MUX", "MVIS", "MVO", "NAMM", "NAUT", "NAVN",
+    "NBIG", "NBIL", "NBIS", "NCI", "NDRA", "NEXT",
+    "NFE", "NGNE", "NMAX", "NOAH", "NOTE", "NSRX",
+    "NTLA", "NUGT", "NVTS", "OGEN", "OKLL", "OKLO",
+    "OKLS", "OKTA", "OKUR", "OLPX", "ONCO", "ONDG",
     "ONDS", "ORGN", "ORGO", "ORIC", "ORIS", "OXM",
-    "PALI", "PANW", "PCRX", "PGEN", "PGY", "PLCE",
-    "PLTZ", "POLA", "PONY", "PROF", "PROP", "QBTZ",
-    "QNCX", "QNRX", "QNTM", "QVCGA", "RBNE", "RCAT",
-    "RCAX", "RCKT", "RDTL", "REED", "RENX", "REPL",
-    "RETO", "RIME", "RIOX", "RKLX", "RKLZ", "RLYB",
-    "RNAC", "ROMA", "RVI", "RXT", "RZLT", "SAIL",
-    "SATS", "SBIT", "SCVL", "SER", "SGML", "SHMD",
-    "SHNY", "SIGA", "SION", "SKIL", "SKIN", "SKLZ",
-    "SLNH", "SLON", "SMCX", "SMCZ", "SMST", "SMX",
-    "SNBR", "SND", "SNSE", "SOC", "SOLT", "SOWG",
-    "SOXS", "SPCE", "SPIR", "SPRC", "SPRY", "SRPT",
-    "SUNE", "SWMR", "TASK", "TBCH", "TDUP", "TEAD",
-    "TECX", "TERN", "TNGX", "TPET", "TRIP", "TRON",
-    "TSSI", "TTEC", "TURB", "TWST", "UAMY", "UGRO",
-    "UNG", "UPXI", "UUUG", "VCIC", "VCX", "VERI",
-    "VIVO", "VNET", "VRCA", "VSTM", "VTIX", "WATT",
-    "WKHS", "WOLF", "WRAP", "WS", "WTI", "WULF",
-    "WVE", "WYFI", "XRX", "XTIA", "XYF", "YANG",
-    "YDDL", "YINN", "ZBIO", "ZSL",
+    "PALI", "PANW", "PCRX", "PGEN", "PGY", "PHGE",
+    "PLCE", "PLTZ", "POLA", "PONY", "PROF", "PROP",
+    "QBTZ", "QNCX", "QNRX", "QNTM", "QVCGA", "RBNE",
+    "RCAT", "RCAX", "RCKT", "RDTL", "REED", "RENX",
+    "REPL", "RETO", "RIME", "RIOX", "RKLX", "RKLZ",
+    "RLYB", "RNAC", "ROMA", "RR", "RVI", "RXT",
+    "RZLT", "SAIL", "SATS", "SBIT", "SCVL", "SER",
+    "SGML", "SHMD", "SHNY", "SIGA", "SION", "SKIL",
+    "SKIN", "SKLZ", "SLNH", "SLON", "SMCX", "SMCZ",
+    "SMST", "SMX", "SNBR", "SND", "SNSE", "SOC",
+    "SOLT", "SOWG", "SOXS", "SPCE", "SPIR", "SPRC",
+    "SPRY", "SRPT", "SUNE", "SWMR", "TASK", "TBCH",
+    "TDUP", "TEAD", "TECX", "TERN", "TNGX", "TPET",
+    "TRIP", "TRON", "TSSI", "TTEC", "TURB", "TWST",
+    "UAMY", "UGRO", "UNG", "UPXI", "UUUG", "VCIC",
+    "VCX", "VERI", "VIVO", "VNET", "VOR", "VRCA",
+    "VSTM", "VTIX", "VTS", "WATT", "WKHS", "WOLF",
+    "WRAP", "WS", "WTI", "WULF", "WVE", "WYFI",
+    "XRX", "XTIA", "XYF", "YANG", "YDDL", "YINN",
+    "ZBIO", "ZS", "ZSL",
 }

@@ -91,9 +91,9 @@ def get_scan_targets(excluded: Set[str] = None) -> List[str]:
     if excluded is None:
         excluded = set()
 
-    # Read live from config module so Trade Ideas scrape updates are reflected
-    p1 = _cfg.PRIORITY_1_MOMENTUM
-    p2 = _cfg.PRIORITY_2_ESTABLISHED
+    # Re-read universe.json live every cycle so TI-scraped tickers are reflected
+    # immediately without restarting the bot.
+    p1, p2, _p3 = _cfg.get_dynamic_universe()
     delisted = set(_cfg.DELISTED_STOCKS)
 
     # Take top 50% from each list (marketscope360 + highshortfloat)
