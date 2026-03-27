@@ -383,6 +383,14 @@ def scan_and_trade():
         daily_reset = today
         log.info("=" * 70)
         log.info(f"NEW DAY: {today} | Start equity: ${daily_start_equity:,.2f}")
+        # Prune expired tickers from universe.json once per day
+        try:
+            from engine.universe import prune as _prune_universe
+            removed = _prune_universe()
+            if removed:
+                log.info(f"Universe pruned: removed {len(removed)} expired ticker(s): {removed[:10]}{'…' if len(removed)>10 else ''}")
+            else:
+                log.info("Universe pruned: no expired tickers")
         log.info("=" * 70)
 
     if not is_market_open():
