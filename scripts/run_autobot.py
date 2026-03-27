@@ -2,6 +2,7 @@ import os
 import subprocess
 import time
 import sys
+import atexit
 from pathlib import Path
 
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -28,20 +29,44 @@ def write_log(msg):
         log.write(f"{time.strftime('%Y-%m-%d %H:%M:%S')} - {msg}\n")
 
 
+def _create_pid_file_atomic(pid: int) -> bool:
+    """Create pid file atomically. Returns True only for the single winner."""
+    try:
+        fd = os.open(str(PID_FILE), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(str(pid))
+        return True
+    except FileExistsError:
+        return False
+
+
+def _cleanup_pid_file_if_owner(pid: int):
+    try:
+        if PID_FILE.exists() and PID_FILE.read_text().strip() == str(pid):
+            PID_FILE.unlink(missing_ok=True)
+    except Exception:
+        pass
+
+
 if __name__ == "__main__":
-    if PID_FILE.exists():
+    my_pid = os.getpid()
+
+    if not _create_pid_file_atomic(my_pid):
         try:
             existing_pid = int(PID_FILE.read_text().strip())
             if is_process_running(existing_pid):
                 write_log(f"Existing AutoBot process is already running (pid={existing_pid}). Exiting duplicate launcher.")
                 sys.exit(0)
-            else:
-                write_log(f"Stale PID file found (pid={existing_pid}), removing.")
-                PID_FILE.unlink(missing_ok=True)
+            write_log(f"Stale PID file found (pid={existing_pid}), removing.")
+            PID_FILE.unlink(missing_ok=True)
         except Exception as exc:
             write_log(f"Failed to inspect existing PID file: {exc}")
 
-    PID_FILE.write_text(str(os.getpid()))
+        if not _create_pid_file_atomic(my_pid):
+            write_log("Another launcher acquired pid lock first. Exiting duplicate launcher.")
+            sys.exit(0)
+
+    atexit.register(_cleanup_pid_file_if_owner, my_pid)
     write_log("=== AutoBot watchdog started ===")
     write_log(f"PID file: {PID_FILE}")
 
