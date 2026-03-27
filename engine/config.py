@@ -34,152 +34,21 @@ ETRADE_SANDBOX         = os.getenv("ETRADE_SANDBOX", "false").lower() == "true"
 # Priority 3: Market ETFs for context
 # ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
 PRIORITY_1_MOMENTUM = [
-    # Trade-Ideas PRIORITY_1_MOMENTUM top-priority update 2026-03-26 16:39
-    "DTCX",
-    # Trade-Ideas PRIORITY_1_MOMENTUM top-priority update 2026-03-26 16:07
-    "CBIO", "REED",
-    # Trade-Ideas PRIORITY_1_MOMENTUM top-priority update 2026-03-26 15:34
-    "ONDG",
-    # Trade-Ideas PRIORITY_1_MOMENTUM top-priority update 2026-03-26 14:21
-    "OKLS", "METU",
-    # Trade-Ideas PRIORITY_1_MOMENTUM top-priority update 2026-03-26 13:42
-    "NBIG",
-    # Trade-Ideas PRIORITY_1_MOMENTUM top-priority update 2026-03-26 12:58
-    "TURB", "QBTZ",
-    # Trade-Ideas PRIORITY_1_MOMENTUM top-priority update 2026-03-26 12:08
-    "EUDA", "DWSN", "OKUR",
-    # Trade-Ideas PRIORITY_1_MOMENTUM top-priority update 2026-03-26 11:21
-    "UUUG", "IRE", "NSRX",
-    # Trade-Ideas PRIORITY_1_MOMENTUM top-priority update 2026-03-26 11:04
-    "PROF",
-    # Trade-Ideas PRIORITY_1_MOMENTUM top-priority update 2026-03-26 10:58
-    "RDTL",
-    # Trade-Ideas PRIORITY_1_MOMENTUM top-priority update 2026-03-26 10:41
-    "MGTX", "LMRI", "RIOX",
-    # Trade-Ideas PRIORITY_1_MOMENTUM top-priority update 2026-03-26 10:22
-    "QVCGA", "CIFG", "NOAH", "IREG", "ISSC",
-    # Trade-Ideas PRIORITY_1_MOMENTUM top-priority update 2026-03-26 10:05
-    "EAF", "ICU", "CNVS", "XYF", "DERM", "PONY", "WATT",
-    # Trade-Ideas PRIORITY_1_MOMENTUM top-priority update 2026-03-26 09:47
-    "SION", "RENX", "MULL",
-    # Trade-Ideas PRIORITY_1_MOMENTUM top-priority update 2026-03-26 09:27
-    "HNRG", "GLWG",
-    # Trade-Ideas PRIORITY_1_MOMENTUM top-priority update 2026-03-26 09:05
-    "FATN", "CHAC", "SLON",
-    # Trade-Ideas PRIORITY_1_MOMENTUM top-priority update 2026-03-26 08:53
-    "TASK",
-    # Trade-Ideas PRIORITY_1_MOMENTUM top-priority update 2026-03-26 08:32
-    "JNUG", "NUGT",
-    # Trade-Ideas PRIORITY_1_MOMENTUM top-priority update 2026-03-26 08:21
-    "DUST", "MASK", "MSOX", "FGL", "HYMC",
-    # Trade-Ideas PRIORITY_1_MOMENTUM top-priority update 2026-03-26 08:15
-    "AIFF", "USAS", "ARWR",
-    # Trade-Ideas PRIORITY_1_MOMENTUM top-priority update 2026-03-26 07:57
-    "WVE",
-    # Trade-Ideas PRIORITY_1_MOMENTUM top-priority update 2026-03-26 07:45
-    "APPX", "APP",
-    # Trade-Ideas PRIORITY_1_MOMENTUM top-priority update 2026-03-26 07:28
-    "VG", "SOLT", "ADVB", "BABX",
-    # Trade-Ideas PRIORITY_1_MOMENTUM top-priority update 2026-03-26 07:01
-    "OLPX", "KOD", "ZSL", "ETHD", "BMNZ", "YANG", "SND", "OCGN", "HOLO", "GLL", "NEXT", "SBIT", "GDXU", "ETHT", "YINN", "SHNY", "MRAL", "TECK", "SIVR", "PSLV", "MUU", "CRCA", "UXRP", "XXRP", "ETHA", "CWEB",
-    # Trade-Ideas PRIORITY_1_MOMENTUM top-priority update 2026-03-26 00:07
-    "SLND", "BTBD", "FCHL", "NAVN", "RVI", "CBUS", "MLKN", "WS",
-    # Extreme momentum (100%+ gainers) - HIGHEST PRIORITY
-    "UGRO", "VCX", "PTLE", "BIAF", "SATL", "ELAB",
-    # Strong momentum (50%+ gainers)
-    "QNTM", "MRLN", "DMRA", "RCAX", "ALDX", "NAMM", "PAYP", "SER", "NAUT", "CGV",
-    # Consistent performers (20%+ gainers)
-    "AXTI", "NTGR", "APGE", "ELPW", "ORGN", "ASPI", "FSLY", "ALLO", "SMX", "SUNE",
-    "LUNR", "RCAT", "AAOI", "BCRX", "SVCO", "YOU", "BKSY", "AEHR", "OLN",
-    "SLS", "WULF", "ADTN", "OPTX", "IMVT", "GOCO", "ORKA", "PEB",
-    # Latest additions (5%+ gainers from screenshots)
-    "EPRX", "IDN", "RDGT", "MTA", "ELE", "RFIL", "OFRM", "NMRA", "BTGO",
-    "OI", "NTCT", "FBRX", "BATL", "OPAL", "FPI", "VUZI", "BN", "MWH", "VMET", "TGEN",
-    # 30-min momentum additions
-    "FLNG", "MGY", "ALMS", "DK", "KALV", "NOG", "CNX", "NN", "AMPX", "BTU", "AMKR", "RIG",
-    # Recent additions from screenshots
-    "VIR", "MIRM", "PTGX", "CAPR", "CELC", "MAZE", "KORU", "LCUT",
-    "CONL", "FLY", "SIDU", "VELO", "AMTX", "SMCX", "FUFU", "MSTX", "OKLL",
-    "SPT", "RGTX", "IONL", "MRNA", "SNDX", "ABX", "CLDX", "RNG", "DNTH",
-    # Latest heatmap additions (3:58 PM)
-    "NKTR", "AMLX", "NUVL", "SRRK", "TYRA", "PBF", "DNLI", "BCAX",
-    # Post-market gainers (4:15 PM)
-    "RBNE", "FEED", "ANNA", "CVV", "ROMA", "NUCL", "DXST", "IONR",
-    "NRXP", "CONI", "FOUR", "ASRT", "GRO",
-    # 30-min momentum (4:21 PM)
-    "IMDX", "LICN", "HTCO", "FNUC", "VTIX", "ONEG", "RPID", "KDK", "RHLD", "IONZ",
-    # 30-min heatmap gainers (Mar 25)
-    "CODX", "PESI", "GDXD", "LWLG", "GO", "BZUN", "PLAY", "EVTL", "FWRG", "RGTZ",
-    "QNRX", "RMBS", "RZLT",
-    # Trade-Ideas PRIORITY_1_MOMENTUM update 2026-03-25 17:32
-    "MKDW", "PAYS", "CAST", "ARMG", "VIVO", "LUD", "KSCP", "CHNR", "RKLX", "MPTI", "BRZE", "CORT", "FBYD", "JFB", "RKLZ", "SMCZ", "CNTX", "ADMA", "NPT", "SKYQ", "DAMD", "YDDL", "DAVE", "PELI", "ONON", "VCIC", "LABD", "DWTX", "FRMI", "ZEPP",
+    # ── Permanent core (never expire, always scanned) ──────────────
+    # Crypto-leveraged / popular momentum plays
+    "MARA", "WULF", "CORZ", "HUT", "IREN",
+    # Biotech / speculative momentum
+    "MRNA", "BCRX", "SNDX", "IMVT",
+    # Energy / commodities momentum
+    "RIG", "NOG", "CNX", "BTU", "DK",
 ]
 
-
 PRIORITY_2_ESTABLISHED = [
-    # Trade-Ideas PRIORITY_2_ESTABLISHED top-priority update 2026-03-26 18:22
-    "IMAX",
-    # Trade-Ideas PRIORITY_2_ESTABLISHED top-priority update 2026-03-26 16:25
-    "NCI",
-    # Trade-Ideas PRIORITY_2_ESTABLISHED top-priority update 2026-03-26 15:33
-    "MDGL", "EVH",
-    # Trade-Ideas PRIORITY_2_ESTABLISHED top-priority update 2026-03-26 14:38
-    "TRIP",
-    # Trade-Ideas PRIORITY_2_ESTABLISHED top-priority update 2026-03-26 14:00
-    "LCID",
-    # Trade-Ideas PRIORITY_2_ESTABLISHED top-priority update 2026-03-26 13:07
-    "CORZ",
-    # Trade-Ideas PRIORITY_2_ESTABLISHED top-priority update 2026-03-26 12:49
-    "BF", "OKLO",
-    # Trade-Ideas PRIORITY_2_ESTABLISHED top-priority update 2026-03-26 12:08
-    "NFE", "ORIC", "TTEC",
-    # Trade-Ideas PRIORITY_2_ESTABLISHED top-priority update 2026-03-26 11:20
-    "SKIL",
-    # Trade-Ideas PRIORITY_2_ESTABLISHED top-priority update 2026-03-26 11:02
-    "VSTM", "NVTS",
-    # Trade-Ideas PRIORITY_2_ESTABLISHED top-priority update 2026-03-26 10:57
-    "BMEA", "KULR", "HTZ", "RETO",
-    # Trade-Ideas PRIORITY_2_ESTABLISHED top-priority update 2026-03-26 10:38
-    "LE", "DNA",
-    # Trade-Ideas PRIORITY_2_ESTABLISHED top-priority update 2026-03-26 10:21
-    "NTLA", "XRX", "KLRS", "SCVL", "SATS", "FLNC",
-    # Trade-Ideas PRIORITY_2_ESTABLISHED top-priority update 2026-03-26 10:04
-    "PALI", "KVYO", "RNAC", "BTBT", "APLD",
-    # Trade-Ideas PRIORITY_2_ESTABLISHED top-priority update 2026-03-26 09:47
-    "AVTX", "GLSI", "TEAD", "TSSI",
-    # Trade-Ideas PRIORITY_2_ESTABLISHED top-priority update 2026-03-26 09:27
-    "TECX", "DNUT", "CVI", "SKLZ", "MKT",
-    # Trade-Ideas PRIORITY_2_ESTABLISHED top-priority update 2026-03-26 09:05
-    "VRCA", "IBTA", "TBCH", "ARCT", "OXM",
-    # Trade-Ideas PRIORITY_2_ESTABLISHED top-priority update 2026-03-26 08:52
-    "PLCE", "AAP",
-    # Trade-Ideas PRIORITY_2_ESTABLISHED top-priority update 2026-03-26 08:32
-    "MARA", "NGNE", "MED", "CRK", "BIRD", "CAR", "FBIO", "CADL",
-    # Trade-Ideas PRIORITY_2_ESTABLISHED top-priority update 2026-03-26 08:20
-    "WKHS", "OGEN", "LENZ", "CGEM", "GRND", "EVTV", "SNSE", "CHRS", "CDIO", "ARRY", "DRVN", "KRRO",
-    # Trade-Ideas PRIORITY_2_ESTABLISHED top-priority update 2026-03-26 07:57
-    "GEF", "MRNO", "INMB", "PGY", "ENVX",
-    # Trade-Ideas PRIORITY_2_ESTABLISHED top-priority update 2026-03-26 07:45
-    "WRAP", "ATPC", "ZBIO", "GLUE", "TRON", "AMR",
-    # Trade-Ideas PRIORITY_2_ESTABLISHED top-priority update 2026-03-26 07:31
-    "DBI",
-    # Trade-Ideas PRIORITY_2_ESTABLISHED top-priority update 2026-03-26 07:28
-    "VNET",
-    # Trade-Ideas PRIORITY_2_ESTABLISHED top-priority update 2026-03-26 07:26
-    "JDZG", "EZPW", "ORGO", "FWRD", "SOWG", "QURE", "WYFI", "VTAK", "SRFM", "BTDR",
-    # Trade-Ideas PRIORITY_2_ESTABLISHED top-priority update 2026-03-26 07:01
-    "DVLT", "AESI", "LOVE", "SPRY", "LXEO", "MVIS", "HUMA", "MNTS", "BEAM", "ABEO", "SOC", "WTI", "IMRX", "IPW", "BHVN", "IMCR", "FRGT", "VTS", "FFAI", "GOGO", "CISS", "SGRY", "HRTX", "ALBT", "PFSA", "STIM", "UPXI", "MUX", "INDI", "UAMY",
-    # Trade-Ideas PRIORITY_2_ESTABLISHED top-priority update 2026-03-26 00:07
-    "PROP", "PGEN", "CRVS", "BOXL", "LVWR", "CYN", "IMTE", "TPET", "ABSI", "BBW",
-    # Tech giants (stable, liquid)
+    # ── Permanent core (never expire) ─────────────────────────────
+    # Tech giants — liquid at all times
     "AAPL", "MSFT", "NVDA", "AMD", "GOOGL", "META", "TSLA", "AMZN",
-    # High short float (squeeze potential)
-    "BFLY", "EWTX", "IDYA", "ANNX", "TNGX", "IBRX", "ERAS", "SPIR", "HUT", "EYE",
-    "FOSL", "ANAB", "DOCN", "TERN",
-    # Original momentum
-    "SWMR", "INDO", "DULL", "UCO", "SOXS",
-    # Trade-Ideas PRIORITY_2_ESTABLISHED update 2026-03-25 17:32
-    "DJI", "SRPT", "SMMT", "JBLU", "SHMD", "BNAI", "HCTI", "WOLF", "TSHA", "SLNH", "ASTS", "EVMN", "BETR", "QNCX", "ASST", "KIDZ", "XTIA", "AQST", "HYPD", "REPL", "NDRA", "AIRS", "AVXL", "NOTE", "DPRO", "ABTS", "FUBO", "SKIN", "SEZL", "RIME", "CNXC", "AEHL", "RXT", "EDSA", "LASE", "XWEL", "HPK", "SNBR", "KLAR", "ASTI", "TEM", "KPTI",
+    # High short-float perennials
+    "LCID", "MVIS", "WKHS", "SNDX", "FUBO", "INDO", "SOXS", "UCO",
 ]
 
 PRIORITY_3_MARKET = ["SPY", "QQQ", "IWM", "^VIX"]
@@ -187,20 +56,40 @@ PRIORITY_3_MARKET = ["SPY", "QQQ", "IWM", "^VIX"]
 # Delisted or broken tickers — filtered out at runtime
 DELISTED_STOCKS = [
     # Truly delisted
-    "IMV", "EKV", "AMTK", "SUNE", "BTU",
+    "IMV", "EKV", "AMTK", "SUNE",
     # Index tickers (not tradeable)
     "DJI", "$DJI",
 ]
 
-# Remove delisted from live lists
+# Remove delisted from core lists
 PRIORITY_1_MOMENTUM = [s for s in PRIORITY_1_MOMENTUM if s not in DELISTED_STOCKS]
 PRIORITY_2_ESTABLISHED = [s for s in PRIORITY_2_ESTABLISHED if s not in DELISTED_STOCKS]
 
-# Priority Following: heatmap/premarket gainers being monitored for entry
-PRIORITY_FOLLOWING = [
-    # Auto-generated by predict_tomorrow.py — 2026-03-26
-    "SLND", "NAVN", "ICU", "OLPX", "FCHL", "KOD", "FATN", "AIFF", "CAR", "MDGL", "BOXL", "TURB", "HTZ", "PGEN", "RVI",
-]
+# ─── Dynamic universe: load TTL-managed tickers from data/universe.json ───────
+# Trade Ideas updates and prediction picks live there, NOT in this file.
+# Universe TTL: tier-1 = 14 days, tier-2 = 30 days, tier-3 (following) = 7 days.
+from engine.universe import get_tier as _get_tier  # noqa: E402
+
+_dyn1 = _get_tier(1)
+_dyn2 = _get_tier(2)
+_dyn3 = _get_tier(3)
+
+# Merge: JSON tickers first (freshest) then core seed, dedup, exclude delisted
+_seen: set = set(DELISTED_STOCKS)
+
+def _merge(a: list, b: list) -> list:
+    out = []
+    for s in list(a) + list(b):
+        if s not in _seen:
+            _seen.add(s)
+            out.append(s)
+    return out
+
+PRIORITY_1_MOMENTUM    = _merge(_dyn1, PRIORITY_1_MOMENTUM)
+PRIORITY_2_ESTABLISHED = _merge(_dyn2, PRIORITY_2_ESTABLISHED)
+PRIORITY_FOLLOWING     = _merge(_dyn3, [])
+
+del _get_tier, _dyn1, _dyn2, _dyn3, _seen, _merge
 
 STOCKS = {
     "priority_1": PRIORITY_1_MOMENTUM,
@@ -208,32 +97,6 @@ STOCKS = {
     "priority_3": PRIORITY_3_MARKET,
     "following":  PRIORITY_FOLLOWING,
 }
-
-# ─── Auto-merge predictions/watchlist.json into PRIORITY_FOLLOWING ────────────
-# predict_tomorrow.py writes this file at EOD. On the next bot startup, any
-# tickers scored there that day are added to the following list automatically.
-def _load_predictions_watchlist() -> list:
-    import json as _json, datetime as _dt, os as _os
-    _path = _os.path.join(_os.path.dirname(__file__), "..", "predictions", "watchlist.json")
-    try:
-        with open(_os.path.abspath(_path), encoding="utf-8") as _fh:
-            _data = _json.load(_fh)
-        _src_date = _dt.date.fromisoformat(_data.get("source_date", "2000-01-01"))
-        _today    = _dt.date.today()
-        # Accept watchlist from today OR yesterday (pre-market run before open)
-        if (_today - _src_date).days <= 1:
-            return [t["symbol"] for t in _data.get("tickers", [])]
-    except (FileNotFoundError, KeyError, ValueError):
-        pass
-    return []
-
-_watchlist_extra = _load_predictions_watchlist()
-_already_in_following = set(PRIORITY_FOLLOWING)
-for _sym in _watchlist_extra:
-    if _sym not in _already_in_following:
-        PRIORITY_FOLLOWING.append(_sym)
-        STOCKS["following"] = PRIORITY_FOLLOWING
-del _load_predictions_watchlist, _watchlist_extra, _already_in_following
 
 # ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
 # Trading Parameters ΓÇö Swing Trading Optimized

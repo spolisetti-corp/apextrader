@@ -213,36 +213,21 @@ def _save_screenshot(driver: "webdriver.Chrome", label: str) -> Path:
 # ── Config patcher ────────────────────────────────────────────────
 def _patch_config(list_name: str, new_tickers: list[str]) -> int:
     """
-    Append *new* tickers (not already present) to `list_name` in config.py.
-    Returns the number of tickers added.
+    Add *new_tickers* to data/universe.json (TTL-managed) instead of patching
+    config.py source code.  list_name determines the tier:
+      PRIORITY_1_MOMENTUM   → tier 1 (TTL 14 days)
+      PRIORITY_2_ESTABLISHED → tier 2 (TTL 30 days)
+    Returns the number of *new* tickers inserted.
     """
-    src = CONFIG_FILE.read_text(encoding="utf-8")
+    import sys as _sys
+    _sys.path.insert(0, str(REPO_ROOT))
+    from engine.universe import add_tickers  # noqa: E402
 
-    # Find existing tickers already in that list (rough parse)
-    existing: set[str] = set(re.findall(r'"([A-Z]{1,5})"', src))
-    to_add = [t for t in new_tickers if t not in existing]
-    if not to_add:
-        return 0
-
-    # Build the insertion block (goes at the TOP of the list — highest priority)
-    comment  = f"    # Trade-Ideas {list_name} top-priority update {datetime.now().strftime('%Y-%m-%d %H:%M')}"
-    new_line = "    " + ", ".join(f'"{t}"' for t in to_add) + ","
-
-    # Locate the opening [ of the target list and insert right after it
-    pattern = re.compile(
-        rf'({re.escape(list_name)}\s*=\s*\[)(\s*\n)',
-        re.MULTILINE,
-    )
-    m = pattern.search(src)
-    if not m:
-        print(f"[WARN ] Could not locate {list_name} in config.py — skipping patch")
-        return 0
-
-    # Insert after the opening bracket+newline (top of list)
-    insert_at = m.end(0)
-    new_src   = src[:insert_at] + comment + "\n" + new_line + "\n" + src[insert_at:]
-    CONFIG_FILE.write_text(new_src, encoding="utf-8")
-    return len(to_add)
+    tier = 1 if "PRIORITY_1" in list_name else 2
+    added = add_tickers(new_tickers, tier=tier)
+    if added:
+        print(f"[UNI  ] {added} new ticker(s) added to universe.json (tier {tier}): {new_tickers[:5]}{'…' if len(new_tickers)>5 else ''}")
+    return added
 
 
 # ── High-short-float set patcher ────────────────────────────────
