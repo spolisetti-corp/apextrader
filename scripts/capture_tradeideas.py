@@ -1,14 +1,17 @@
 """
 Trade Ideas — Screenshot + Universe Updater
 ============================================
-Navigates to two Trade Ideas TIPro scan pages with Selenium Chrome,
+Navigates to three Trade Ideas TIPro scan pages with Selenium Chrome,
 captures screenshots, extracts ticker symbols, and optionally patches
 engine/config.py so the universe is kept current.
 
 Pages scraped
 -------------
-  HIGH_SHORT_FLOAT  https://www.trade-ideas.com/TIPro/highshortfloat/
-  MARKET_SCOPE_360  https://www.trade-ideas.com/TIPro/marketscope360/
+  HIGH_SHORT_FLOAT    https://www.trade-ideas.com/TIPro/highshortfloat/
+  MARKET_SCOPE_360    https://www.trade-ideas.com/TIPro/marketscope360/
+  STOCK_RACE_CENTRAL  https://www.trade-ideas.com/TIPro/stockracecentral/
+                      Race leaders  → tier 1 (long momentum candidates)
+                      Race laggards → tier 2 (short/breakdown candidates)
 
 Usage
 -----
@@ -77,6 +80,11 @@ SCANS: dict[str, dict] = {
         "label":  "market_scope_360",
         "target": "PRIORITY_1_MOMENTUM",      # momentum leaders
     },
+    "stockracecentral": {
+        "url":    "https://www.trade-ideas.com/TIPro/stockracecentral/",
+        "label":  "stock_race_central",
+        "target": "BOTH",   # leaders → tier 1 (longs), laggards → tier 2 (shorts)
+    },
 }
 
 # Words to exclude from ticker extraction (common UI/nav/HTML words)
@@ -85,7 +93,7 @@ _IGNORE = {
     "NA", "GO", "BE", "IN", "ON", "TO", "AT", "BY", "IF", "IS", "IT", "AS", "OF",
     "MY", "US", "UP", "DO", "SO", "ME", "HE", "WE", "VS",
     # UI / nav words visible on Trade Ideas pages
-    "MIN", "RACE", "PRE", "POST", "EST", "USD", "ETF", "ETH", "BTC",
+    "MIN", "PRE", "POST", "EST", "USD", "ETF", "ETH", "BTC",
     "HIGH", "LOW", "BUY", "SELL", "OPEN", "CLOSE", "MARKET", "PRICE",
     "FLOAT", "SHORT", "CHANGE", "VOLUME", "SCAN", "TRADE", "IDEAS", "SCOPE",
     "MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN",
@@ -96,6 +104,9 @@ _IGNORE = {
     "COMPETITION", "WATCHLISTS", "SETTINGS", "DASHBOARDS", "CHANNELS",
     "MOMENTUM", "WAVES", "STOCK", "SCOPE", "BIGGEST", "GAINERS", "LOSERS",
     "DELAYED", "LIVE", "ALERT", "ALERTS", "FILTER", "FILTERS",
+    # stockracecentral UI words
+    "RACE", "CENTRAL", "LEADER", "LEADERS", "LAGGARD", "LAGGARDS",
+    "WINNER", "WINNERS", "LOSER", "LOSERS", "RANK", "RANKED",
 }
 
 _TICKER_RE = re.compile(r'\b([A-Z]{2,5})\b')
@@ -340,6 +351,85 @@ def _try_select_30min(driver: "webdriver.Chrome") -> bool:
     return False
 
 
+# ── Stock Race Central: leaders vs laggards extraction ───────────
+def _extract_race_sides(driver: "webdriver.Chrome") -> tuple[list[str], list[str]]:
+    """
+    Try to split stockracecentral tickers into:
+      leaders  — top/green tiles (long candidates)  → tier 1
+      laggards — bottom/red tiles (short candidates) → tier 2
+
+    Strategy:
+      1. Look for elements with positive vs negative change values
+         (e.g. '+5.2%' vs '-3.1%') alongside ticker symbols.
+      2. Fallback: read DOM order — first half = leaders, second half = laggards.
+      3. If no split is possible, return (all, []) so everything goes to tier 1.
+    """
+    leaders:  list[str] = []
+    laggards: list[str] = []
+
+    try:
+        result = driver.execute_script("""
+            var leaders = [];
+            var laggards = [];
+            var seen = {};
+
+            // Walk all elements looking for ticker+change pairs
+            var allEls = document.querySelectorAll(
+                '[class*="tile"],[class*="card"],[class*="row"],[class*="item"],[class*="stock"],[class*="race"]'
+            );
+
+            allEls.forEach(function(el) {
+                var text = (el.innerText || el.textContent || '').trim();
+                var tickerM = text.match(/\\b([A-Z]{2,5})\\b/);
+                if (!tickerM) return;
+                var ticker = tickerM[1];
+                if (seen[ticker]) return;
+
+                // Look for pct change in the element or its parent
+                var combined = text + ' ' + (el.parentElement ? (el.parentElement.innerText || '') : '');
+                var posM = combined.match(/\\+([0-9]+\\.?[0-9]*)%/);
+                var negM = combined.match(/-([0-9]+\\.?[0-9]*)%/);
+
+                // Also check for green/red background color hints
+                var style = window.getComputedStyle(el);
+                var bg = style.backgroundColor || '';
+                // rgb(r,g,b) — green dominates if g>r and g>b, red if r>g
+                var isGreen = bg.match(/rgb\\((\\d+),(\\d+),(\\d+)\\)/) &&
+                              (function(m){ return parseInt(m[2])>parseInt(m[1]) && parseInt(m[2])>parseInt(m[3]); })
+                              (bg.match(/rgb\\((\\d+),(\\d+),(\\d+)\\)/));
+                var isRed   = bg.match(/rgb\\((\\d+),(\\d+),(\\d+)\\)/) &&
+                              (function(m){ return parseInt(m[1])>parseInt(m[2]) && parseInt(m[1])>parseInt(m[3]); })
+                              (bg.match(/rgb\\((\\d+),(\\d+),(\\d+)\\)/));
+
+                seen[ticker] = true;
+                if (negM && !posM || isRed)  { laggards.push(ticker); }
+                else                          { leaders.push(ticker);  }
+            });
+
+            return {leaders: leaders, laggards: laggards};
+        """) or {}
+
+        leaders  = [t for t in (result.get("leaders", [])  or []) if t not in _IGNORE]
+        laggards = [t for t in (result.get("laggards", []) or []) if t not in _IGNORE]
+    except Exception:
+        pass
+
+    # Fallback: use standard extraction then split by DOM order
+    if not leaders and not laggards:
+        all_tickers = _extract_tickers(driver)
+        mid = max(1, len(all_tickers) // 2)
+        leaders  = all_tickers[:mid]
+        laggards = all_tickers[mid:]
+        print("[INFO ] Race side detection fell back to DOM-order split")
+
+    # De-dup each list
+    def _dedup(lst: list[str]) -> list[str]:
+        seen: set[str] = set()
+        return [t for t in lst if not (t in seen or seen.add(t))]  # type: ignore[func-returns-value]
+
+    return _dedup(leaders[:25]), _dedup(laggards[:25])
+
+
 # ── Main scrape function ──────────────────────────────────────────
 def scrape_tradeideas(
     update_config: bool = False,
@@ -394,7 +484,21 @@ def scrape_tradeideas(
             results[scan_key] = tickers
             print(f"[OK   ] {scan_key}: {len(tickers)} tickers — {tickers[:10]}{'…' if len(tickers)>10 else ''}")
 
-            if update_config and tickers:
+            if scan["target"] == "BOTH":
+                # stockracecentral: split leaders (tier 1) vs laggards (tier 2)
+                leaders, laggards = _extract_race_sides(driver)
+                results[f"{scan_key}_leaders"]  = leaders
+                results[f"{scan_key}_laggards"] = laggards
+                print(f"[OK   ] {scan_key} leaders  ({len(leaders)}):  {leaders[:10]}{'…' if len(leaders)>10 else ''}")
+                print(f"[OK   ] {scan_key} laggards ({len(laggards)}): {laggards[:10]}{'…' if len(laggards)>10 else ''}")
+                if update_config:
+                    if leaders:
+                        added = _patch_config("PRIORITY_1_MOMENTUM", leaders)
+                        print(f"[OK   ] universe.json: +{added} leader(s) → tier 1 (long candidates)")
+                    if laggards:
+                        added = _patch_config("PRIORITY_2_ESTABLISHED", laggards)
+                        print(f"[OK   ] universe.json: +{added} laggard(s) → tier 2 (short candidates)")
+            elif update_config and tickers:
                 added = _patch_config(scan["target"], tickers)
                 if added:
                     print(f"[OK   ] universe.json: +{added} new tickers added to tier {1 if 'PRIORITY_1' in scan['target'] else 2}")
