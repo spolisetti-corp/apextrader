@@ -162,6 +162,15 @@ SCAN_INTERVAL_CALM_VOL      = 20   # VIX 15-18
 SCAN_INTERVAL_LOW_VOL       = 30   # VIX < 15
 SCAN_INTERVAL_MIN            = 10  # Default fallback
 
+# ─────────────────────────────────────────────────────────────────
+# Kill Mode — Emergency Capital Protection
+# Triggers a full portfolio close when extreme bear conditions hit.
+# ─────────────────────────────────────────────────────────────────
+KILL_MODE_VIX_LEVEL    = 40.0   # Absolute VIX level that triggers kill mode (2008/2020: 80+, crash: 40+)
+KILL_MODE_SPY_DROP_PCT =  3.0   # SPY intraday drop from open (%) triggers kill mode
+KILL_MODE_VIX_ROC_PCT  = 50.0   # VIX spike: up >50% in last 5 hours triggers kill mode
+KILL_MODE_TRAIL_PCT    =  0.5   # PDT-safe hairpin trailing stop % placed on today's positions
+
 # Market Hours Tuning
 USE_MARKET_HOURS_TUNING    = True
 PREMARKET_SCAN_INTERVAL    = 10

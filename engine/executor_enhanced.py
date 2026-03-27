@@ -40,6 +40,7 @@ from .config import (
     ATR_TP_RATIO, MAX_SHORT_FLOAT_PCT, HIGH_SHORT_FLOAT_STOCKS, is_high_short_float,
     EOD_CLOSE_ENABLED, EOD_CLOSE_TIME, EOD_CLOSE_STRATEGIES,
     STALE_ORDER_MINUTES, STALE_ORDER_MINUTES_INTRADAY,
+    KILL_MODE_TRAIL_PCT,
 )
 from .strategies import Signal
 from .utils import is_regular_hours, calculate_risk_adjusted_size, check_vix_roc_filter, get_dynamic_tier
@@ -692,6 +693,108 @@ class EnhancedExecutor:
             "asof": now_et.isoformat(),
         }
         return summary
+
+    # ── Kill Mode: Emergency Close All ───────────────────────────────────────
+    def emergency_close_all(self, equity: float) -> None:
+        """
+        Kill mode emergency exit. Closes every open position as safely as possible.
+
+        PDT rules (equity < $25k):
+          - Positions opened on a PRIOR day → cancel any open orders then market-close.
+            These are NOT day trades so no PDT count is consumed.
+          - Positions opened TODAY → cannot close without a day-trade violation.
+            Instead, a hairpin trailing stop of KILL_MODE_TRAIL_PCT (0.5%) is placed
+            so the position exits automatically within minutes via the stop engine.
+
+        PDT-exempt (equity >= $25k): cancel all open orders + market-close everything.
+        """
+        import time as _t
+
+        pdt_exempt = equity >= PDT_ACCOUNT_MIN
+        today      = datetime.date.today()
+
+        try:
+            positions   = self.client.get_all_positions()
+            open_orders = self.client.get_orders()
+        except Exception as e:
+            log.error(f"KILL MODE: failed to fetch data: {e}")
+            return
+
+        orders_by_sym: dict = {}
+        for o in open_orders:
+            orders_by_sym.setdefault(o.symbol, []).append(o)
+
+        closed: list    = []
+        protected: list = []
+
+        for pos in positions:
+            sym = pos.symbol
+            qty = int(float(pos.qty))
+            if qty == 0:
+                continue
+
+            entry_date = self._entry_log.get(sym, {}).get("date")
+            is_today   = entry_date == today
+
+            if not pdt_exempt and is_today:
+                # Today's position — tighten trailing stop to hairpin; do NOT market-close
+                for o in orders_by_sym.get(sym, []):
+                    try:
+                        self.client.cancel_order_by_id(str(o.id))
+                    except Exception:
+                        pass
+                _t.sleep(0.3)
+                try:
+                    stop_side = OrderSide.SELL if qty > 0 else OrderSide.BUY
+                    self.client.submit_order(TrailingStopOrderRequest(
+                        symbol        = sym,
+                        qty           = abs(qty),
+                        side          = stop_side,
+                        type          = AlpacaOrderType.TRAILING_STOP,
+                        time_in_force = TimeInForce.GTC,
+                        trail_percent = KILL_MODE_TRAIL_PCT,
+                    ))
+                    cur = float(pos.current_price or 0)
+                    log.warning(
+                        f"KILL MODE [PDT-SAFE] {sym}: hairpin trailing stop "
+                        f"{KILL_MODE_TRAIL_PCT}% @ ${cur:.2f} "
+                        f"(opened today — closing via stop to avoid PDT violation)"
+                    )
+                    protected.append(sym)
+                except Exception as e:
+                    log.error(f"KILL MODE: hairpin stop failed {sym}: {e}")
+                continue
+
+            # Prior-day position (or PDT-exempt): cancel standing orders, then market-close
+            for o in orders_by_sym.get(sym, []):
+                try:
+                    self.client.cancel_order_by_id(str(o.id))
+                except Exception:
+                    pass
+            _t.sleep(0.3)
+
+            try:
+                side = OrderSide.SELL if qty > 0 else OrderSide.BUY
+                self.client.submit_order(MarketOrderRequest(
+                    symbol        = sym,
+                    qty           = abs(qty),
+                    side          = side,
+                    time_in_force = TimeInForce.DAY,
+                ))
+                pnl = float(pos.unrealized_pl or 0)
+                log.warning(
+                    f"KILL MODE CLOSE {sym}: {abs(qty)} shares "
+                    f"{'SELL' if qty > 0 else 'BUY-TO-COVER'} | unrealized ${pnl:+.2f}"
+                )
+                closed.append(sym)
+            except Exception as e:
+                log.error(f"KILL MODE: close failed {sym}: {e}")
+
+        log.warning(
+            f"KILL MODE COMPLETE — "
+            f"market-closed: {len(closed)} {closed} | "
+            f"hairpin stops (PDT-safe): {len(protected)} {protected}"
+        )
 
     # ── Stale Order Updater ───────────────────────────────────────────────────
     def update_stale_orders(self) -> None:

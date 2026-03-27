@@ -40,6 +40,7 @@ from engine.config import (
     RVOL_MIN, MIN_DOLLAR_VOLUME, MAX_GAP_CHASE_PCT, GAP_CHASE_CONSOL_BARS,
     USE_MARKET_REGIME_FILTER, MARKET_REGIME_SIGNALS_CAP,
     STOCKS_BROKER,
+    KILL_MODE_VIX_LEVEL, KILL_MODE_SPY_DROP_PCT, KILL_MODE_VIX_ROC_PCT,
 )
 from engine.utils import (
     setup_logging, is_market_open, get_vix, clear_bar_cache,
@@ -58,6 +59,10 @@ from engine.broker_factory import BrokerFactory
 log      = setup_logging()
 client   = BrokerFactory.create_stock_client(STOCKS_BROKER)
 executor = EnhancedExecutor(client, use_bracket_orders=True)
+
+# ── Kill Mode state ────────────────────────────────
+_kill_mode_active = False
+_kill_mode_date:  datetime.date = None
 
 daily_pnl          = 0.0
 daily_start_equity = 0.0
@@ -316,6 +321,92 @@ def scan_top3_only():
         log.info("No signals found in Top5 mode")
 
 
+def check_kill_mode() -> bool:
+    """
+    Check for extreme bear market conditions every scan cycle.
+    Triggers on ANY of:
+      1. VIX absolute level >= KILL_MODE_VIX_LEVEL (default 40)
+      2. SPY intraday drop >= KILL_MODE_SPY_DROP_PCT (default 3%) from today's open
+      3. VIX spike >= KILL_MODE_VIX_ROC_PCT (default 50%) in last 5 hours
+
+    On trigger: calls executor.emergency_close_all() which:
+      - PDT-exempt accounts: cancels all stops, market-closes everything
+      - PDT-constrained accounts: market-closes prior-day positions (not day trades),
+        places hairpin 0.5% trailing stops on today's positions (auto-triggers safely)
+
+    Returns True while kill mode is active (blocks all new entries for the rest of the day).
+    """
+    global _kill_mode_active, _kill_mode_date
+
+    today = datetime.date.today()
+    if _kill_mode_date != today:
+        _kill_mode_active = False   # reset at new trading day
+        _kill_mode_date   = today
+
+    if _kill_mode_active:
+        log.warning("KILL MODE ACTIVE — all new entries blocked for today")
+        return True
+
+    trigger_reason = None
+
+    # 1. Absolute VIX level
+    try:
+        vix = get_vix()
+        if vix >= KILL_MODE_VIX_LEVEL:
+            trigger_reason = f"VIX={vix:.1f} >= threshold {KILL_MODE_VIX_LEVEL:.0f}"
+    except Exception:
+        pass
+
+    # 2. SPY intraday drop from today's open
+    if trigger_reason is None:
+        try:
+            spy_bars = get_bars("SPY", "1d", "1m")
+            if not spy_bars.empty and len(spy_bars) >= 2:
+                spy_open = float(spy_bars["open"].iloc[0])
+                spy_now  = float(spy_bars["close"].iloc[-1])
+                drop_pct = ((spy_now - spy_open) / spy_open) * 100
+                if drop_pct <= -KILL_MODE_SPY_DROP_PCT:
+                    trigger_reason = (
+                        f"SPY intraday {drop_pct:.2f}% "
+                        f"(open ${spy_open:.2f} → now ${spy_now:.2f})"
+                    )
+        except Exception:
+            pass
+
+    # 3. VIX spike: up >50% in last 5 hours
+    if trigger_reason is None:
+        try:
+            vix_bars = get_bars("^VIX", "1d", "1h")
+            if not vix_bars.empty and len(vix_bars) >= 5:
+                past_vix    = float(vix_bars["close"].iloc[-5])
+                current_vix = float(vix_bars["close"].iloc[-1])
+                if past_vix > 0:
+                    roc = ((current_vix - past_vix) / past_vix) * 100
+                    if roc >= KILL_MODE_VIX_ROC_PCT:
+                        trigger_reason = (
+                            f"VIX +{roc:.0f}% in 5h "
+                            f"({past_vix:.1f} -> {current_vix:.1f})"
+                        )
+        except Exception:
+            pass
+
+    if trigger_reason is None:
+        return False
+
+    log.warning("=" * 70)
+    log.warning(f"KILL MODE TRIGGERED: {trigger_reason}")
+    log.warning("EXTREME BEAR MARKET — CLOSING ALL POSITIONS TO PROTECT CAPITAL")
+    log.warning("=" * 70)
+    _kill_mode_active = True
+    _kill_mode_date   = today
+    try:
+        _acct = client.get_account()
+        executor.emergency_close_all(float(_acct.equity))
+    except Exception as e:
+        log.error(f"Kill mode close error: {e}")
+    return True
+
+
 def scan_and_trade():
     global daily_pnl, daily_start_equity, daily_reset, trades
     global quarterly_start_equity, quarterly_reset
@@ -351,6 +442,10 @@ def scan_and_trade():
             log.info("Market closed - skipping scan")
             return
         log.warning("FORCE_SCAN active — bypassing market-hours gate")
+
+    # ── Kill mode: check extreme bear conditions before any execution ─────────
+    if check_kill_mode():
+        return
 
     # Compute daily P&L live from equity delta (catches all closed trades + unrealized)
     if daily_start_equity > 0:
