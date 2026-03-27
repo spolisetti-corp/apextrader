@@ -527,10 +527,13 @@ def scan_and_trade():
             market_regime = "bull" if is_bull else "bear"
             _last_market_regime = market_regime
             signals_cap = MAX_SIGNALS_PER_CYCLE if is_bull else MARKET_REGIME_SIGNALS_CAP
-            log.info(
-                f"{'BULL' if is_bull else 'BEAR'} REGIME — "
-                f"signals capped at {signals_cap}/cycle"
-            )
+            if is_bull:
+                log.info(f"BULL REGIME — signals capped at {signals_cap}/cycle")
+            else:
+                log.info(
+                    f"BEAR REGIME — long cap {MARKET_REGIME_SIGNALS_CAP}/cycle, "
+                    f"short cap {BEAR_SHORT_SIGNALS_CAP}/cycle"
+                )
         except Exception as e:
             log.error(f"Market regime check FAILED — retaining '{_last_market_regime}' regime: {e}")
 

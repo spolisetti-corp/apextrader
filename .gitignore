@@ -19,3 +19,6 @@ apextrader_task.xml
 
 # Screenshots / captures
 screenshots/
+
+# Dynamic universe state (runtime-updated)
+data/universe.json

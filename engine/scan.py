@@ -22,6 +22,7 @@ from .config import (
     MAX_GAP_CHASE_PCT,
     GAP_CHASE_CONSOL_BARS,
     BEAR_SHORT_UNIVERSE,
+    BEAR_SHORT_TARGET_RESERVE,
 )
 from .utils import clear_bar_cache, get_bars, is_market_open
 
@@ -105,21 +106,28 @@ def get_scan_targets(excluded: Set[str] = None) -> List[str]:
     p1_slice = p1[:max(1, len(p1) // 2)]
     p2_slice = p2[:max(1, len(p2) // 2)]
 
-    # In bear regime, supplement with large/mid-cap bear breakdown candidates.
-    # These have clean SMA structure that BearBreakdownStrategy and TechnicalStrategy
-    # can fire on, whereas P1/P2 momentum runners are too volatile/inconsistent.
-    bear_supplement = [] if _is_bull_regime() else list(BEAR_SHORT_UNIVERSE)
-
+    in_bear = not _is_bull_regime()
     targets = []
     seen = set()
 
-    for s in p1_slice + p2_slice + bear_supplement:
-        if s not in seen and s not in excluded and s not in delisted:
+    def _push(symbols: List[str], limit: int = None) -> None:
+        for s in symbols:
+            if limit is not None and len(targets) >= limit:
+                break
+            if s in seen or s in excluded or s in delisted:
+                continue
             seen.add(s)
             targets.append(s)
 
-    if len(targets) > SCAN_MAX_SYMBOLS:
-        targets = targets[:SCAN_MAX_SYMBOLS]
+    if in_bear:
+        # In bear regime, prioritize short universe first and reserve slots for it.
+        # This prevents P1/P2 alphabetical momentum names from crowding out all
+        # short candidates under the global SCAN_MAX_SYMBOLS cap.
+        short_cap = min(max(0, BEAR_SHORT_TARGET_RESERVE), SCAN_MAX_SYMBOLS)
+        _push(list(BEAR_SHORT_UNIVERSE), limit=short_cap)
+        _push(p1_slice + p2_slice, limit=SCAN_MAX_SYMBOLS)
+    else:
+        _push(p1_slice + p2_slice, limit=SCAN_MAX_SYMBOLS)
 
     return targets
 
