@@ -29,7 +29,7 @@
 - **Adaptive scan intervals** — adjusts every cycle based on VIX, market hours, and open position count
 - **Confidence gate** — only executes signals ≥ 85% confidence (configurable)
 - **Position swap** — when at max positions, auto-closes weakest holding for a higher-conviction new signal
-- **Trade Ideas integration** — scrapes live momentum tickers via Selenium (headless Chrome)
+- **Trade Ideas integration** — scrapes live momentum tickers via Selenium (headless Chrome) and writes `live_picks.json` for the scanner
 - **Flashy email reports** — dark-themed HTML with sentiment badge, medal cards, confidence bars
 - **Watchdog auto-restart** — `run_autobot.py` relaunches `main.py` if it crashes
 - **Windows Task Scheduler** ready — runs Mon–Fri 7 AM via `run_autobot_task.ps1`
@@ -269,4 +269,3 @@ main                           ← stable releases
 ## Disclaimer
 
 This software is for educational and research purposes only. Automated trading carries significant financial risk. Always test in **paper mode** (`ALPACA_PAPER=true`) before using real capital. Past performance does not guarantee future results.
-

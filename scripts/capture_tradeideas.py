@@ -35,6 +35,7 @@ Requirements
 from __future__ import annotations
 
 import argparse
+import json
 import logging
 import re
 import sys
@@ -69,6 +70,7 @@ SCRIPT_DIR = Path(__file__).parent
 REPO_ROOT   = SCRIPT_DIR.parent
 OUTPUT_DIR  = REPO_ROOT / "screenshots"
 CONFIG_FILE = REPO_ROOT / "engine" / "config.py"
+LIVE_PICKS_FILE = REPO_ROOT / "live_picks.json"
 
 # ── Trade Ideas scan URLs ────────────────────────────────────────
 SCANS: dict[str, dict] = {
@@ -241,6 +243,40 @@ def _save_screenshot(driver: "webdriver.Chrome", label: str) -> Path:
 
     print(f"[OK   ] screenshot → {out_path}")
     return out_path
+
+
+def _normalize_tickers(symbols: list[str]) -> list[str]:
+    seen: set[str] = set()
+    clean: list[str] = []
+    for sym in symbols or []:
+        s = str(sym).strip().upper()
+        if not s:
+            continue
+        if not _TICKER_RE.fullmatch(s):
+            continue
+        if s in _IGNORE or s in seen:
+            continue
+        seen.add(s)
+        clean.append(s)
+    return clean
+
+
+def _write_live_picks(results: dict[str, list[str]]) -> None:
+    payload = {
+        "version": 1,
+        "generated_at": datetime.now().isoformat(timespec="seconds"),
+        "longs": _normalize_tickers(results.get("stockracecentral_leaders", [])),
+        "laggards": _normalize_tickers(results.get("stockracecentral_laggards", [])),
+        "momentum": _normalize_tickers(results.get("marketscope360", [])),
+        "scan": _normalize_tickers(results.get("highshortfloat", [])),
+        "sources": {
+            "highshortfloat": _normalize_tickers(results.get("highshortfloat", [])),
+            "marketscope360": _normalize_tickers(results.get("marketscope360", [])),
+            "stockracecentral": _normalize_tickers(results.get("stockracecentral", [])),
+        },
+    }
+    LIVE_PICKS_FILE.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+    print(f"[OK   ] live picks → {LIVE_PICKS_FILE}")
 
 
 # ── Config patcher ────────────────────────────────────────────────
@@ -539,6 +575,8 @@ def scrape_tradeideas(
             except Exception:
                 pass
 
+        _write_live_picks(results)
+
     finally:
         try:
             driver.quit()
@@ -598,4 +636,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

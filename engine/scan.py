@@ -4,9 +4,12 @@ Contains reusable scanning functions for main loop and run_top3 tools.
 """
 
 import datetime
+import json
 import logging
 import pytz
+import re
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from pathlib import Path
 from typing import List, Dict, Tuple, Set
 
 from . import config as _cfg
@@ -28,6 +31,8 @@ from .utils import clear_bar_cache, get_bars, is_market_open, is_dead_ticker
 
 _ET  = pytz.timezone("America/New_York")
 _log = logging.getLogger("ApexTrader")
+_LIVE_PICKS_FILE = Path(__file__).parent.parent / "live_picks.json"
+_LIVE_TICKER_RE = re.compile(r"^[A-Z]{1,5}[0-9]?$")
 from .strategies import (
     GapBreakoutStrategy,
     ORBStrategy,
@@ -93,19 +98,55 @@ def _passes_guardrails(symbol: str) -> bool:
         return False  # fail-safe: block on error, never bypass guardrails
 
 
+def _normalize_live_list(symbols: list[str]) -> list[str]:
+    seen: set[str] = set()
+    clean: list[str] = []
+    for sym in symbols or []:
+        if not isinstance(sym, str):
+            continue
+        s = sym.strip().upper()
+        if not s or not _LIVE_TICKER_RE.fullmatch(s):
+            continue
+        if s in seen:
+            continue
+        seen.add(s)
+        clean.append(s)
+    return clean
+
+
+def _load_live_picks() -> dict[str, list[str]]:
+    if not _cfg.USE_TRADEIDEAS_DISCOVERY:
+        return {}
+    if not _LIVE_PICKS_FILE.exists():
+        return {}
+    try:
+        data = json.loads(_LIVE_PICKS_FILE.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return {}
+    return {
+        "longs": _normalize_live_list(data.get("longs", [])),
+        "laggards": _normalize_live_list(data.get("laggards", [])),
+        "momentum": _normalize_live_list(data.get("momentum", [])),
+        "scan": _normalize_live_list(data.get("scan", [])),
+    }
+
+
 def get_scan_targets(excluded: Set[str] = None) -> List[str]:
     if excluded is None:
         excluded = set()
-
-    # Latest TI promotions are applied to these in-memory lists in main.py via
-    # _apply_tradeideas_results(). Use them directly to preserve exact order.
-    live_p1 = list(_cfg.PRIORITY_1_MOMENTUM)
-    live_p2 = list(_cfg.PRIORITY_2_ESTABLISHED)
 
     # Re-read universe.json live every cycle so TI-scraped tickers are reflected
     # immediately without restarting the bot.
     p1, p2, _p3 = _cfg.get_dynamic_universe()
     delisted = set(_cfg.DELISTED_STOCKS)
+
+    live_picks = _load_live_picks()
+    live_p1 = _normalize_live_list(live_picks.get("momentum", []) + live_picks.get("longs", []))
+    live_p2 = _normalize_live_list(live_picks.get("laggards", []) + live_picks.get("scan", []))
+    if not live_p1:
+        live_p1 = p1
+    if not live_p2:
+        live_p2 = p2
 
     # Default slice: top 50% from each list (marketscope360 + highshortfloat)
     p1_slice = p1[:max(1, len(p1) // 2)]

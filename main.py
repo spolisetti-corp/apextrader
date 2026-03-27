@@ -6,7 +6,6 @@ Professional automated trading system.
 import time
 import datetime
 import threading
-import concurrent.futures
 import os
 import atexit
 import sys
@@ -60,8 +59,7 @@ from engine.config import (
     USE_LIVE_TRENDING, TRENDING_SCAN_INTERVAL,
     TRENDING_MAX_RESULTS, TRENDING_MIN_MOMENTUM,
     USE_FINNHUB_DISCOVERY, USE_SENTIMENT_GATE,
-    USE_TRADEIDEAS_DISCOVERY, TRADEIDEAS_SCAN_INTERVAL_MIN,
-    TRADEIDEAS_HEADLESS, TRADEIDEAS_CHROME_PROFILE, TRADEIDEAS_UPDATE_CONFIG_FILE,
+    USE_TRADEIDEAS_DISCOVERY,
     USE_MARKET_HOURS_TUNING,
     PREMARKET_SCAN_INTERVAL, REGULAR_HOURS_SCAN_INTERVAL, AFTERHOURS_SCAN_INTERVAL,
     USE_POSITION_TUNING,
@@ -111,6 +109,7 @@ quarterly_reset               = None
 _quarterly_state_lock         = threading.Lock()
 
 _QUARTERLY_STATE_FILE = __import__('pathlib').Path(__file__).parent / ".quarterly_state.json"
+_LIVE_PICKS_FILE = __import__('pathlib').Path(__file__).parent / "live_picks.json"
 
 def _load_quarterly_state():
     """Load persisted quarter-start equity from disk (survives restarts)."""
@@ -142,11 +141,6 @@ _load_quarterly_state()
 
 trending_stocks     = []
 last_trending_scan  = 0
-last_ti_scan        = 0
-_ti_future = None
-_ti_started_at = 0.0
-_ti_warned_running = False
-_ti_executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
 _last_market_regime: str = "bull"  # retained across cycles; never resets to bull on error
 _short_fail_cooldown: dict = {}      # {symbol: monotonic_expiry_ts}
 
@@ -250,7 +244,7 @@ def scan_trending_stocks():
                            for s in PRIORITY_1_MOMENTUM[:TRENDING_MAX_RESULTS]]
 
 
-# ── Trade Ideas Universe Refresh ───────────────────────────────
+# ── Trade Ideas Universe Refresh (live_picks.json) ───────────────────────────────
 # UI labels, column headers, and other non-ticker strings the TI scraper sometimes
 # picks up alongside real symbols.  Anything in this set is silently dropped before
 # it can pollute the priority lists.
@@ -278,108 +272,67 @@ def _is_valid_ti_ticker(sym: str) -> bool:
     return True
 
 
-def _apply_tradeideas_results(results: dict, scans: dict) -> None:
-    for scan_key, tickers in results.items():
-        if scan_key in scans:
-            target_list_name = scans[scan_key]["target"]
-            label = scans[scan_key]["label"]
-            if target_list_name == "BOTH":
-                continue
-        elif scan_key.endswith("_leaders"):
-            target_list_name = "PRIORITY_1_MOMENTUM"
-            label = "stock_race_central_leaders"
-        elif scan_key.endswith("_laggards"):
-            target_list_name = "PRIORITY_2_ESTABLISHED"
-            label = "stock_race_central_laggards"
-        else:
-            continue
+def _sanitize_live_list(symbols: list) -> list[str]:
+    cleaned = []
+    for sym in symbols or []:
+        if _is_valid_ti_ticker(sym):
+            cleaned.append(str(sym).strip().upper())
+    return cleaned
 
-        dest = PRIORITY_1_MOMENTUM if target_list_name == "PRIORITY_1_MOMENTUM" else PRIORITY_2_ESTABLISHED
-        tickers = [t for t in tickers if _is_valid_ti_ticker(t)]
-        existing = set(dest)
-        new_tickers = [t for t in tickers if t not in existing]
-        tickers_set = set(tickers)
-        fresh = [t for t in tickers if t in existing]
-        demote = [t for t in dest if t not in tickers_set]
 
-        dest.clear()
-        dest.extend(tickers[:50])
-        for t in demote:
-            if t not in tickers_set and t not in dest:
-                dest.append(t)
+def _load_live_picks() -> dict:
+    if not USE_TRADEIDEAS_DISCOVERY:
+        return {}
+    if not _LIVE_PICKS_FILE.exists():
+        return {}
+    try:
+        import json
+        return json.loads(_LIVE_PICKS_FILE.read_text(encoding="utf-8"))
+    except Exception as e:
+        log.warning(f"Could not read live_picks.json: {e}")
+        return {}
 
-        if new_tickers:
-            log.info(
-                f"Trade Ideas {label}: +{len(new_tickers)} new, {len(fresh)} re-promoted to top of {target_list_name} "
-                f"→ {tickers[:10]}"
-            )
-        else:
-            log.info(f"Trade Ideas {label}: {len(fresh)} tickers re-promoted to top of {target_list_name}")
-        log.info(f"── TI current top-20 [{target_list_name}]: " + ", ".join(dest[:20]))
+
+def _apply_live_picks(label: str, dest: list, tickers: list) -> None:
+    tickers = _sanitize_live_list(tickers)
+    if not tickers:
+        return
+
+    existing = list(dest)
+    existing_set = set(existing)
+    tickers_set = set(tickers)
+    new_tickers = [t for t in tickers if t not in existing_set]
+    fresh = [t for t in tickers if t in existing_set]
+    demote = [t for t in existing if t not in tickers_set]
+
+    dest.clear()
+    dest.extend(tickers[:50])
+    for t in demote:
+        if t not in tickers_set and t not in dest:
+            dest.append(t)
+
+    if new_tickers:
+        log.info(
+            f"Live picks {label}: +{len(new_tickers)} new, {len(fresh)} re-promoted to top → {tickers[:10]}"
+        )
+    else:
+        log.info(f"Live picks {label}: {len(fresh)} tickers re-promoted to top")
+    log.info(f"── Live current top-20 [{label}]: " + ", ".join(dest[:20]))
 
 
 def scan_tradeideas_universe():
-    """Run TI scrape in background; never block the trading cycle."""
-    global last_ti_scan, _ti_future, _ti_started_at, _ti_warned_running
-
+    """Refresh in-memory TI lists from live_picks.json (no background scraping)."""
     if not USE_TRADEIDEAS_DISCOVERY:
         return
 
-    try:
-        import sys
-        _scripts = str(REPO_ROOT / "scripts")
-        if _scripts not in sys.path:
-            sys.path.insert(0, _scripts)
-        from capture_tradeideas import scrape_tradeideas, SCANS
-    except ImportError as e:
-        log.warning(f"Trade Ideas scraper unavailable (selenium not installed?): {e}")
-        last_ti_scan = time.time()
+    data = _load_live_picks()
+    if not data:
         return
 
-    now = time.time()
-
-    # 1) If background scrape finished, apply results now.
-    if _ti_future is not None and _ti_future.done():
-        try:
-            results = _ti_future.result()
-            _apply_tradeideas_results(results, SCANS)
-        except Exception as e:
-            log.error(f"Trade Ideas scan failed: {e}")
-        finally:
-            _ti_future = None
-            _ti_warned_running = False
-            last_ti_scan = now
-
-    # 2) If scrape still running, do not block this cycle.
-    if _ti_future is not None:
-        elapsed = now - _ti_started_at
-        if elapsed > 90 and not _ti_warned_running:
-            log.warning(f"Trade Ideas scan still running ({elapsed:.0f}s) — trading loop continues")
-            _ti_warned_running = True
-        return
-
-    # 3) Launch new scrape only when interval is due.
-    if (now - last_ti_scan) < (TRADEIDEAS_SCAN_INTERVAL_MIN * 60):
-        return
-
-    # Use explicit profile only when provided; default to a clean no-profile
-    # session since it has been more reliable than locked desktop profiles.
-    ti_profile = (TRADEIDEAS_CHROME_PROFILE or "").strip() or None
-    ti_headless = TRADEIDEAS_HEADLESS
-
-    log.info(
-        f"Scanning Trade Ideas in background (profile={ti_profile or 'none'}, "
-        f"headless={'on' if ti_headless else 'off'}) …"
-    )
-    _ti_started_at = now
-    _ti_warned_running = False
-    _ti_future = _ti_executor.submit(
-        scrape_tradeideas,
-        update_config=TRADEIDEAS_UPDATE_CONFIG_FILE,
-        headless=ti_headless,
-        chrome_profile=ti_profile,
-        select_30min=True,
-    )
+    live_p1 = list(data.get("momentum", [])) + list(data.get("longs", []))
+    live_p2 = list(data.get("laggards", [])) + list(data.get("scan", []))
+    _apply_live_picks("PRIORITY_1_MOMENTUM", PRIORITY_1_MOMENTUM, live_p1)
+    _apply_live_picks("PRIORITY_2_ESTABLISHED", PRIORITY_2_ESTABLISHED, live_p2)
 
 
 REPO_ROOT = __import__('pathlib').Path(__file__).parent
