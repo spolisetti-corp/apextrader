@@ -36,6 +36,7 @@ from engine.config import (
     USE_POSITION_TUNING,
     HIGH_POSITION_INTERVAL, NORMAL_POSITION_INTERVAL, LOW_POSITION_INTERVAL,
     LONG_ONLY_MODE, MIN_SIGNAL_CONFIDENCE, MAX_SIGNALS_PER_CYCLE,
+    MIN_SHORT_CONFIDENCE_BEAR,
     SCAN_WORKERS, SCAN_SYMBOL_TIMEOUT, SCAN_MAX_SYMBOLS,
     RVOL_MIN, MIN_DOLLAR_VOLUME, MAX_GAP_CHASE_PCT, GAP_CHASE_CONSOL_BARS,
     USE_MARKET_REGIME_FILTER, MARKET_REGIME_SIGNALS_CAP, BEAR_SHORT_SIGNALS_CAP,
@@ -571,12 +572,25 @@ def scan_and_trade():
             f"{len(_live_orders)} active orders | {len(_fresh_held)} total excluded"
         )
 
-        # ── Gate: confidence >= MIN_SIGNAL_CONFIDENCE, skip held symbols ──
-        eligible = [
-            s for s in filter_signals(signals, long_only=LONG_ONLY_MODE, min_conf=MIN_SIGNAL_CONFIDENCE)
-            if s.symbol not in _fresh_held
-        ]
-        log.info(f"Confidence gate ({MIN_SIGNAL_CONFIDENCE:.0%}) + position cross-ref: {len(eligible)} signal(s) qualify")
+        # ── Gate: per-side confidence + held-symbol cross-ref ──
+        short_min_conf = MIN_SHORT_CONFIDENCE_BEAR if market_regime == "bear" else MIN_SIGNAL_CONFIDENCE
+        eligible = []
+        for s in signals:
+            if s.symbol in _fresh_held:
+                continue
+            if LONG_ONLY_MODE and s.action != "buy":
+                continue
+            if s.action == "buy":
+                if s.confidence >= MIN_SIGNAL_CONFIDENCE:
+                    eligible.append(s)
+            elif s.action in ("sell", "short"):
+                if s.confidence >= short_min_conf:
+                    eligible.append(s)
+
+        log.info(
+            f"Confidence gate (long>={MIN_SIGNAL_CONFIDENCE:.0%}, "
+            f"short>={short_min_conf:.0%}) + position cross-ref: {len(eligible)} signal(s) qualify"
+        )
 
         # ── Log signals that were scanned but did NOT qualify ────────────
         eligible_syms = {s.symbol for s in eligible}
@@ -587,8 +601,10 @@ def scan_and_trade():
             for s in not_qualified:
                 if s.symbol in _fresh_held:
                     reason_str = "already held/ordered"
-                elif s.confidence < MIN_SIGNAL_CONFIDENCE:
-                    reason_str = f"conf {s.confidence:.0%} < min {MIN_SIGNAL_CONFIDENCE:.0%}"
+                elif s.action == "buy" and s.confidence < MIN_SIGNAL_CONFIDENCE:
+                    reason_str = f"conf {s.confidence:.0%} < long min {MIN_SIGNAL_CONFIDENCE:.0%}"
+                elif s.action in ("sell", "short") and s.confidence < short_min_conf:
+                    reason_str = f"conf {s.confidence:.0%} < short min {short_min_conf:.0%}"
                 elif LONG_ONLY_MODE and s.action != "buy":
                     reason_str = "long-only mode"
                 else:
