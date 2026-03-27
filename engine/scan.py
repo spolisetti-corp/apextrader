@@ -174,6 +174,8 @@ def scan_universe(scan_targets: List[str], sentiment: str) -> Tuple[List, Dict[s
     scan_errors = 0
 
     def _scan_one(symbol: str):
+        if is_dead_ticker(symbol):
+            return None
         if not _passes_guardrails(symbol):
             return None
 

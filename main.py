@@ -259,6 +259,7 @@ _TI_SCRAPE_GARBAGE = {
     "BUY", "SELL", "SHORT", "LONG", "ALL", "NEW", "TOP", "HOT",            # action words
     "NYSE", "AMEX", "OTC", "ETF", "ADR",                                   # exchange/type labels
     "HIGH", "LOW", "OPEN", "CLOSE", "VOL", "RVOL", "FLOAT",               # column headers
+    "BF", "NOTE",                                                          # consistently no data on all feeds
 }
 
 def _is_valid_ti_ticker(sym: str) -> bool:
