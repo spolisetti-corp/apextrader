@@ -37,7 +37,7 @@ from .config import (
     USE_VIX_ROC_FILTER,
     MIN_BUYING_POWER_PCT, MIN_POSITION_DOLLARS, PDT_WARN_AT_REMAINING,
     TAKE_PROFIT_NORMAL, TAKE_PROFIT_HIGH, STOP_LOSS_PCT,
-    ATR_TP_RATIO, MAX_SHORT_FLOAT_PCT, HIGH_SHORT_FLOAT_STOCKS,
+    ATR_TP_RATIO, MAX_SHORT_FLOAT_PCT, HIGH_SHORT_FLOAT_STOCKS, is_high_short_float,
     EOD_CLOSE_ENABLED, EOD_CLOSE_TIME, EOD_CLOSE_STRATEGIES,
     STALE_ORDER_MINUTES, STALE_ORDER_MINUTES_INTRADAY,
 )
@@ -438,7 +438,7 @@ class EnhancedExecutor:
             return False
 
         # Short-float position cap: never exceed 20% of equity in a single squeeze ticker
-        if signal.symbol in HIGH_SHORT_FLOAT_STOCKS:
+        if is_high_short_float(signal.symbol):
             cap_shares = max(0, int(acct.equity * (MAX_SHORT_FLOAT_PCT / 100) / signal.price))
             if shares > cap_shares:
                 log.info(

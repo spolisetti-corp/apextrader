@@ -22,7 +22,7 @@ import yfinance as yf
 from .utils import get_bars, calc_rsi, calc_macd, get_premarket_bars
 from .config import (
     SWEEPEA, TECHNICAL, MOMENTUM, GAP_BREAKOUT, ORB, VWAP_RECLAIM, FLOAT_ROTATION, LONG_ONLY_MODE,
-    ATR_STOP_MULTIPLIER, ATR_TP_RATIO, HIGH_SHORT_FLOAT_STOCKS,
+    ATR_STOP_MULTIPLIER, ATR_TP_RATIO, HIGH_SHORT_FLOAT_STOCKS, is_high_short_float,
     PRE_MARKET_MOMENTUM, OPENING_BELL_SURGE, PM_HIGH_BREAKOUT, EARLY_SQUEEZE, BEAR_BREAKDOWN,
 )
 
@@ -247,7 +247,7 @@ class TrendBreakerStrategy:
 
         # Confidence: base 0.80, +0.05 if in high short float set, scales with vol_ratio
         confidence = 0.80 + min((vol_ratio - 2.0) * 0.02, 0.08)
-        if symbol in HIGH_SHORT_FLOAT_STOCKS:
+        if is_high_short_float(symbol):
             confidence = min(confidence + 0.05, 0.95)
 
         return Signal(
