@@ -410,19 +410,14 @@ def scan_and_trade():
     scan_trending_stocks()
     scan_tradeideas_universe()
 
-    # ── TI watchlist snapshot (every cycle) ───────────────────────────────
-    from engine.config import get_dynamic_universe as _gdu
-    _ti_p1, _ti_p2, _ = _gdu()
-    log.info(f"── TI P1 top-10: {', '.join(_ti_p1[:10])}")
-    log.info(f"── TI P2 top-10: {', '.join(_ti_p2[:10])}")
-
     # ── Pre-exclude symbols already held/ordered ─────────────────────────
     _open_positions, _open_orders, _excluded = get_live_holdings(client)
 
     scan_targets = get_scan_targets(_excluded)
     log.info(
         f"Scanning {len(scan_targets)} symbols "
-        f"({len(_excluded)} pre-excluded, {SCAN_WORKERS} workers)"
+        f"({len(_excluded)} pre-excluded, {SCAN_WORKERS} workers): "
+        f"{', '.join(scan_targets)}"
     )
 
     # ── Per-cycle reset: clear swap protection from previous scan ────────────
