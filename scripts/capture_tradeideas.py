@@ -35,6 +35,7 @@ Requirements
 from __future__ import annotations
 
 import argparse
+import logging
 import re
 import sys
 import time
@@ -118,6 +119,13 @@ PAGE_LOAD_SEC  = 15
 
 # ── Selenium driver ───────────────────────────────────────────────
 def _build_driver(headless: bool = False, chrome_profile: Optional[str] = None) -> "webdriver.Chrome":
+    # Silence noisy webdriver_manager INFO logs in bot runtime logs.
+    import os
+    os.environ.setdefault("WDM_LOG", "0")
+    os.environ.setdefault("WDM_LOG_LEVEL", "0")
+    logging.getLogger("WDM").setLevel(logging.ERROR)
+    logging.getLogger("webdriver_manager").setLevel(logging.ERROR)
+
     opts = ChromeOptions()
     if headless:
         opts.add_argument("--headless=new")
