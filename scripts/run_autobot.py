@@ -52,19 +52,9 @@ if __name__ == "__main__":
     my_pid = os.getpid()
 
     if not _create_pid_file_atomic(my_pid):
-        try:
-            existing_pid = int(PID_FILE.read_text().strip())
-            if is_process_running(existing_pid):
-                write_log(f"Existing AutoBot process is already running (pid={existing_pid}). Exiting duplicate launcher.")
-                sys.exit(0)
-            write_log(f"Stale PID file found (pid={existing_pid}), removing.")
-            PID_FILE.unlink(missing_ok=True)
-        except Exception as exc:
-            write_log(f"Failed to inspect existing PID file: {exc}")
-
-        if not _create_pid_file_atomic(my_pid):
-            write_log("Another launcher acquired pid lock first. Exiting duplicate launcher.")
-            sys.exit(0)
+        existing_pid = PID_FILE.read_text(encoding="utf-8").strip() if PID_FILE.exists() else "unknown"
+        write_log(f"PID lock already present (pid={existing_pid}). Exiting duplicate launcher.")
+        sys.exit(0)
 
     atexit.register(_cleanup_pid_file_if_owner, my_pid)
     write_log("=== AutoBot watchdog started ===")
