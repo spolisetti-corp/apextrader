@@ -63,6 +63,8 @@ if __name__ == "__main__":
     while True:
         try:
             write_log("Launching main.py")
+            started_at = time.time()
+            saw_duplicate_main_lock = False
             proc = subprocess.Popen(
                 [str(PYTHON), str(MAIN_SCRIPT)],
                 cwd=str(BASE_DIR),
@@ -72,10 +74,27 @@ if __name__ == "__main__":
             )
 
             for line in proc.stdout:
+                if "Another main.py instance is already running" in line:
+                    saw_duplicate_main_lock = True
                 write_log(line.rstrip())
 
             proc.wait()
             write_log(f"main.py exited with {proc.returncode}")
+
+            # If this watchdog is the duplicate one, do not keep restarting forever.
+            # Exit and let the already-running watchdog/main pair continue.
+            if saw_duplicate_main_lock:
+                write_log("Detected duplicate main lock; exiting duplicate watchdog.")
+                break
+
+            # Extra safety: extremely short clean exits usually indicate duplicate/lock races.
+            runtime_sec = time.time() - started_at
+            if proc.returncode == 0 and runtime_sec < 5:
+                write_log(
+                    f"main.py exited too quickly ({runtime_sec:.1f}s); "
+                    "assuming duplicate/lock race and stopping watchdog."
+                )
+                break
 
         except Exception as exc:
             write_log(f"watchdog error: {exc}")
