@@ -294,7 +294,7 @@ MAX_SIGNALS_PER_CYCLE = 5      # Execute at most this many signals per scan cycl
 SCAN_WORKERS        = 8    # Threads scanning symbols concurrently (kept below Alpaca pool defaults)
 SCAN_SYMBOL_TIMEOUT = 15   # Max seconds per symbol before it is skipped
 SCAN_MAX_SYMBOLS    = 50   # Max symbols to scan per cycle (to keep latency reasonable)
-BEAR_SHORT_TARGET_RESERVE = 20  # In bear regime, reserve scan slots for short universe
+BEAR_SHORT_TARGET_RESERVE = 30  # In bear regime, reserve more scan slots for short universe backups
 
 # ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
 # Strategy Parameters

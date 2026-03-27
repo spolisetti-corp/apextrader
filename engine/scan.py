@@ -102,7 +102,7 @@ def get_scan_targets(excluded: Set[str] = None) -> List[str]:
     p1, p2, _p3 = _cfg.get_dynamic_universe()
     delisted = set(_cfg.DELISTED_STOCKS)
 
-    # Take top 50% from each list (marketscope360 + highshortfloat)
+    # Default slice: top 50% from each list (marketscope360 + highshortfloat)
     p1_slice = p1[:max(1, len(p1) // 2)]
     p2_slice = p2[:max(1, len(p2) // 2)]
 
@@ -125,7 +125,11 @@ def get_scan_targets(excluded: Set[str] = None) -> List[str]:
         # short candidates under the global SCAN_MAX_SYMBOLS cap.
         short_cap = min(max(0, BEAR_SHORT_TARGET_RESERVE), SCAN_MAX_SYMBOLS)
         _push(list(BEAR_SHORT_UNIVERSE), limit=short_cap)
-        _push(p1_slice + p2_slice, limit=SCAN_MAX_SYMBOLS)
+        # After reserved short slots, bias toward established/liquid names first
+        # to improve shortability/executability depth of backup candidates.
+        p2_bear = p2[:max(1, int(len(p2) * 0.75))]
+        p1_bear = p1[:max(1, int(len(p1) * 0.40))]
+        _push(p2_bear + p1_bear, limit=SCAN_MAX_SYMBOLS)
     else:
         _push(p1_slice + p2_slice, limit=SCAN_MAX_SYMBOLS)
 
