@@ -113,6 +113,10 @@ _load_quarterly_state()
 trending_stocks     = []
 last_trending_scan  = 0
 last_ti_scan        = 0
+_ti_future = None
+_ti_started_at = 0.0
+_ti_warned_running = False
+_ti_executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
 _last_market_regime: str = "bull"  # retained across cycles; never resets to bull on error
 
 
@@ -216,20 +220,54 @@ def scan_trending_stocks():
 
 
 # ── Trade Ideas Universe Refresh ───────────────────────────────
+def _apply_tradeideas_results(results: dict, scans: dict) -> None:
+    for scan_key, tickers in results.items():
+        if scan_key in scans:
+            target_list_name = scans[scan_key]["target"]
+            label = scans[scan_key]["label"]
+            if target_list_name == "BOTH":
+                continue
+        elif scan_key.endswith("_leaders"):
+            target_list_name = "PRIORITY_1_MOMENTUM"
+            label = "stock_race_central_leaders"
+        elif scan_key.endswith("_laggards"):
+            target_list_name = "PRIORITY_2_ESTABLISHED"
+            label = "stock_race_central_laggards"
+        else:
+            continue
+
+        dest = PRIORITY_1_MOMENTUM if target_list_name == "PRIORITY_1_MOMENTUM" else PRIORITY_2_ESTABLISHED
+        existing = set(dest)
+        new_tickers = [t for t in tickers if t not in existing]
+        tickers_set = set(tickers)
+        fresh = [t for t in tickers if t in existing]
+        demote = [t for t in dest if t not in tickers_set]
+
+        dest.clear()
+        dest.extend(tickers[:50])
+        for t in demote:
+            if t not in tickers_set and t not in dest:
+                dest.append(t)
+
+        if new_tickers:
+            log.info(
+                f"Trade Ideas {label}: +{len(new_tickers)} new, {len(fresh)} re-promoted to top of {target_list_name} "
+                f"→ {tickers[:10]}"
+            )
+        else:
+            log.info(f"Trade Ideas {label}: {len(fresh)} tickers re-promoted to top of {target_list_name}")
+        log.info(f"── TI current top-20 [{target_list_name}]: " + ", ".join(dest[:20]))
+
+
 def scan_tradeideas_universe():
-    """Scrape TIPro high-short-float + market-scope pages and expand
-    PRIORITY_1_MOMENTUM / PRIORITY_2_ESTABLISHED in memory."""
-    global last_ti_scan
+    """Run TI scrape in background; never block the trading cycle."""
+    global last_ti_scan, _ti_future, _ti_started_at, _ti_warned_running
 
     if not USE_TRADEIDEAS_DISCOVERY:
         return
 
-    if (time.time() - last_ti_scan) < (TRADEIDEAS_SCAN_INTERVAL_MIN * 60):
-        return
-
     try:
         import sys
-        import os
         _scripts = str(REPO_ROOT / "scripts")
         if _scripts not in sys.path:
             sys.path.insert(0, _scripts)
@@ -239,76 +277,42 @@ def scan_tradeideas_universe():
         last_ti_scan = time.time()
         return
 
-    log.info("Scanning Trade Ideas universe (timeout-protected) …")
-    try:
-        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as _ti_pool:
-            _ti_future = _ti_pool.submit(
-                scrape_tradeideas,
-                update_config=TRADEIDEAS_UPDATE_CONFIG_FILE,
-                headless=TRADEIDEAS_HEADLESS,
-                chrome_profile=TRADEIDEAS_CHROME_PROFILE or None,
-                select_30min=True,
-            )
-            try:
-                # Do not let Selenium block the trading loop for minutes.
-                results = _ti_future.result(timeout=45)
-            except concurrent.futures.TimeoutError:
-                log.warning("Trade Ideas scan timed out after 45s — keeping existing universe for this cycle")
-                last_ti_scan = time.time()
-                return
+    now = time.time()
 
-        for scan_key, tickers in results.items():
-            if scan_key in SCANS:
-                target_list_name = SCANS[scan_key]["target"]
-                label = SCANS[scan_key]["label"]
-                if target_list_name == "BOTH":
-                    # We consume BOTH via *_leaders / *_laggards synthetic keys below.
-                    continue
-            elif scan_key.endswith("_leaders"):
-                target_list_name = "PRIORITY_1_MOMENTUM"
-                label = "stock_race_central_leaders"
-            elif scan_key.endswith("_laggards"):
-                target_list_name = "PRIORITY_2_ESTABLISHED"
-                label = "stock_race_central_laggards"
-            else:
-                continue
+    # 1) If background scrape finished, apply results now.
+    if _ti_future is not None and _ti_future.done():
+        try:
+            results = _ti_future.result()
+            _apply_tradeideas_results(results, SCANS)
+        except Exception as e:
+            log.error(f"Trade Ideas scan failed: {e}")
+        finally:
+            _ti_future = None
+            _ti_warned_running = False
+            last_ti_scan = now
 
-            if target_list_name == "PRIORITY_1_MOMENTUM":
-                dest = PRIORITY_1_MOMENTUM
-            else:
-                dest = PRIORITY_2_ESTABLISHED
+    # 2) If scrape still running, do not block this cycle.
+    if _ti_future is not None:
+        elapsed = now - _ti_started_at
+        if elapsed > 90 and not _ti_warned_running:
+            log.warning(f"Trade Ideas scan still running ({elapsed:.0f}s) — trading loop continues")
+            _ti_warned_running = True
+        return
 
-            existing = set(dest)
-            new_tickers = [t for t in tickers if t not in existing]
-            # Always re-promote ALL fresh TI tickers to the front so they
-            # are scanned first every cycle.
-            tickers_set = set(tickers)
-            fresh = [t for t in tickers if t in existing]   # already known but re-prioritise
-            demote = [t for t in dest if t not in tickers_set]  # keep the rest after
-            dest.clear()
-            dest.extend(tickers[:50])                         # TI tickers first
-            for t in demote:
-                if t not in tickers_set and t not in dest:
-                    dest.append(t)
-            if new_tickers:
-                log.info(
-                    f"Trade Ideas {label}: "
-                    f"+{len(new_tickers)} new, {len(fresh)} re-promoted to top of {target_list_name} "
-                    f"→ {tickers[:10]}"
-                )
-            else:
-                log.info(
-                    f"Trade Ideas {label}: "
-                    f"{len(fresh)} tickers re-promoted to top of {target_list_name}"
-                )
-            log.info(
-                f"── TI current top-20 [{target_list_name}]: "
-                + ", ".join(dest[:20])
-            )
-    except Exception as e:
-        log.error(f"Trade Ideas scan failed: {e}")
+    # 3) Launch new scrape only when interval is due.
+    if (now - last_ti_scan) < (TRADEIDEAS_SCAN_INTERVAL_MIN * 60):
+        return
 
-    last_ti_scan = time.time()
+    log.info("Scanning Trade Ideas in background …")
+    _ti_started_at = now
+    _ti_warned_running = False
+    _ti_future = _ti_executor.submit(
+        scrape_tradeideas,
+        update_config=TRADEIDEAS_UPDATE_CONFIG_FILE,
+        headless=TRADEIDEAS_HEADLESS,
+        chrome_profile=TRADEIDEAS_CHROME_PROFILE or None,
+        select_30min=True,
+    )
 
 
 REPO_ROOT = __import__('pathlib').Path(__file__).parent
