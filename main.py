@@ -58,6 +58,10 @@ from engine.broker_factory import BrokerFactory
 
 # ── Initialise ────────────────────────────────────
 log      = setup_logging()
+# Suppress noisy third-party driver-manager logs in runtime output.
+import logging as _logging
+_logging.getLogger("WDM").setLevel(_logging.ERROR)
+_logging.getLogger("webdriver_manager").setLevel(_logging.ERROR)
 client   = BrokerFactory.create_stock_client(STOCKS_BROKER)
 executor = EnhancedExecutor(client, use_bracket_orders=True)
 
