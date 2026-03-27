@@ -697,12 +697,12 @@ def scan_and_trade():
 
         # ── Execute ───────────────────────────────────────────────────────
         if market_regime == "bear":
-            # Bear mode: separate caps and swap_only semantics for longs vs shorts.
-            # Longs are cautious (swap-only, existing positions improved), shorts
-            # go WITH the trend and are allowed as fresh entries.
-            long_sigs  = [s for s in eligible if s.action == "buy" ][:MARKET_REGIME_SIGNALS_CAP]
+            # Bear mode: longs stay cautious (swap-only), shorts are trend-following
+            # fresh entries. Keep a short queue so failed attempts can fall through
+            # to the next qualified candidate within the same cycle.
+            long_sigs  = [s for s in eligible if s.action == "buy"][:MARKET_REGIME_SIGNALS_CAP]
             short_candidates = [s for s in eligible if s.action in ("sell", "short")]
-            short_sigs = []
+            short_queue = []
             for s in short_candidates:
                 try:
                     asset = client.get_asset(s.symbol)
@@ -718,39 +718,75 @@ def scan_and_trade():
                         continue
                 except Exception as e:
                     log.warning(f"Pre-check asset failed for {s.symbol}: {e} — keeping candidate")
-                short_sigs.append(s)
-                if len(short_sigs) >= BEAR_SHORT_SIGNALS_CAP:
-                    break
-            top_signals = long_sigs + short_sigs
+                short_queue.append(s)
+
             log.info(
                 f"BEAR execution plan: {len(long_sigs)} long(s) swap-only, "
-                f"{len(short_sigs)} short(s) fresh entry "
-                f"(caps {MARKET_REGIME_SIGNALS_CAP}/{BEAR_SHORT_SIGNALS_CAP})"
+                f"target {BEAR_SHORT_SIGNALS_CAP} short(s) from queue {len(short_queue)}"
             )
+
+            # Execute cautious longs first.
+            for sig in long_sigs:
+                try:
+                    _cur_acct = client.get_account()
+                    daily_pnl = float(_cur_acct.equity) - daily_start_equity
+                except Exception:
+                    pass
+                if daily_pnl <= _daily_loss_limit:
+                    log.warning(
+                        f"Daily loss limit hit mid-cycle ({_loss_pct:.0f}% {market_regime}): "
+                        f"${daily_pnl:.2f} — halting remaining signals"
+                    )
+                    break
+                log.info(f"EXECUTE: {sig.action.upper()} {sig.symbol} @ ${sig.price:.2f} | {sig.strategy} | {sig.reason}")
+                if executor.execute(sig, swap_only=True):
+                    trades += 1
+                time.sleep(1)
+
+            # Execute shorts with fallback: keep trying next candidate on failure.
+            short_success = 0
+            for sig in short_queue:
+                if short_success >= BEAR_SHORT_SIGNALS_CAP:
+                    break
+                try:
+                    _cur_acct = client.get_account()
+                    daily_pnl = float(_cur_acct.equity) - daily_start_equity
+                except Exception:
+                    pass
+                if daily_pnl <= _daily_loss_limit:
+                    log.warning(
+                        f"Daily loss limit hit mid-cycle ({_loss_pct:.0f}% {market_regime}): "
+                        f"${daily_pnl:.2f} — halting remaining signals"
+                    )
+                    break
+                log.info(f"EXECUTE: {sig.action.upper()} {sig.symbol} @ ${sig.price:.2f} | {sig.strategy} | {sig.reason}")
+                if executor.execute(sig, swap_only=False):
+                    trades += 1
+                    short_success += 1
+                else:
+                    log.info(f"SHORT attempt failed for {sig.symbol} — trying next qualified candidate")
+                time.sleep(1)
         else:
             top_signals = eligible[:signals_cap]
             log.info(f"Executing top {len(top_signals)} signal(s) (cap={signals_cap})")
-
-        for sig in top_signals:
-            is_short_signal = sig.action in ("sell", "short")
-            # Shorts in bear mode enter fresh (going with trend); longs are swap-only
-            effective_swap_only = (market_regime == "bear") and not is_short_signal
-            # Re-check daily loss limit before each order (not just cycle start)
-            try:
-                _cur_acct = client.get_account()
-                daily_pnl = float(_cur_acct.equity) - daily_start_equity
-            except Exception:
-                pass
-            if daily_pnl <= _daily_loss_limit:
-                log.warning(
-                    f"Daily loss limit hit mid-cycle ({_loss_pct:.0f}% {market_regime}): "
-                    f"${daily_pnl:.2f} — halting remaining signals"
-                )
-                break
-            log.info(f"EXECUTE: {sig.action.upper()} {sig.symbol} @ ${sig.price:.2f} | {sig.strategy} | {sig.reason}")
-            if executor.execute(sig, swap_only=effective_swap_only):
-                trades += 1
-            time.sleep(1)
+            for sig in top_signals:
+                is_short_signal = sig.action in ("sell", "short")
+                effective_swap_only = (market_regime == "bear") and not is_short_signal
+                try:
+                    _cur_acct = client.get_account()
+                    daily_pnl = float(_cur_acct.equity) - daily_start_equity
+                except Exception:
+                    pass
+                if daily_pnl <= _daily_loss_limit:
+                    log.warning(
+                        f"Daily loss limit hit mid-cycle ({_loss_pct:.0f}% {market_regime}): "
+                        f"${daily_pnl:.2f} — halting remaining signals"
+                    )
+                    break
+                log.info(f"EXECUTE: {sig.action.upper()} {sig.symbol} @ ${sig.price:.2f} | {sig.strategy} | {sig.reason}")
+                if executor.execute(sig, swap_only=effective_swap_only):
+                    trades += 1
+                time.sleep(1)
     else:
         log.info("No signals found this cycle")
 
