@@ -397,15 +397,13 @@ def scrape_tradeideas(
             if update_config and tickers:
                 added = _patch_config(scan["target"], tickers)
                 if added:
-                    print(f"[OK   ] config.py: +{added} new tickers added to {scan['target']}")
+                    print(f"[OK   ] universe.json: +{added} new tickers added to tier {1 if 'PRIORITY_1' in scan['target'] else 2}")
                 else:
-                    print(f"[INFO ] config.py: all tickers already present in {scan['target']}")
-                # both scans → also sync HIGH_SHORT_FLOAT_STOCKS set
+                    print(f"[INFO ] universe.json: all tickers already present")
+                # both scans → also add to tier-2 HSF universe
                 hsf_added = _patch_high_short_float(tickers)
-                if hsf_added:
-                    print(f"[OK   ] config.py: +{hsf_added} new tickers added to HIGH_SHORT_FLOAT_STOCKS")
-                else:
-                    print(f"[INFO ] config.py: HIGH_SHORT_FLOAT_STOCKS already up to date")
+                if not hsf_added:
+                    print(f"[INFO ] universe.json: HSF tickers already up to date")
 
             # Navigate away so the tab goes blank
             try:
