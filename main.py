@@ -79,6 +79,7 @@ trades             = 0
 # Quarterly tracking
 quarterly_start_equity: float = 0.0
 quarterly_reset               = None
+_quarterly_state_lock         = threading.Lock()
 
 _QUARTERLY_STATE_FILE = __import__('pathlib').Path(__file__).parent / ".quarterly_state.json"
 
@@ -96,13 +97,15 @@ def _load_quarterly_state():
         log.warning(f"Could not load quarterly state: {e}")
 
 def _save_quarterly_state():
-    """Persist current quarter-start equity to disk."""
+    """Persist current quarter-start equity to disk (thread-safe)."""
     try:
         import json
-        _QUARTERLY_STATE_FILE.write_text(json.dumps({
+        payload = json.dumps({
             "quarterly_reset":        str(quarterly_reset),
             "quarterly_start_equity": quarterly_start_equity,
-        }))
+        })
+        with _quarterly_state_lock:
+            _QUARTERLY_STATE_FILE.write_text(payload)
     except Exception as e:
         log.warning(f"Could not save quarterly state: {e}")
 
@@ -174,7 +177,7 @@ def _passes_guardrails(symbol: str) -> bool:
 
         return True
     except Exception as e:
-        log.warning(f"Guardrail check failed for {symbol}: {e} — skipping symbol")
+        log.warning(f"Guardrail check failed for {symbol} [{type(e).__name__}]: {e} — skipping symbol")
         return False  # fail-safe: block on error, never bypass guardrails
 
 
