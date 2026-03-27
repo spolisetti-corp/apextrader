@@ -458,12 +458,12 @@ def scan_and_trade():
                 spy_price = float(spy_hist["Close"].iloc[-1])
                 spy_ma200 = float(spy_hist["Close"].rolling(200).mean().iloc[-1])
                 if spy_price < spy_ma200:
-                    signals_cap = MAX_SIGNALS_PER_CYCLE
+                    signals_cap = MARKET_REGIME_SIGNALS_CAP
                     market_regime = "bear"
                     _last_market_regime = market_regime
                     log.info(
                         f"BEAR REGIME: SPY ${spy_price:.2f} < 200MA ${spy_ma200:.2f} "
-                        f"— swap-only mode; no new entries unless at max capacity"
+                        f"\u2014 swap-only mode; signals capped at {MARKET_REGIME_SIGNALS_CAP}/cycle"
                     )
                 else:
                     market_regime = "bull"
