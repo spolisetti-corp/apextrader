@@ -21,7 +21,7 @@ from engine.config import (
     STOCKS, PRIORITY_1_MOMENTUM, PRIORITY_2_ESTABLISHED,
     FORCE_SCAN,
     SCAN_INTERVAL_MIN, POSITION_CHECK_MIN,
-    DAILY_LOSS_LIMIT, DAILY_PROFIT_TARGET,
+    DAILY_LOSS_LIMIT_BULL_PCT, DAILY_LOSS_LIMIT_BEAR_PCT, DAILY_PROFIT_TARGET,
     USE_QUARTERLY_TARGET, QUARTERLY_PROFIT_TARGET_PCT,
     ADAPTIVE_INTERVALS,
     SCAN_INTERVAL_EXTREME_VOL, SCAN_INTERVAL_HIGH_VOL,
@@ -399,8 +399,15 @@ def scan_and_trade():
         except Exception as e:
             log.warning(f"Could not refresh daily P&L: {e}")
 
-    if daily_pnl <= DAILY_LOSS_LIMIT:
-        log.warning(f"Daily loss limit hit: ${daily_pnl:.2f} (started at ${daily_start_equity:,.2f}) — halting trades to preserve PDT budget")
+    # Compute regime-aware daily loss limit
+    _loss_pct        = DAILY_LOSS_LIMIT_BEAR_PCT if _last_market_regime == "bear" else DAILY_LOSS_LIMIT_BULL_PCT
+    _daily_loss_limit = -(daily_start_equity * _loss_pct / 100) if daily_start_equity > 0 else -999_999
+
+    if daily_pnl <= _daily_loss_limit:
+        log.warning(
+            f"Daily loss limit hit ({_loss_pct:.0f}% {_last_market_regime}): "
+            f"${daily_pnl:.2f} <= ${_daily_loss_limit:.2f} — halting trades"
+        )
         return
 
     if daily_pnl >= DAILY_PROFIT_TARGET:
@@ -591,9 +598,10 @@ def scan_and_trade():
                 daily_pnl = float(_cur_acct.equity) - daily_start_equity
             except Exception:
                 pass
-            if daily_pnl <= DAILY_LOSS_LIMIT:
+            if daily_pnl <= _daily_loss_limit:
                 log.warning(
-                    f"Daily loss limit hit mid-cycle: ${daily_pnl:.2f} — halting remaining signals"
+                    f"Daily loss limit hit mid-cycle ({_loss_pct:.0f}% {market_regime}): "
+                    f"${daily_pnl:.2f} — halting remaining signals"
                 )
                 break
             log.info(f"EXECUTE: {sig.action.upper()} {sig.symbol} @ ${sig.price:.2f} | {sig.strategy} | {sig.reason}")
