@@ -641,6 +641,22 @@ class EnhancedExecutor:
                 continue
 
             try:
+                # Cancel any open stop/trailing orders holding shares for this symbol
+                # before submitting the market close, otherwise it fails with
+                # "insufficient qty available" (shares held_for_orders).
+                try:
+                    import time as _t
+                    sym_orders = [o for o in (self.client.get_orders() or []) if o.symbol == sym]
+                    for _o in sym_orders:
+                        try:
+                            self.client.cancel_order_by_id(str(_o.id))
+                        except Exception:
+                            pass
+                    if sym_orders:
+                        _t.sleep(0.4)
+                except Exception:
+                    pass
+
                 side = OrderSide.SELL if qty > 0 else OrderSide.BUY
                 req = MarketOrderRequest(
                     symbol=sym, qty=abs(qty),
@@ -698,10 +714,14 @@ class EnhancedExecutor:
         regular = is_regular_hours()
 
         for order in open_orders:
-            # Only handle plain entry/exit orders, not bracket legs
+            # Only handle plain entry/exit orders, not bracket legs or protective stops
             order_type = getattr(order, "order_type", "") or ""
             order_class = str(getattr(order, "order_class", "") or "")
             if order_class in ("bracket", "oco"):
+                continue
+            # Never cancel GTC trailing stop orders — they are protective stops,
+            # not stale entry orders.  Killing them leaves positions unprotected.
+            if "trailing_stop" in str(order_type).lower():
                 continue
 
             created_at = getattr(order, "created_at", None)
