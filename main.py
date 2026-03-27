@@ -7,12 +7,42 @@ import time
 import datetime
 import threading
 import concurrent.futures
+import os
+import atexit
+import sys
+from pathlib import Path
 import schedule
 import pytz
 import yfinance as yf
 from dotenv import load_dotenv
 
 load_dotenv()
+
+_MAIN_LOCK_FILE = Path(__file__).parent / ".mainbot.lock"
+
+
+def _acquire_main_lock() -> None:
+    """Ensure only one main.py instance runs at a time."""
+    pid = os.getpid()
+    try:
+        fd = os.open(str(_MAIN_LOCK_FILE), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(str(pid))
+
+        def _cleanup_lock():
+            try:
+                if _MAIN_LOCK_FILE.exists() and _MAIN_LOCK_FILE.read_text(encoding="utf-8").strip() == str(pid):
+                    _MAIN_LOCK_FILE.unlink(missing_ok=True)
+            except Exception:
+                pass
+
+        atexit.register(_cleanup_lock)
+    except FileExistsError:
+        print("Another main.py instance is already running. Exiting duplicate.")
+        sys.exit(0)
+
+
+_acquire_main_lock()
 
 _ET = pytz.timezone("America/New_York")
 
