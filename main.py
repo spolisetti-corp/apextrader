@@ -303,14 +303,13 @@ def scan_tradeideas_universe():
     if (now - last_ti_scan) < (TRADEIDEAS_SCAN_INTERVAL_MIN * 60):
         return
 
-    ti_profile = (TRADEIDEAS_CHROME_PROFILE or "").strip()
-    if not ti_profile:
-        # Fallback to desktop Default profile so TI login/cookies can be reused.
-        ti_profile = "Default"
-    ti_headless = TRADEIDEAS_HEADLESS and (ti_profile != "Default")
+    # Use explicit profile only when provided; default to a clean no-profile
+    # session since it has been more reliable than locked desktop profiles.
+    ti_profile = (TRADEIDEAS_CHROME_PROFILE or "").strip() or None
+    ti_headless = TRADEIDEAS_HEADLESS
 
     log.info(
-        f"Scanning Trade Ideas in background (profile={ti_profile}, "
+        f"Scanning Trade Ideas in background (profile={ti_profile or 'none'}, "
         f"headless={'on' if ti_headless else 'off'}) …"
     )
     _ti_started_at = now
