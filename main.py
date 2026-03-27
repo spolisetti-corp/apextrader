@@ -329,8 +329,8 @@ def scan_tradeideas_universe():
     if not data:
         return
 
-    live_p1 = list(data.get("momentum", [])) + list(data.get("longs", []))
-    live_p2 = list(data.get("laggards", [])) + list(data.get("scan", []))
+    live_p1 = (data.get("momentum") or []) + (data.get("longs") or [])
+    live_p2 = (data.get("laggards") or []) + (data.get("scan") or [])
     _apply_live_picks("PRIORITY_1_MOMENTUM", PRIORITY_1_MOMENTUM, live_p1)
     _apply_live_picks("PRIORITY_2_ESTABLISHED", PRIORITY_2_ESTABLISHED, live_p2)
 

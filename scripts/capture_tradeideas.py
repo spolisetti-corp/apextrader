@@ -266,7 +266,8 @@ def _write_live_picks(results: dict[str, list[str]]) -> None:
     laggards = _normalize_tickers(results.get("stockracecentral_laggards", []))
     momentum = _normalize_tickers(results.get("marketscope360", []))
     scan = _normalize_tickers(results.get("highshortfloat", []))
-    race_all = leaders + [t for t in laggards if t not in leaders]
+    leaders_set = set(leaders)
+    race_all = leaders + [t for t in laggards if t not in leaders_set]
     if not race_all:
         race_all = _normalize_tickers(results.get("stockracecentral", []))
 
