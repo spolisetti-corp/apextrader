@@ -24,7 +24,6 @@ from .config import (
     BEAR_SHORT_UNIVERSE,
     BEAR_SHORT_TARGET_RESERVE,
 )
-from .universe import get_tier
 from .utils import clear_bar_cache, get_bars, is_market_open
 
 _ET  = pytz.timezone("America/New_York")
@@ -98,9 +97,10 @@ def get_scan_targets(excluded: Set[str] = None) -> List[str]:
     if excluded is None:
         excluded = set()
 
-    # Latest live universe tiers (TI/promotions) are the primary source.
-    live_p1 = list(get_tier(1))
-    live_p2 = list(get_tier(2))
+    # Latest TI promotions are applied to these in-memory lists in main.py via
+    # _apply_tradeideas_results(). Use them directly to preserve exact order.
+    live_p1 = list(_cfg.PRIORITY_1_MOMENTUM)
+    live_p2 = list(_cfg.PRIORITY_2_ESTABLISHED)
 
     # Re-read universe.json live every cycle so TI-scraped tickers are reflected
     # immediately without restarting the bot.
