@@ -430,6 +430,7 @@ def scan_and_trade():
 
     # ── Upgrade stale unfilled orders before scanning ─────────────────
     executor.update_stale_orders()
+    executor.check_tp_targets()
 
     scan_trending_stocks()
     scan_tradeideas_universe()

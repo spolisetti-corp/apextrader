@@ -11,6 +11,7 @@ Trading strategy implementations:
 """
 
 import datetime
+import time
 import pytz
 import pandas as pd
 from dataclasses import dataclass
@@ -52,6 +53,32 @@ def _calc_atr14(bars: pd.DataFrame, period: int = 14) -> float:
         return 0.0
 
 
+# ── Market Regime Filter (SPY 200-SMA) ────────────────────────────────────────
+_regime_cache: dict = {"ts": 0.0, "bull": True}
+_REGIME_TTL   = 900  # seconds — refresh every 15 min
+
+def _is_bull_regime() -> bool:
+    """True when SPY is above its 200-day SMA (bullish regime).
+    Cached for 15 min to avoid excessive yfinance calls.
+    Defaults to True on any fetch failure so strategies remain live.
+    """
+    now = time.monotonic()
+    if now - _regime_cache["ts"] < _REGIME_TTL:
+        return _regime_cache["bull"]
+    try:
+        spy = get_bars("SPY", "250d", "1d")
+        if spy.empty or len(spy) < 200:
+            _regime_cache.update({"ts": now, "bull": True})
+            return True
+        sma200 = float(spy["close"].rolling(200).mean().iloc[-1])
+        price  = float(spy["close"].iloc[-1])
+        bull   = price > sma200
+    except Exception:
+        bull = True
+    _regime_cache.update({"ts": now, "bull": bull})
+    return bull
+
+
 # ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
 # Sweepea Strategy
 # ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
@@ -76,7 +103,7 @@ class SweepeaStrategy:
                         and cur["close"] >= float(cur["ema20"]) * 0.995)
                 # Prior trend must be up (close > 8-bar lookback mean)
                 uptrend = float(prev["close"]) > float(daily["close"].iloc[-10:-2].mean())
-                if (pb8 or pb20) and uptrend:
+                if (pb8 or pb20) and uptrend and _is_bull_regime():
                     atr14    = _calc_atr14(daily)
                     ema_lbl  = "8-EMA" if pb8 else "20-EMA"
                     return Signal(
@@ -149,7 +176,7 @@ class SweepeaStrategy:
                 if not (ma_touch and close_rejection):
                     return None
 
-        if bull_pin:
+        if bull_pin and _is_bull_regime():
             return Signal(symbol, "buy",  float(cur["close"]), 0.75,
                           "Liquidity sweep + bullish pinbar", "Sweepea")
         elif bear_pin and not LONG_ONLY_MODE:

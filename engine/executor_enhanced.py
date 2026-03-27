@@ -120,6 +120,7 @@ class EnhancedExecutor:
         self._htb_cache:      set   = set()   # hard-to-borrow symbols — skip shorts this session
         self._entry_log:   Dict[str, dict] = {}  # {symbol: {"strategy": str, "date": date}}
         self._swap_cycle_closed: set = set()     # positions already swapped this scan cycle
+        self._tp_targets: Dict[str, float] = {} # {symbol: take-profit price} for ATR-based TP tracking
 
     # -- Position Cache ----------------------------------------------------
     def _find_weakest_position(self) -> Optional[str]:
@@ -330,6 +331,12 @@ class EnhancedExecutor:
             )
             order = self.client.submit_order(entry_req)
             self.order_cache[signal.symbol] = order.id
+
+            # Store ATR-based TP target — checked each scan cycle by check_tp_targets()
+            if signal.atr_stop and signal.atr_stop > 0:
+                _sl, _tp = self._calculate_bracket_prices(signal, risk_info, order_type)
+                self._tp_targets[signal.symbol] = _tp
+                log.info(f"TP target set {signal.symbol}: ${_tp:.2f} (ATR R:R {ATR_TP_RATIO}:1)")
 
             # 2. Trailing stop — trails the high-water mark at trail_pct below
             ts_req = TrailingStopOrderRequest(
@@ -775,6 +782,56 @@ class EnhancedExecutor:
                 log.info(f"STALE ORDER {sym}: replaced successfully")
             except Exception as e:
                 log.warning(f"STALE ORDER {sym}: replace failed: {e}")
+
+    # ── ATR Take-Profit Checker ────────────────────────────────────────────────
+    def check_tp_targets(self) -> None:
+        """Scan open positions against stored ATR-based TP targets.
+        Submits a market close (sell/buy-to-cover) when current price reaches TP.
+        Called once per scan cycle alongside update_stale_orders().
+        """
+        if not self._tp_targets:
+            return
+        try:
+            positions = {p.symbol: p for p in self.client.get_all_positions()}
+        except Exception as e:
+            log.warning(f"check_tp_targets: fetch failed: {e}")
+            return
+
+        triggered = []
+        for sym, tp_price in list(self._tp_targets.items()):
+            pos = positions.get(sym)
+            if pos is None:
+                triggered.append(sym)  # position already closed, clean up
+                continue
+            qty = int(float(pos.qty))
+            if qty == 0:
+                triggered.append(sym)
+                continue
+            cur_price = float(getattr(pos, "current_price", 0) or 0)
+            if cur_price <= 0:
+                continue
+            is_long = qty > 0
+            hit = (is_long and cur_price >= tp_price) or (not is_long and cur_price <= tp_price)
+            if hit:
+                try:
+                    side = OrderSide.SELL if is_long else OrderSide.BUY
+                    req  = MarketOrderRequest(
+                        symbol        = sym,
+                        qty           = abs(qty),
+                        side          = side,
+                        time_in_force = TimeInForce.DAY,
+                    )
+                    self.client.submit_order(req)
+                    log.info(
+                        f"TP HIT {sym}: ${cur_price:.2f} {'>=  ' if is_long else '<= '}"
+                        f"${tp_price:.2f} → market {'sell' if is_long else 'buy-to-cover'}"
+                    )
+                    triggered.append(sym)
+                except Exception as e:
+                    log.warning(f"TP close failed {sym}: {e}")
+
+        for sym in triggered:
+            self._tp_targets.pop(sym, None)
 
     # ── Health ─────────────────────────────────────────────────────────────────
     def get_health(self) -> Dict:
