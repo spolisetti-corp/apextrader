@@ -39,7 +39,7 @@ from .config import (
     TAKE_PROFIT_NORMAL, TAKE_PROFIT_HIGH, STOP_LOSS_PCT,
     ATR_TP_RATIO, MAX_SHORT_FLOAT_PCT, HIGH_SHORT_FLOAT_STOCKS,
     EOD_CLOSE_ENABLED, EOD_CLOSE_TIME, EOD_CLOSE_STRATEGIES,
-    STALE_ORDER_MINUTES,
+    STALE_ORDER_MINUTES, STALE_ORDER_MINUTES_INTRADAY,
 )
 from .strategies import Signal
 from .utils import is_regular_hours, calculate_risk_adjusted_size, check_vix_roc_filter, get_dynamic_tier
@@ -322,10 +322,11 @@ class EnhancedExecutor:
         try:
             # 1. Market entry
             entry_req = MarketOrderRequest(
-                symbol        = signal.symbol,
-                qty           = shares,
-                side          = side,
-                time_in_force = TimeInForce.DAY,
+                symbol          = signal.symbol,
+                qty             = shares,
+                side            = side,
+                time_in_force   = TimeInForce.DAY,
+                client_order_id = f"apex-{signal.strategy}-{signal.symbol}",
             )
             order = self.client.submit_order(entry_req)
             self.order_cache[signal.symbol] = order.id
@@ -374,16 +375,18 @@ class EnhancedExecutor:
         action = "BUY"         if order_type == OrderType.LONG else "SHORT"
 
         try:
+            coid = f"apex-{signal.strategy}-{signal.symbol}"
             if EXTENDED_HOURS and not is_regular_hours():
                 adj   = 1.002 if order_type == OrderType.LONG else 0.998
                 limit = round(signal.price * adj, 2)
                 req   = LimitOrderRequest(
-                    symbol        = signal.symbol,
-                    qty           = shares,
-                    side          = side,
-                    time_in_force = TimeInForce.DAY,
-                    limit_price   = limit,
-                    extended_hours= True,
+                    symbol          = signal.symbol,
+                    qty             = shares,
+                    side            = side,
+                    time_in_force   = TimeInForce.DAY,
+                    limit_price     = limit,
+                    extended_hours  = True,
+                    client_order_id = coid,
                 )
                 order = self.client.submit_order(req)
                 self.order_cache[signal.symbol] = order.id
@@ -391,10 +394,11 @@ class EnhancedExecutor:
                 return True
             else:
                 req = MarketOrderRequest(
-                    symbol        = signal.symbol,
-                    qty           = shares,
-                    side          = side,
-                    time_in_force = TimeInForce.DAY,
+                    symbol          = signal.symbol,
+                    qty             = shares,
+                    side            = side,
+                    time_in_force   = TimeInForce.DAY,
+                    client_order_id = coid,
                 )
                 order = self.client.submit_order(req)
                 self.order_cache[signal.symbol] = order.id
@@ -684,7 +688,6 @@ class EnhancedExecutor:
             return
 
         now_utc = datetime.datetime.now(datetime.timezone.utc)
-        cutoff_secs = STALE_ORDER_MINUTES * 60
         regular = is_regular_hours()
 
         for order in open_orders:
@@ -698,6 +701,15 @@ class EnhancedExecutor:
             if created_at is None:
                 continue
 
+            # Pick timeout: intraday strategies use short cutoff to avoid lunchtime fills
+            coid = str(getattr(order, "client_order_id", "") or "")
+            is_intraday = False
+            if coid.startswith("apex-"):
+                parts = coid.split("-", 2)   # ["apex", strategy, symbol]
+                if len(parts) >= 2 and parts[1] in EOD_CLOSE_STRATEGIES:
+                    is_intraday = True
+            cutoff_secs = (STALE_ORDER_MINUTES_INTRADAY if is_intraday else STALE_ORDER_MINUTES) * 60
+
             age_secs = (now_utc - created_at).total_seconds()
             if age_secs < cutoff_secs:
                 continue
@@ -709,6 +721,7 @@ class EnhancedExecutor:
 
             log.info(
                 f"STALE ORDER: {sym} {side} {qty} — age {age_secs/60:.1f}m "
+                f"(cutoff {'intraday 30m' if is_intraday else '6h'}) "
                 f"→ {'market' if regular else 'limit @ current price'}"
             )
 

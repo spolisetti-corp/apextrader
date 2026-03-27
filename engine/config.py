@@ -198,7 +198,7 @@ TRADEIDEAS_UPDATE_CONFIG_FILE = True
 # Daily Limits
 # ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
 POSITION_CHECK_MIN  = 5
-DAILY_LOSS_LIMIT    = -250.0  # Tighter daily floor — stop at $250 loss
+DAILY_LOSS_LIMIT    = -500.0  # Daily floor — stop at $500 loss (2% of PDT min $25k)
 DAILY_PROFIT_TARGET = 3500.0
 
 # Quarterly Profit Target
@@ -236,7 +236,8 @@ EOD_CLOSE_STRATEGIES = {         # Strategy names that must be closed same day
 }
 
 # Stale order upgrade: unfilled orders older than this get re-submitted as market/limit
-STALE_ORDER_MINUTES  = 360       # minutes before an unfilled order is considered stale
+STALE_ORDER_MINUTES          = 360  # minutes before an unfilled order is considered stale
+STALE_ORDER_MINUTES_INTRADAY =  30  # intraday strategies (ORB, surge, etc.) — cancel if unfilled after 30 min
 
 # ─────────────────────────────────────────────────────────────────
 # PDT Rules
@@ -264,7 +265,7 @@ PDT_WARN_AT_REMAINING = 1      # Warn log when PDT trades remaining falls to thi
 # Sniper Mode Controls
 LONG_ONLY_MODE        = False  # Shorts enabled — requires margin, HTB check, 2x BP per short position
 MIN_SIGNAL_CONFIDENCE = 0.82   # Execute signals with confidence >= this
-MAX_SIGNALS_PER_CYCLE = 3      # Execute at most this many signals per scan cycle
+MAX_SIGNALS_PER_CYCLE = 5      # Execute at most this many signals per scan cycle
 
 # Parallel Scanning
 SCAN_WORKERS        = 12   # Threads scanning symbols concurrently
