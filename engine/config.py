@@ -481,12 +481,20 @@ HIGH_SHORT_FLOAT_STOCKS  = {
 
 # Live HSF lookup — merges the static set above with tier-2 universe.json entries
 # so newly TI-scraped tickers are recognised as HSF without restarting the bot.
+_hsf_tier2_cache: dict = {"ts": 0.0, "symbols": frozenset()}
+_HSF_CACHE_TTL = 300  # 5 minutes — re-read universe.json at most every 5 min
+
 def is_high_short_float(symbol: str) -> bool:
     """Return True if symbol is in the static HSF set OR in the live tier-2 universe."""
     if symbol in HIGH_SHORT_FLOAT_STOCKS:
         return True
-    try:
-        from engine.universe import get_tier as _gt
-        return symbol in _gt(2)
-    except Exception:
-        return False
+    import time as _time
+    now = _time.monotonic()
+    if now - _hsf_tier2_cache["ts"] > _HSF_CACHE_TTL:
+        try:
+            from engine.universe import get_tier as _gt
+            _hsf_tier2_cache["symbols"] = frozenset(_gt(2))
+        except Exception:
+            _hsf_tier2_cache["symbols"] = frozenset()
+        _hsf_tier2_cache["ts"] = now
+    return symbol in _hsf_tier2_cache["symbols"]

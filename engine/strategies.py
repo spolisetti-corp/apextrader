@@ -328,7 +328,7 @@ class MomentumStrategy:
     """Pure momentum trading with volume confirmation."""
 
     def scan(self, symbol: str) -> Optional[Signal]:
-        bars = get_bars(symbol, "1d", "1m")
+        bars = get_bars(symbol, "90m", "1m")
         if bars.empty or len(bars) < 30:
             return None
 
@@ -540,6 +540,10 @@ class VWAPReclaimStrategy:
 # ──────────────────────────────────────────────────────────────
 # Float Rotation Strategy
 # ──────────────────────────────────────────────────────────────
+# Module-level float cache — persists across scan cycles and strategy instances
+_float_info_cache: dict = {}
+
+
 class FloatRotationStrategy:
     """Low-float stock with volume > X% of float = stock is 'in play'.
 
@@ -551,16 +555,14 @@ class FloatRotationStrategy:
       => Stock is rotating its entire float: extreme squeeze potential
     """
 
-    _float_cache: dict = {}
-
     def _get_float(self, symbol: str) -> Optional[float]:
-        if symbol in self._float_cache:
-            return self._float_cache[symbol]
+        if symbol in _float_info_cache:
+            return _float_info_cache[symbol]
         try:
             info = yf.Ticker(symbol).fast_info
             shares_float = getattr(info, "shares_float", None)
             if shares_float and shares_float > 0:
-                self._float_cache[symbol] = float(shares_float)
+                _float_info_cache[symbol] = float(shares_float)
                 return float(shares_float)
         except Exception:
             pass
@@ -785,16 +787,14 @@ class EarlySqueezeDetector:
     Designed to catch KOD / EEIQ / IMTE style small-float squeeze plays.
     """
 
-    _float_cache: dict = {}
-
     def _get_float(self, symbol: str) -> Optional[float]:
-        if symbol in self._float_cache:
-            return self._float_cache[symbol]
+        if symbol in _float_info_cache:
+            return _float_info_cache[symbol]
         try:
             info = yf.Ticker(symbol).fast_info
             sf   = getattr(info, "shares_float", None)
             if sf and sf > 0:
-                self._float_cache[symbol] = float(sf)
+                _float_info_cache[symbol] = float(sf)
                 return float(sf)
         except Exception:
             pass

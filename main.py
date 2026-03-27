@@ -9,7 +9,6 @@ import threading
 import schedule
 import pytz
 import yfinance as yf
-from concurrent.futures import ThreadPoolExecutor, as_completed
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -49,10 +48,7 @@ from engine.utils import (
     get_vix_interval, get_market_hours_interval, get_position_tuning_interval,
     get_bars, get_live_holdings,
 )
-from engine.strategies import (
-    SweepeaStrategy, TechnicalStrategy, MomentumStrategy,
-    GapBreakoutStrategy, ORBStrategy, VWAPReclaimStrategy, FloatRotationStrategy,
-)
+from engine.strategies import _is_bull_regime
 from engine.executor_enhanced import EnhancedExecutor
 from engine.notifications import notify_scan_results, notify_eod
 from engine.scan import get_scan_targets, scan_universe, filter_signals
@@ -62,14 +58,6 @@ from engine.broker_factory import BrokerFactory
 log      = setup_logging()
 client   = BrokerFactory.create_stock_client(STOCKS_BROKER)
 executor = EnhancedExecutor(client, use_bracket_orders=True)
-
-sweepea       = SweepeaStrategy()
-technical     = TechnicalStrategy()
-momentum      = MomentumStrategy()
-gap_breakout  = GapBreakoutStrategy()
-orb           = ORBStrategy()
-vwap_reclaim  = VWAPReclaimStrategy()
-float_rotation = FloatRotationStrategy()
 
 daily_pnl          = 0.0
 daily_start_equity = 0.0
@@ -118,67 +106,31 @@ _last_market_regime: str = "bull"  # retained across cycles; never resets to bul
 
 
 # ── Market Sentiment ────────────────────────────────────────────
+_sentiment_cache: dict = {"ts": 0.0, "value": "neutral"}
+_SENTIMENT_TTL = 900  # 15 min — matches regime cache TTL
+
 def get_market_sentiment() -> str:
+    now = time.monotonic()
+    if now - _sentiment_cache["ts"] < _SENTIMENT_TTL:
+        return _sentiment_cache["value"]
     try:
         spy = yf.Ticker("SPY").history(period="5d", interval="1h")
         vix = yf.Ticker("^VIX").history(period="5d", interval="1h")
         if spy.empty:
-            return "neutral"
-        spy_mom = ((spy["Close"].iloc[-1] / spy["Close"].iloc[0]) - 1) * 100
-        vix_val = float(vix["Close"].iloc[-1]) if not vix.empty else 20
-        if spy_mom > 1 and vix_val < 20:
-            return "bullish"
-        elif spy_mom < -1 or vix_val > 30:
-            return "bearish"
-        return "neutral"
+            result = "neutral"
+        else:
+            spy_mom = ((spy["Close"].iloc[-1] / spy["Close"].iloc[0]) - 1) * 100
+            vix_val = float(vix["Close"].iloc[-1]) if not vix.empty else 20
+            if spy_mom > 1 and vix_val < 20:
+                result = "bullish"
+            elif spy_mom < -1 or vix_val > 30:
+                result = "bearish"
+            else:
+                result = "neutral"
     except Exception:
-        return "neutral"
-
-
-# ── Golden Ratio Pre-Scan Guardrails ────────────────────────────
-def _passes_guardrails(symbol: str) -> bool:
-    """Quick pre-scan gates: RVOL ≥ 2x (market hours only), dollar-volume ≥ $20M, gap-chase guard.
-    Returns False to skip the symbol; never raises."""
-    try:
-        intraday = get_bars(symbol, "1d", "1m")
-        if intraday.empty or len(intraday) < 5:
-            return True  # not enough data — let strategies decide
-
-        price   = float(intraday["close"].iloc[-1])
-        day_vol = float(intraday["volume"].sum())
-
-        # Dollar-volume gate
-        if price * day_vol < MIN_DOLLAR_VOLUME:
-            return False
-
-        # RVOL gate: only meaningful during regular market hours
-        if is_market_open():
-            daily = get_bars(symbol, "5d", "1d")
-            if not daily.empty and len(daily) >= 2:
-                avg_daily_vol = float(daily["volume"].iloc[:-1].mean())
-                if avg_daily_vol > 0:
-                    now_et      = datetime.datetime.now(_ET)
-                    mkt_open    = now_et.replace(hour=9, minute=30, second=0, microsecond=0)
-                    elapsed_min = max((now_et - mkt_open).total_seconds() / 60, 1.0)
-                    elapsed_frac = min(elapsed_min / 390.0, 1.0)
-                    rvol = (day_vol / max(elapsed_frac, 0.02)) / avg_daily_vol
-                    if rvol < RVOL_MIN:
-                        return False
-
-        # Gap-chase guard: skip if up >15% on day without a tight 5-bar base
-        open_px = float(intraday["open"].iloc[0])
-        if open_px > 0:
-            day_gain = ((price - open_px) / open_px) * 100
-            if day_gain > MAX_GAP_CHASE_PCT:
-                last_n = intraday.iloc[-GAP_CHASE_CONSOL_BARS:]
-                bar_range = float(last_n["high"].max() - last_n["low"].min())
-                if bar_range > price * 0.02:   # range > 2% = no consolidation
-                    return False
-
-        return True
-    except Exception as e:
-        log.warning(f"Guardrail check failed for {symbol} [{type(e).__name__}]: {e} — skipping symbol")
-        return False  # fail-safe: block on error, never bypass guardrails
+        result = "neutral"
+    _sentiment_cache.update({"ts": now, "value": result})
+    return result
 
 
 # ── Trending Scan ───────────────────────────────────────────────
@@ -330,7 +282,6 @@ REPO_ROOT = __import__('pathlib').Path(__file__).parent
 # ── Main Scan & Trade ───────────────────────────────────────────
 def _get_quarter_start(d):
     """Return the first date of the current calendar quarter."""
-    import datetime
     quarter_month = ((d.month - 1) // 3) * 3 + 1
     return datetime.date(d.year, quarter_month, 1)
 
@@ -368,8 +319,8 @@ def scan_top3_only():
 def scan_and_trade():
     global daily_pnl, daily_start_equity, daily_reset, trades
     global quarterly_start_equity, quarterly_reset
+    global _last_market_regime
 
-    import datetime
     today = datetime.date.today()
     if daily_reset != today:
         try:
@@ -391,6 +342,8 @@ def scan_and_trade():
                 log.info(f"Universe pruned: removed {len(removed)} expired ticker(s): {removed[:10]}{'…' if len(removed)>10 else ''}")
             else:
                 log.info("Universe pruned: no expired tickers")
+        except Exception as _prune_err:
+            log.warning(f"Universe prune failed: {_prune_err}")
         log.info("=" * 70)
 
     if not is_market_open():
@@ -466,30 +419,22 @@ def scan_and_trade():
         f"({len(_excluded)} pre-excluded, {SCAN_WORKERS} workers)"
     )
 
-    # ── Market regime filter: SPY vs 200-day MA ──────────────────────
-    global _last_market_regime
+    # ── Per-cycle reset: clear swap protection from previous scan ────────────
+    executor._swap_cycle_closed.clear()
+
+    # ── Market regime filter: uses cached _is_bull_regime() (15-min TTL) ─────
     signals_cap = MAX_SIGNALS_PER_CYCLE
     market_regime = _last_market_regime  # retain previous; never default to bull on error
     if USE_MARKET_REGIME_FILTER:
         try:
-            spy_hist = yf.Ticker("SPY").history(period="1y", interval="1d")
-            if len(spy_hist) >= 200:
-                spy_price = float(spy_hist["Close"].iloc[-1])
-                spy_ma200 = float(spy_hist["Close"].rolling(200).mean().iloc[-1])
-                if spy_price < spy_ma200:
-                    signals_cap = MARKET_REGIME_SIGNALS_CAP
-                    market_regime = "bear"
-                    _last_market_regime = market_regime
-                    log.info(
-                        f"BEAR REGIME: SPY ${spy_price:.2f} < 200MA ${spy_ma200:.2f} "
-                        f"\u2014 swap-only mode; signals capped at {MARKET_REGIME_SIGNALS_CAP}/cycle"
-                    )
-                else:
-                    market_regime = "bull"
-                    _last_market_regime = market_regime
-                    log.info(f"BULL REGIME: SPY ${spy_price:.2f} > 200MA ${spy_ma200:.2f}")
-            else:
-                log.warning("Market regime: insufficient SPY history — retaining previous regime")
+            is_bull = _is_bull_regime()
+            market_regime = "bull" if is_bull else "bear"
+            _last_market_regime = market_regime
+            signals_cap = MAX_SIGNALS_PER_CYCLE if is_bull else MARKET_REGIME_SIGNALS_CAP
+            log.info(
+                f"{'BULL' if is_bull else 'BEAR'} REGIME — "
+                f"signals capped at {signals_cap}/cycle"
+            )
         except Exception as e:
             log.error(f"Market regime check FAILED — retaining '{_last_market_regime}' regime: {e}")
 
