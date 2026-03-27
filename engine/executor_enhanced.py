@@ -198,8 +198,10 @@ class EnhancedExecutor:
         # Asset tradability check: skip halted or suspended symbols
         try:
             asset = self.client.get_asset(signal.symbol)
-            if str(getattr(asset, "status", "active")).lower() != "active":
-                return False, f"{signal.symbol} not tradable: asset status={getattr(asset, 'status', 'unknown')}"
+            raw_status = getattr(asset, "status", "active")
+            status = str(getattr(raw_status, "value", raw_status)).lower()
+            if status != "active":
+                return False, f"{signal.symbol} not tradable: asset status={raw_status}"
             if not getattr(asset, "tradable", True):
                 return False, f"{signal.symbol} not tradable: asset.tradable=False"
         except Exception as e:

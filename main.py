@@ -706,7 +706,8 @@ def scan_and_trade():
             for s in short_candidates:
                 try:
                     asset = client.get_asset(s.symbol)
-                    status = str(getattr(asset, "status", "active")).lower()
+                    raw_status = getattr(asset, "status", "active")
+                    status = str(getattr(raw_status, "value", raw_status)).lower()
                     tradable = bool(getattr(asset, "tradable", True))
                     shortable = bool(getattr(asset, "shortable", True))
                     if status != "active" or not tradable or not shortable:
