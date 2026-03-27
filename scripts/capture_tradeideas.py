@@ -400,10 +400,9 @@ def scrape_tradeideas(
                     print(f"[OK   ] universe.json: +{added} new tickers added to tier {1 if 'PRIORITY_1' in scan['target'] else 2}")
                 else:
                     print(f"[INFO ] universe.json: all tickers already present")
-                # both scans → also add to tier-2 HSF universe
-                hsf_added = _patch_high_short_float(tickers)
-                if not hsf_added:
-                    print(f"[INFO ] universe.json: HSF tickers already up to date")
+                # HSF tickers are persisted in universe.json tier-2, NOT config.py
+                # (_patch_high_short_float rewrites config.py — disabled to prevent
+                # continuous source-file modifications during live trading)
 
             # Navigate away so the tab goes blank
             try:
