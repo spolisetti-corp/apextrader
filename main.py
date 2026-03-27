@@ -314,6 +314,10 @@ def scan_tradeideas_universe():
                     f"Trade Ideas {SCANS[scan_key]['label']}: "
                     f"{len(fresh)} tickers re-promoted to top of {target_list_name}"
                 )
+            log.info(
+                f"── TI current top-20 [{target_list_name}]: "
+                + ", ".join(dest[:20])
+            )
     except Exception as e:
         log.error(f"Trade Ideas scan failed: {e}")
 
@@ -515,7 +519,28 @@ def scan_and_trade():
         ]
         log.info(f"Confidence gate ({MIN_SIGNAL_CONFIDENCE:.0%}) + position cross-ref: {len(eligible)} signal(s) qualify")
 
-        # ── Top 3 eligible picks ──────────────────────────────────────────
+        # ── Log signals that were scanned but did NOT qualify ────────────
+        eligible_syms = {s.symbol for s in eligible}
+        top10_raw = sorted(signals, key=lambda s: s.confidence, reverse=True)[:10]
+        not_qualified = [s for s in top10_raw if s.symbol not in eligible_syms]
+        if not_qualified:
+            log.info("── NOT QUALIFIED (top-10 raw, excluded from execution) ──────────")
+            for s in not_qualified:
+                if s.symbol in _fresh_held:
+                    reason_str = "already held/ordered"
+                elif s.confidence < MIN_SIGNAL_CONFIDENCE:
+                    reason_str = f"conf {s.confidence:.0%} < min {MIN_SIGNAL_CONFIDENCE:.0%}"
+                elif LONG_ONLY_MODE and s.action != "buy":
+                    reason_str = "long-only mode"
+                else:
+                    reason_str = "filtered"
+                log.info(
+                    f"  SKIP {s.symbol} {s.action.upper()} ${s.price:.2f} "
+                    f"conf={s.confidence:.0%} [{s.strategy}] — {reason_str}"
+                )
+            log.info("────────────────────────────────────────────────────────────────")
+
+        # ── Top 5 eligible picks ──────────────────────────────────────────
         log.info("——————————————————————————————")
         log.info("TOP 5 ELIGIBLE PICKS:")
         for idx, s in enumerate(eligible[:5], start=1):
