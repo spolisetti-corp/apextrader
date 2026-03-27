@@ -328,7 +328,7 @@ class MomentumStrategy:
     """Pure momentum trading with volume confirmation."""
 
     def scan(self, symbol: str) -> Optional[Signal]:
-        bars = get_bars(symbol, "90m", "1m")
+        bars = get_bars(symbol, "1d", "1m")
         if bars.empty or len(bars) < 30:
             return None
 
