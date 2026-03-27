@@ -11,7 +11,6 @@ import pytz
 import yfinance as yf
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dotenv import load_dotenv
-from alpaca.trading.client import TradingClient
 
 load_dotenv()
 
@@ -41,6 +40,7 @@ from engine.config import (
     SCAN_WORKERS, SCAN_SYMBOL_TIMEOUT, SCAN_MAX_SYMBOLS,
     RVOL_MIN, MIN_DOLLAR_VOLUME, MAX_GAP_CHASE_PCT, GAP_CHASE_CONSOL_BARS,
     USE_MARKET_REGIME_FILTER, MARKET_REGIME_SIGNALS_CAP,
+    STOCKS_BROKER,
 )
 from engine.utils import (
     setup_logging, is_market_open, get_vix, clear_bar_cache,
@@ -56,10 +56,11 @@ from engine.strategies import (
 from engine.executor_enhanced import EnhancedExecutor
 from engine.notifications import notify_scan_results, notify_eod
 from engine.scan import get_scan_targets, scan_universe, filter_signals
+from engine.broker_factory import BrokerFactory
 
-# ── Initialise ──────────────────────────────────────────────────
+# ── Initialise ────────────────────────────────────
 log      = setup_logging()
-client   = TradingClient(API_KEY, API_SECRET, paper=PAPER)
+client   = BrokerFactory.create_stock_client(STOCKS_BROKER)
 executor = EnhancedExecutor(client, use_bracket_orders=True)
 
 sweepea       = SweepeaStrategy()
