@@ -17,6 +17,36 @@ import os
 _bar_cache: Dict[Tuple[str, str, str], pd.DataFrame] = {}
 _bar_cache_lock = threading.Lock()
 
+# ── Session-level dead-ticker cache ──────────────────────────────
+# Symbols that return empty data N consecutive times are suppressed
+# for the rest of the session to stop error log flooding.
+_DEAD_TICKER_THRESHOLD = 2   # consecutive empty-data cycles before suppressing
+_dead_ticker_hits: Dict[str, int] = {}
+_dead_tickers: set = set()
+_dead_ticker_lock = threading.Lock()
+
+
+def _record_empty_bars(symbol: str) -> None:
+    """Called when get_bars returns empty for a symbol.  Suppresses repeat offenders."""
+    with _dead_ticker_lock:
+        _dead_ticker_hits[symbol] = _dead_ticker_hits.get(symbol, 0) + 1
+        if _dead_ticker_hits[symbol] >= _DEAD_TICKER_THRESHOLD and symbol not in _dead_tickers:
+            _dead_tickers.add(symbol)
+            log = logging.getLogger("ApexTrader")
+            log.warning(f"{symbol}: suppressed for session (no data {_dead_ticker_hits[symbol]}x)")
+
+
+def _record_ok_bars(symbol: str) -> None:
+    """Reset miss counter when a symbol returns good data."""
+    with _dead_ticker_lock:
+        _dead_ticker_hits.pop(symbol, None)
+        _dead_tickers.discard(symbol)
+
+
+def is_dead_ticker(symbol: str) -> bool:
+    """Return True if this symbol has been session-suppressed due to repeated no-data errors."""
+    return symbol in _dead_tickers
+
 
 def clear_bar_cache() -> None:
     """Clear the bar cache at the start of every scan cycle."""
@@ -402,15 +432,18 @@ def get_bars(symbol: str, period: str = "5d", interval: str = "15m") -> pd.DataF
     try:
         data = yf.Ticker(symbol).history(period=period, interval=interval)
         if data.empty:
+            _record_empty_bars(symbol)
             return pd.DataFrame()
         data = data.reset_index()
         data.columns = [c.lower() for c in data.columns]
         if "datetime" in data.columns:
             data = data.rename(columns={"datetime": "time"})
+        _record_ok_bars(symbol)
         with _bar_cache_lock:
             _bar_cache[cache_key] = data
         return data
     except Exception:
+        _record_empty_bars(symbol)
         return pd.DataFrame()
 
 

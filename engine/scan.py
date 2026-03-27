@@ -24,7 +24,7 @@ from .config import (
     BEAR_SHORT_UNIVERSE,
     BEAR_SHORT_TARGET_RESERVE,
 )
-from .utils import clear_bar_cache, get_bars, is_market_open
+from .utils import clear_bar_cache, get_bars, is_market_open, is_dead_ticker
 
 _ET  = pytz.timezone("America/New_York")
 _log = logging.getLogger("ApexTrader")
@@ -120,6 +120,8 @@ def get_scan_targets(excluded: Set[str] = None) -> List[str]:
             if limit is not None and len(targets) >= limit:
                 break
             if s in seen or s in excluded or s in delisted:
+                continue
+            if is_dead_ticker(s):
                 continue
             seen.add(s)
             targets.append(s)
