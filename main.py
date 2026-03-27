@@ -38,7 +38,7 @@ from engine.config import (
     LONG_ONLY_MODE, MIN_SIGNAL_CONFIDENCE, MAX_SIGNALS_PER_CYCLE,
     SCAN_WORKERS, SCAN_SYMBOL_TIMEOUT, SCAN_MAX_SYMBOLS,
     RVOL_MIN, MIN_DOLLAR_VOLUME, MAX_GAP_CHASE_PCT, GAP_CHASE_CONSOL_BARS,
-    USE_MARKET_REGIME_FILTER, MARKET_REGIME_SIGNALS_CAP,
+    USE_MARKET_REGIME_FILTER, MARKET_REGIME_SIGNALS_CAP, BEAR_SHORT_SIGNALS_CAP,
     STOCKS_BROKER,
     KILL_MODE_VIX_LEVEL, KILL_MODE_SPY_DROP_PCT, KILL_MODE_VIX_ROC_PCT,
 )
@@ -636,11 +636,26 @@ def scan_and_trade():
         notify_scan_results(eligible[:5], datetime.date.today(), sentiment, market_regime)
 
         # ── Execute ───────────────────────────────────────────────────────
-        top_signals = eligible[:signals_cap]
-        swap_only   = (market_regime == "bear")
-        log.info(f"Executing top {len(top_signals)} signal(s) (cap={signals_cap}, swap_only={swap_only})")
+        if market_regime == "bear":
+            # Bear mode: separate caps and swap_only semantics for longs vs shorts.
+            # Longs are cautious (swap-only, existing positions improved), shorts
+            # go WITH the trend and are allowed as fresh entries.
+            long_sigs  = [s for s in eligible if s.action == "buy" ][:MARKET_REGIME_SIGNALS_CAP]
+            short_sigs = [s for s in eligible if s.action in ("sell", "short")][:BEAR_SHORT_SIGNALS_CAP]
+            top_signals = long_sigs + short_sigs
+            log.info(
+                f"BEAR execution plan: {len(long_sigs)} long(s) swap-only, "
+                f"{len(short_sigs)} short(s) fresh entry "
+                f"(caps {MARKET_REGIME_SIGNALS_CAP}/{BEAR_SHORT_SIGNALS_CAP})"
+            )
+        else:
+            top_signals = eligible[:signals_cap]
+            log.info(f"Executing top {len(top_signals)} signal(s) (cap={signals_cap})")
 
         for sig in top_signals:
+            is_short_signal = sig.action in ("sell", "short")
+            # Shorts in bear mode enter fresh (going with trend); longs are swap-only
+            effective_swap_only = (market_regime == "bear") and not is_short_signal
             # Re-check daily loss limit before each order (not just cycle start)
             try:
                 _cur_acct = client.get_account()
@@ -654,7 +669,7 @@ def scan_and_trade():
                 )
                 break
             log.info(f"EXECUTE: {sig.action.upper()} {sig.symbol} @ ${sig.price:.2f} | {sig.strategy} | {sig.reason}")
-            if executor.execute(sig, swap_only=swap_only):
+            if executor.execute(sig, swap_only=effective_swap_only):
                 trades += 1
             time.sleep(1)
     else:

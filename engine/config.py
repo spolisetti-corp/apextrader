@@ -395,7 +395,7 @@ EARLY_SQUEEZE = {
 # ─────────────────────────────────────────────────────────────────
 BEAR_BREAKDOWN = {
     "volume_multiplier":  1.5,   # Volume today vs 20-day avg
-    "rsi_max":           55,    # Don't short if RSI too high (could bounce)
+    "rsi_max":           62,    # Don't short if RSI too high — raised 55→62 to catch earlier distributions
     "rsi_min":           25,    # Don't short already deeply oversold
     "above_sma_min_days": 2,    # Was above/at 20SMA for ≥N of last 10 days (fresh break)
 }
@@ -408,10 +408,22 @@ MIN_DOLLAR_VOLUME        = 20_000_000  # Skip illiquid setups: price × day_vol 
 MAX_GAP_CHASE_PCT        = 15.0       # Skip if already up >15% without consolidation
 GAP_CHASE_CONSOL_BARS    = 5          # Number of 1-min bars to check for tight base
 USE_MARKET_REGIME_FILTER = True       # SPY below 200-day MA → cut signals to 1
-MARKET_REGIME_SIGNALS_CAP = 1        # Max signals per cycle in bear regime
+MARKET_REGIME_SIGNALS_CAP  = 1        # Max LONG entries per cycle in bear regime (swap-only)
+BEAR_SHORT_SIGNALS_CAP     = 2        # Max SHORT entries per cycle in bear regime (fresh entries, go with trend)
 ATR_STOP_MULTIPLIER      = 1.5        # Stop loss = entry − ATR × 1.5
 ATR_TP_RATIO             = 2.0        # Take-profit at 2:1 R:R (risk × 2)
 MAX_SHORT_FLOAT_PCT      = 20.0       # Never exceed this % of equity per squeeze ticker
+
+# Bear short scan supplement — liquid large/mid caps with clean SMA structure that
+# BearBreakdownStrategy and TechnicalStrategy can fire on during a bear regime.
+# These stocks have stable 20/50 SMA patterns and meaningful distribution moves.
+BEAR_SHORT_UNIVERSE = [
+    "NVDA", "AMD", "TSLA", "META", "AMZN", "AAPL", "MSFT", "NFLX",
+    "PLTR", "MSTR", "COIN", "SMCI", "SNOW", "CRM", "CRWD", "NET",
+    "ARKK", "SOXS", "LABD",   # sector ETFs (can be shorted directly)
+    "MARA", "WULF", "CLSK",   # crypto miners — high-beta bear breakdowns
+    "IONQ", "RGTI", "QUBT",   # quantum/AI overhyped names
+]
 HIGH_SHORT_FLOAT_STOCKS  = {
     "AAP", "ABTS", "ACHC", "ACXP", "ADMA", "AESI",
     "AEVA", "AGQ", "AGX", "AI", "AIFF", "AIRS",

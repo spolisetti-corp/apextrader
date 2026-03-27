@@ -21,6 +21,7 @@ from .config import (
     RVOL_MIN,
     MAX_GAP_CHASE_PCT,
     GAP_CHASE_CONSOL_BARS,
+    BEAR_SHORT_UNIVERSE,
 )
 from .utils import clear_bar_cache, get_bars, is_market_open
 
@@ -104,10 +105,15 @@ def get_scan_targets(excluded: Set[str] = None) -> List[str]:
     p1_slice = p1[:max(1, len(p1) // 2)]
     p2_slice = p2[:max(1, len(p2) // 2)]
 
+    # In bear regime, supplement with large/mid-cap bear breakdown candidates.
+    # These have clean SMA structure that BearBreakdownStrategy and TechnicalStrategy
+    # can fire on, whereas P1/P2 momentum runners are too volatile/inconsistent.
+    bear_supplement = [] if _is_bull_regime() else list(BEAR_SHORT_UNIVERSE)
+
     targets = []
     seen = set()
 
-    for s in p1_slice + p2_slice:
+    for s in p1_slice + p2_slice + bear_supplement:
         if s not in seen and s not in excluded and s not in delisted:
             seen.add(s)
             targets.append(s)
