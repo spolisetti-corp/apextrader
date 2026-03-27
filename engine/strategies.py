@@ -346,7 +346,7 @@ class TechnicalStrategy:
 
         if score >= 0.50:
             return Signal(symbol, "buy",   price, score,       ", ".join(reasons), "Technical")
-        elif not LONG_ONLY_MODE and score <= -0.60:
+        elif not LONG_ONLY_MODE and score <= -0.55:
             return Signal(symbol, "short", price, abs(score),  ", ".join(reasons), "Technical")
 
         return None
@@ -948,7 +948,8 @@ class BearBreakdownStrategy:
 
         # Also broke below 10-day low (confirms continuation, not just a 20SMA touch)
         low_10d = float(daily["low"].iloc[-11:-1].min())
-        if price > low_10d * 0.998:
+        buffer_pct = float(BEAR_BREAKDOWN.get("breakdown_buffer_pct", 0.20))
+        if price > low_10d * (1 + (buffer_pct / 100.0)):
             return None
 
         # Volume spike vs 20-day avg
