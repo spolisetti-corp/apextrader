@@ -284,8 +284,11 @@ def _write_live_picks(results: dict[str, list[str]]) -> None:
             "stockracecentral": race_all,
         },
     }
-    LIVE_PICKS_FILE.write_text(json.dumps(payload, indent=2), encoding="utf-8")
-    print(f"[OK   ] live picks → {LIVE_PICKS_FILE}")
+    try:
+        LIVE_PICKS_FILE.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+        print(f"[OK   ] live picks → {LIVE_PICKS_FILE}")
+    except OSError as e:
+        print(f"[WARN ] live picks write failed: {e}")
 
 
 # ── Config patcher ────────────────────────────────────────────────
