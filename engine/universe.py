@@ -149,3 +149,7 @@ def stats() -> dict:
         "by_tier":       by_tier,
         "file":          str(UNIVERSE_FILE),
     }
+
+def filter_universe_by_positions(universe: list[str], held_symbols: set[str], exclude_unfilled_buys: bool = True) -> list[str]:
+    """Filter out symbols already held or with unfilled buy orders from the scan universe."""
+    return [s for s in universe if s not in held_symbols]

@@ -86,6 +86,7 @@ from engine.executor_enhanced import EnhancedExecutor
 from engine.notifications import notify_scan_results, notify_eod
 from engine.scan import get_scan_targets, scan_universe, filter_signals
 from engine.broker_factory import BrokerFactory
+from engine.universe import filter_universe_by_positions
 
 # ── Initialise ────────────────────────────────────
 log      = setup_logging()
@@ -609,10 +610,10 @@ def scan_and_trade():
     # ── Pre-exclude symbols already held/ordered ─────────────────────────
     _open_positions, _open_orders, _excluded = get_live_holdings(client)
 
-    scan_targets = get_scan_targets(_excluded)
+    # New: filter scan_targets using universe helper
+    scan_targets = filter_universe_by_positions(get_scan_targets(), _excluded)
     log.info(
-        f"Scanning {len(scan_targets)} symbols "
-        f"({len(_excluded)} pre-excluded, {SCAN_WORKERS} workers): "
+        f"Scanning {len(scan_targets)} symbols (filtered by held/ordered), {SCAN_WORKERS} workers: "
         f"{', '.join(scan_targets)}"
     )
 
@@ -865,10 +866,19 @@ def scan_and_trade():
 
 
 # ── Status Logger ───────────────────────────────────────────────
+
+def _fetch_account_and_positions(timeout_seconds=30):
+    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+        future = executor.submit(lambda: (client.get_account(), client.get_all_positions()))
+        try:
+            return future.result(timeout=timeout_seconds)
+        except concurrent.futures.TimeoutError:
+            raise TimeoutError(f"Account status call timed out after {timeout_seconds}s")
+
+
 def log_status():
     try:
-        account   = client.get_account()
-        positions = client.get_all_positions()
+        account, positions = _fetch_account_and_positions(timeout_seconds=20)
 
         log.info("=" * 70)
         log.info("STATUS")
