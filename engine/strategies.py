@@ -358,7 +358,7 @@ class TechnicalStrategy:
 class MomentumStrategy:
     """Pure momentum trading with volume confirmation."""
 
-    def scan(self, symbol: str) -> Optional[Signal]:
+    def scan(self, symbol: str, market_regime: str = "bull") -> Optional[Signal]:
         bars = get_bars(symbol, "1d", "1m")
         if bars.empty or len(bars) < 30:
             return None
@@ -373,9 +373,18 @@ class MomentumStrategy:
         if (momentum >= MOMENTUM["min_momentum"]
                 and vol_ratio >= MOMENTUM["volume_surge"]
                 and price > sma20):
-            confidence = min(0.60 + (momentum / 100), 0.95)  # scales with momentum strength
+            confidence = min(0.60 + (momentum / 100), 0.95)
             return Signal(symbol, "buy", price, confidence,
                           f"Strong momentum ({momentum:.1f}%) + volume x{vol_ratio:.1f} + above SMA20", "Momentum")
+
+        # Bear-market momentum reversal short signal
+        if market_regime == "bear" and not LONG_ONLY_MODE:
+            if (momentum <= -MOMENTUM["min_momentum"] * 0.8
+                    and vol_ratio >= MOMENTUM["volume_surge"]
+                    and price < sma20):
+                confidence = min(0.60 + (-momentum / 100), 0.95)
+                return Signal(symbol, "short", price, confidence,
+                              f"Bear momentum short (-{momentum:.1f}%) + volume x{vol_ratio:.1f} + below SMA20", "Momentum")
 
         return None
 
@@ -980,3 +989,30 @@ class BearBreakdownStrategy:
             "BearBreakdown",
             atr_stop=atr14 * ATR_STOP_MULTIPLIER if atr14 > 0 else None,
         )
+
+
+def get_strategy_instances(bear_regime: bool = True):
+    """Return instantiated strategy objects for current market regime."""
+    strategies = [
+        GapBreakoutStrategy(),
+        ORBStrategy(),
+        VWAPReclaimStrategy(),
+        FloatRotationStrategy(),
+        MomentumStrategy(),
+        TechnicalStrategy(),
+        SweepeaStrategy(),
+        TrendBreakerStrategy(),
+        PreMarketMomentumStrategy(),
+        OpeningBellSurgeStrategy(),
+        PMHighBreakoutStrategy(),
+        EarlySqueezeDetector(),
+    ]
+
+    if not bear_regime:
+        strategies.append(BearBreakdownStrategy())
+    else:
+        # Bear regime also considers breakdown plus caution in bull-specific trend setups
+        strategies.append(BearBreakdownStrategy())
+
+    return strategies
+

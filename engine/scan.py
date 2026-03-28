@@ -28,22 +28,7 @@ from .utils import clear_bar_cache, get_bars, is_market_open, is_dead_ticker
 
 _ET  = pytz.timezone("America/New_York")
 _log = logging.getLogger("ApexTrader")
-from .strategies import (
-    GapBreakoutStrategy,
-    ORBStrategy,
-    VWAPReclaimStrategy,
-    FloatRotationStrategy,
-    MomentumStrategy,
-    TechnicalStrategy,
-    SweepeaStrategy,
-    TrendBreakerStrategy,
-    PreMarketMomentumStrategy,
-    OpeningBellSurgeStrategy,
-    PMHighBreakoutStrategy,
-    EarlySqueezeDetector,
-    BearBreakdownStrategy,
-    _is_bull_regime,
-)
+from .strategies import get_strategy_instances, MomentumStrategy, TechnicalStrategy, _is_bull_regime
 
 
 def _passes_guardrails(symbol: str) -> bool:
@@ -153,21 +138,8 @@ def get_scan_targets(excluded: Set[str] = None) -> List[str]:
 def scan_universe(scan_targets: List[str], sentiment: str) -> Tuple[List, Dict[str, int], int]:
     clear_bar_cache()
 
-    strats = [
-        GapBreakoutStrategy(),
-        ORBStrategy(),
-        VWAPReclaimStrategy(),
-        FloatRotationStrategy(),
-        MomentumStrategy(),
-        TechnicalStrategy(),
-        SweepeaStrategy(),
-        TrendBreakerStrategy(),
-        PreMarketMomentumStrategy(),
-        OpeningBellSurgeStrategy(),
-        PMHighBreakoutStrategy(),
-        EarlySqueezeDetector(),
-        BearBreakdownStrategy(),
-    ]
+    bull_regime = _is_bull_regime()
+    strats = get_strategy_instances(bull_regime)
 
     signals = []
     hit_counts = {}
@@ -184,6 +156,8 @@ def scan_universe(scan_targets: List[str], sentiment: str) -> Tuple[List, Dict[s
             try:
                 if isinstance(s, TechnicalStrategy):
                     sig = s.scan(symbol, sentiment)
+                elif isinstance(s, MomentumStrategy):
+                    sig = s.scan(symbol, "bull" if bull_regime else "bear")
                 else:
                     sig = s.scan(symbol)
                 if sig:
