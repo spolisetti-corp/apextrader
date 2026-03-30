@@ -202,10 +202,18 @@ def get_dynamic_tier(symbol: str, price: float = None) -> dict:
 # Risk-Adjusted Position Sizing
 # ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
 def calculate_risk_adjusted_size(account_balance: float, symbol: str, price: float) -> dict:
-    from .config import USE_RISK_EQUALIZED_SIZING, RISK_PER_TRADE_PCT, POSITION_SIZE_PCT
+    from .config import (
+        USE_RISK_EQUALIZED_SIZING, RISK_PER_TRADE_PCT, POSITION_SIZE_PCT,
+        SMALL_ACCOUNT_EQUITY_THRESHOLD, SMALL_ACCOUNT_POSITION_SIZE_PCT,
+        SMALL_ACCOUNT_RISK_PER_TRADE_PCT,
+    )
 
     tier_info     = get_dynamic_tier(symbol, price)
     stop_loss_pct = tier_info["ts"]
+
+    if account_balance < SMALL_ACCOUNT_EQUITY_THRESHOLD:
+        POSITION_SIZE_PCT = SMALL_ACCOUNT_POSITION_SIZE_PCT
+        RISK_PER_TRADE_PCT = SMALL_ACCOUNT_RISK_PER_TRADE_PCT
 
     if not USE_RISK_EQUALIZED_SIZING:
         dollar_amount = account_balance * (POSITION_SIZE_PCT / 100)

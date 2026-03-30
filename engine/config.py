@@ -128,6 +128,11 @@ POSITION_SIZE_PCT    = 7.5    # Per-trade cap (%)
 USE_RISK_EQUALIZED_SIZING = True
 RISK_PER_TRADE_PCT   = 0.8    # Risk 0.8% of account per trade (sniper: protect capital)
 
+# Small account reduction caps (sub-$5k equity)
+SMALL_ACCOUNT_POSITION_SIZE_PCT = 4.0  # lower per-trade allocation for 1k~5k
+SMALL_ACCOUNT_RISK_PER_TRADE_PCT = 0.5 # lower risk per trade for small accounts
+SMALL_ACCOUNT_MIN_POSITION_DOLLARS = 100.0
+
 # Tiered Profit Targets — aggressive: book profits faster
 TAKE_PROFIT_EXTREME  = 35.0   # was 50
 TAKE_PROFIT_HIGH     = 25.0   # was 40

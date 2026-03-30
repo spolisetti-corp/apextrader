@@ -275,11 +275,16 @@ class EnhancedExecutor:
         risk_info: Dict, order_type: OrderType
     ) -> Tuple[int, Optional[str]]:
         """Returns (shares, skip_reason). Downsizes if BP constrained, skips if below min."""
+        from .config import SMALL_ACCOUNT_EQUITY_THRESHOLD, SMALL_ACCOUNT_MIN_POSITION_DOLLARS
+
         margin  = 2.0 if order_type == OrderType.SHORT else 1.0
         usable  = buying_power * (1.0 - MIN_BUYING_POWER_PCT / 100.0)
         desired = int(risk_info["dollar_amount"] / signal.price)
         max_bp  = int(usable / (signal.price * margin))
         shares  = min(desired, max_bp)
+
+        account_snapshot = self._account_cache or self._get_account()  # use cached if available
+        min_position = SMALL_ACCOUNT_MIN_POSITION_DOLLARS if account_snapshot.equity < SMALL_ACCOUNT_EQUITY_THRESHOLD else MIN_POSITION_DOLLARS
 
         if shares < 1:
             return 0, (
@@ -288,8 +293,8 @@ class EnhancedExecutor:
             )
 
         cost = shares * signal.price
-        if cost < MIN_POSITION_DOLLARS:
-            return 0, f"{signal.symbol} too small after downsize: ${cost:.0f} < min ${MIN_POSITION_DOLLARS:.0f}"
+        if cost < min_position:
+            return 0, f"{signal.symbol} too small after downsize: ${cost:.0f} < min ${min_position:.0f}"
 
         if shares < desired:
             log.info(
