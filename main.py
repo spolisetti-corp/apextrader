@@ -47,7 +47,7 @@ _acquire_main_lock()
 _ET = pytz.timezone("America/New_York")
 
 from engine.config import (
-    API_KEY, API_SECRET, PAPER,
+    API_KEY, API_SECRET, PAPER, LIVE, TRADE_MODE,
     STOCKS, PRIORITY_1_MOMENTUM, PRIORITY_2_ESTABLISHED,
     FORCE_SCAN,
     SCAN_INTERVAL_MIN, POSITION_CHECK_MIN,
@@ -90,6 +90,7 @@ from engine.universe import filter_universe_by_positions
 
 # ── Initialise ────────────────────────────────────
 log      = setup_logging()
+log.info(f"Trade mode: {TRADE_MODE} (PAPER={PAPER}, LIVE={LIVE})")
 # Suppress noisy third-party driver-manager logs in runtime output.
 import logging as _logging
 _logging.getLogger("WDM").setLevel(_logging.ERROR)

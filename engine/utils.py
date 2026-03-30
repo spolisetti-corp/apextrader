@@ -379,6 +379,7 @@ def get_bars(symbol: str, period: str = "5d", interval: str = "15m") -> pd.DataF
     Results are cached per (symbol, period, interval) for the duration of
     the current scan cycle. Call clear_bar_cache() to reset.
     """
+    symbol = symbol.strip().upper().lstrip("$")
     log = logging.getLogger("ApexTrader")
     cache_key = (symbol, period, interval)
     with _bar_cache_lock:

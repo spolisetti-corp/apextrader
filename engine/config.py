@@ -18,6 +18,13 @@ OPTIONS_BROKER = "alpaca"                               # Only Alpaca supports o
 API_KEY    = os.getenv("ALPACA_API_KEY", "")
 API_SECRET = os.getenv("ALPACA_API_SECRET", "")
 PAPER      = os.getenv("ALPACA_PAPER", "true").lower() == "true"
+LIVE       = not PAPER
+TRADE_MODE = "paper" if PAPER else "live"
+ALPACA_BASE_URL = os.getenv("ALPACA_BASE_URL") or ("https://paper-api.alpaca.markets" if PAPER else "https://api.alpaca.markets")
+
+# Convenience for switching: override per branch by env var if needed.
+MIN_POSITION_DOLLARS = float(os.getenv("MIN_POSITION_DOLLARS", "500"))
+MIN_BUYING_POWER_PCT = float(os.getenv("MIN_BUYING_POWER_PCT", "10.0"))
 
 # ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
 # E*TRADE API Configuration
@@ -279,10 +286,14 @@ EMAIL_FROM_ADDRESS      = os.getenv("EMAIL_FROM_ADDRESS", "apextrader_bot@gmail.
 EMAIL_TO_ADDRESSES      = [a.strip() for a in os.getenv("EMAIL_TO_ADDRESSES", "spolisetti.archive@gmail.com,alerts@apextrader.example.com").split(",") if a.strip()]
 EMAIL_SUBJECT_PREFIX    = os.getenv("EMAIL_SUBJECT_PREFIX", "ApexTrader EOD Report")
 
-# Enterprise Risk Controls
-MIN_BUYING_POWER_PCT  = 10.0   # Reserve this % of equity as free buffer (never spend it)
-MIN_POSITION_DOLLARS  = 500.0  # Minimum trade size in $ — skip if downsized below this
-PDT_WARN_AT_REMAINING = 1      # Warn log when PDT trades remaining falls to this level
+# Enterprise Risk Controls (environment-overridable)
+MIN_BUYING_POWER_PCT  = float(os.getenv("MIN_BUYING_POWER_PCT", "10.0"))   # Reserve this % of equity as free buffer (never spend it)
+MIN_POSITION_DOLLARS  = float(os.getenv("MIN_POSITION_DOLLARS", "500"))   # Minimum trade size in $ — skip if downsized below this
+PDT_WARN_AT_REMAINING = int(os.getenv("PDT_WARN_AT_REMAINING", "1"))      # Warn log when PDT trades remaining falls to this level
+
+# Small account smart sizing (for ~$1k buying power)
+SMALL_ACCOUNT_EQUITY_THRESHOLD = float(os.getenv("SMALL_ACCOUNT_EQUITY_THRESHOLD", "5000"))
+SMALL_ACCOUNT_MAX_POSITIONS     = int(os.getenv("SMALL_ACCOUNT_MAX_POSITIONS", "4"))
 
 # Sniper Mode Controls
 LONG_ONLY_MODE        = False  # Shorts enabled — requires margin, HTB check, 2x BP per short position

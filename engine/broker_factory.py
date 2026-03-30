@@ -24,17 +24,19 @@ class BrokerFactory:
         broker = broker.lower()
 
         if broker == "alpaca":
+            from .config import PAPER, ALPACA_BASE_URL
             from alpaca.trading.client import TradingClient
 
             api_key    = os.getenv("ALPACA_API_KEY")
             api_secret = os.getenv("ALPACA_API_SECRET")
-            paper      = os.getenv("ALPACA_PAPER", "true").lower() == "true"
+            paper      = PAPER
+            base_url   = os.getenv("ALPACA_BASE_URL") or ALPACA_BASE_URL
 
             if not api_key or not api_secret:
                 raise ValueError("Alpaca credentials not found in environment")
 
-            log.info("Using Alpaca for stock trading")
-            return TradingClient(api_key, api_secret, paper=paper)
+            log.info(f"Using Alpaca for stock trading (paper={paper}, base_url={base_url})")
+            return TradingClient(api_key, api_secret, paper=paper, base_url=base_url)
 
         elif broker == "etrade":
             from .etrade_client import ETradeClient
@@ -59,11 +61,12 @@ class BrokerFactory:
         Create an options trading client.
         Currently only Alpaca supports options.
         """
+        from .config import PAPER
         from alpaca.trading.client import TradingClient
 
         api_key    = os.getenv("ALPACA_API_KEY")
         api_secret = os.getenv("ALPACA_API_SECRET")
-        paper      = os.getenv("ALPACA_PAPER", "true").lower() == "true"
+        paper      = PAPER
 
         if not api_key or not api_secret:
             raise ValueError("Alpaca credentials not found in environment")

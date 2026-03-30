@@ -89,7 +89,14 @@ Minimum required in `.env`:
 ```env
 ALPACA_API_KEY=your_key
 ALPACA_API_SECRET=your_secret
-ALPACA_PAPER=true                  # set false for live trading
+ALPACA_PAPER=true                  # true=paper, false=live (toggle to switch)
+ALPACA_BASE_URL=https://paper-api.alpaca.markets  # override for live: https://api.alpaca.markets
+
+# Optional: set smaller risk profile for sub-$5k equity
+MIN_POSITION_DOLLARS=500
+MIN_BUYING_POWER_PCT=10.0
+SMALL_ACCOUNT_EQUITY_THRESHOLD=5000
+SMALL_ACCOUNT_MAX_POSITIONS=4
 
 USE_EMAIL_NOTIFICATIONS=true
 EMAIL_SMTP_SERVER=smtp.gmail.com
@@ -107,6 +114,20 @@ EMAIL_TO_ADDRESSES=you@gmail.com
 ```powershell
 # Continuous scan loop (normal operation)
 python main.py
+```
+
+### Quick switch live/paper (1 command)
+
+```powershell
+# Switch to live (then restart bot)
+(set-content .env (get-content .env) -replace 'ALPACA_PAPER=.*', 'ALPACA_PAPER=false')
+
+# Switch back to paper
+(set-content .env (get-content .env) -replace 'ALPACA_PAPER=.*', 'ALPACA_PAPER=true')
+```
+
+Then restart `run_autobot.py` or `main.py`.
+
 
 # Single scan cycle (CI / cron testing)
 python main.py --once
