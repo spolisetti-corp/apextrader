@@ -102,6 +102,7 @@ _IGNORE = {
     "JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC",
     "NAS", "DOW", "EPS", "RSI", "SMA", "EMA", "ATR", "ADX", "MACD",
     "HOLLY", "PRO", "MY", "COPY", "WAVE", "DEEP", "DIVE", "PLAY",
+    "TGT",
     "UNUSUAL", "OPTIONS", "SECTORS", "EXPLORE", "GROUPS", "TRADING",
     "COMPETITION", "WATCHLISTS", "SETTINGS", "DASHBOARDS", "CHANNELS",
     "MOMENTUM", "WAVES", "STOCK", "SCOPE", "BIGGEST", "GAINERS", "LOSERS",
@@ -207,7 +208,9 @@ def _extract_tickers(driver: "webdriver.Chrome") -> list[str]:
             href = anchor.get_attribute("href") or ""
             m = re.search(r'/stock/([A-Z]{1,5})(?:[/?]|$)', href)
             if m:
-                found.append(m.group(1))
+                candidate = m.group(1)
+                if _TICKER_RE.fullmatch(candidate) and candidate not in _IGNORE:
+                    found.append(candidate)
     except Exception:
         pass
 
