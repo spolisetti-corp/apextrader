@@ -41,6 +41,7 @@ from .config import (
     EOD_CLOSE_ENABLED, EOD_CLOSE_TIME, EOD_CLOSE_STRATEGIES,
     STALE_ORDER_MINUTES, STALE_ORDER_MINUTES_INTRADAY,
     KILL_MODE_TRAIL_PCT,
+    SMALL_ACCOUNT_EQUITY_THRESHOLD, SMALL_ACCOUNT_MAX_POSITIONS,
 )
 from .strategies import Signal
 from .utils import is_regular_hours, calculate_risk_adjusted_size, check_vix_roc_filter, get_dynamic_tier
@@ -227,6 +228,10 @@ class EnhancedExecutor:
         # Dynamic max positions: cap by buying power capacity
         bp_capacity = max(1, int(acct.buying_power / MIN_POSITION_DOLLARS))
         effective_max = min(MAX_POSITIONS, bp_capacity)
+
+        # Small account mode (e.g. $1k BP) uses stricter max positions to avoid overleverage
+        if acct.equity < SMALL_ACCOUNT_EQUITY_THRESHOLD:
+            effective_max = min(effective_max, SMALL_ACCOUNT_MAX_POSITIONS)
 
         # ── Max positions gate (must come first) ────────────────────────────
         if positions.total_count >= effective_max:
