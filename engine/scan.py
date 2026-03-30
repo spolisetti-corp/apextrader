@@ -28,7 +28,7 @@ from .utils import clear_bar_cache, get_bars, is_market_open, is_dead_ticker
 
 _ET  = pytz.timezone("America/New_York")
 _log = logging.getLogger("ApexTrader")
-from .strategies import get_strategy_instances, MomentumStrategy, TechnicalStrategy, _is_bull_regime
+from .strategies import get_strategy_instances, MomentumStrategy, TechnicalStrategy, SentimentStrategy, _is_bull_regime
 
 
 def _passes_guardrails(symbol: str) -> bool:
@@ -155,6 +155,8 @@ def scan_universe(scan_targets: List[str], sentiment: str) -> Tuple[List, Dict[s
         for s in strats:
             try:
                 if isinstance(s, TechnicalStrategy):
+                    sig = s.scan(symbol, sentiment)
+                elif isinstance(s, SentimentStrategy):
                     sig = s.scan(symbol, sentiment)
                 elif isinstance(s, MomentumStrategy):
                     sig = s.scan(symbol, "bull" if bull_regime else "bear")

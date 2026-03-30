@@ -324,6 +324,13 @@ MOMENTUM = {
     "volume_surge": 2.5,   # 2.5x volume confirmation (was 3 — too tight)
 }
 
+SENTIMENT_STRATEGY = {
+    "enabled": True,
+    "min_sentiment_score": 0.6,
+    "min_sentiment_confidence": 0.55,
+    "volume_surge": 2.0,
+}
+
 # ─────────────────────────────────────────────────────────────────
 # Gap Breakout Strategy
 # ─────────────────────────────────────────────────────────────────

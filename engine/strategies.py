@@ -24,6 +24,7 @@ from .config import (
     SWEEPEA, TECHNICAL, MOMENTUM, GAP_BREAKOUT, ORB, VWAP_RECLAIM, FLOAT_ROTATION, LONG_ONLY_MODE,
     ATR_STOP_MULTIPLIER, ATR_TP_RATIO, HIGH_SHORT_FLOAT_STOCKS, is_high_short_float,
     PRE_MARKET_MOMENTUM, OPENING_BELL_SURGE, PM_HIGH_BREAKOUT, EARLY_SQUEEZE, BEAR_BREAKDOWN,
+    SENTIMENT_STRATEGY,
 )
 
 ET = pytz.timezone("America/New_York")
@@ -287,6 +288,49 @@ class TrendBreakerStrategy:
             "TrendBreaker",
             atr_stop=atr14 * ATR_STOP_MULTIPLIER if atr14 > 0 else None,
         )
+
+
+class SentimentStrategy:
+    """Trade based on market sentiment with technical confirmation."""
+
+    def scan(self, symbol: str, market_sentiment: str = "neutral") -> Optional[Signal]:
+        if not SENTIMENT_STRATEGY.get("enabled", False):
+            return None
+        if market_sentiment not in ("bullish", "bearish"):
+            return None
+
+        bars = get_bars(symbol, "10d", "15m")
+        if bars.empty or len(bars) < 20:
+            return None
+
+        price = float(bars["close"].iloc[-1])
+        sma20 = float(bars["close"].rolling(20).mean().iloc[-1])
+        vol_ratio = float(bars["volume"].iloc[-5:].mean()) / max(float(bars["volume"].mean()), 1.0)
+
+        if vol_ratio < SENTIMENT_STRATEGY.get("volume_surge", 2.0):
+            return None
+
+        confidence = min(0.55 + (vol_ratio - 1.0) * 0.1, 0.92)
+
+        if market_sentiment == "bullish":
+            if price > sma20:
+                return Signal(
+                    symbol, "buy", price, confidence,
+                    f"Sentiment bullish + vol x{vol_ratio:.2f} + price>20SMA", "Sentiment",
+                    atr_stop=None,
+                )
+            return None
+
+        if market_sentiment == "bearish" and not LONG_ONLY_MODE:
+            if price < sma20:
+                return Signal(
+                    symbol, "short", price, confidence,
+                    f"Sentiment bearish + vol x{vol_ratio:.2f} + price<20SMA", "Sentiment",
+                    atr_stop=None,
+                )
+            return None
+
+        return None
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -1002,6 +1046,7 @@ def get_strategy_instances(bear_regime: bool = True):
         TechnicalStrategy(),
         SweepeaStrategy(),
         TrendBreakerStrategy(),
+        SentimentStrategy(),
         PreMarketMomentumStrategy(),
         OpeningBellSurgeStrategy(),
         PMHighBreakoutStrategy(),
