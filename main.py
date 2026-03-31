@@ -686,20 +686,16 @@ def scan_and_trade():
         )
 
         # ── Gate: per-side confidence + held-symbol cross-ref ──
+        # Force long-only at execution gating as well.
         short_min_conf = MIN_SHORT_CONFIDENCE_BEAR if market_regime == "bear" else MIN_SIGNAL_CONFIDENCE
         eligible = []
         for s in signals:
             if s.symbol in _fresh_held:
                 continue
-            long_only_hit = LONG_ONLY_MODE or executor.shorting_blocked
-            if long_only_hit and s.action != "buy":
+            if s.action != "buy":
                 continue
-            if s.action == "buy":
-                if s.confidence >= MIN_SIGNAL_CONFIDENCE:
-                    eligible.append(s)
-            elif s.action in ("sell", "short"):
-                if short_min_conf is not None and s.confidence >= short_min_conf:
-                    eligible.append(s)
+            if s.confidence >= MIN_SIGNAL_CONFIDENCE:
+                eligible.append(s)
 
         if executor.shorting_blocked and not LONG_ONLY_MODE:
             log.warning("Shorting blocked by broker permissions (40310000). Continuing in effective long-only mode this session.")

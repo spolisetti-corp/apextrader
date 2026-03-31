@@ -184,11 +184,11 @@ def scan_universe(scan_targets: List[str], sentiment: str) -> Tuple[List, Dict[s
                 scan_errors += 1
 
     signals.sort(key=lambda x: x.confidence, reverse=True)
-    if LONG_ONLY_MODE:
-        pre_len = len(signals)
-        signals = [s for s in signals if s.action == "buy"]
-        if len(signals) != pre_len:
-            _log.info(f"LONG_ONLY_MODE active in scan_universe: dropping {pre_len-len(signals)} short signals")
+    # Hard long-only enforcement: do not return any sell/short signals from scan
+    pre_len = len(signals)
+    signals = [s for s in signals if s.action == "buy"]
+    if len(signals) != pre_len:
+        _log.info(f"Long-only enforced in scan_universe: dropping {pre_len-len(signals)} short signals")
     return signals, hit_counts, scan_errors
 
 
