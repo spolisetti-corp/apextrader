@@ -91,6 +91,9 @@ from engine.universe import filter_universe_by_positions
 # ── Initialise ────────────────────────────────────
 log      = setup_logging()
 log.info(f"Trade mode: {TRADE_MODE} (PAPER={PAPER}, LIVE={LIVE})")
+if not LONG_ONLY_MODE:
+    log.warning("LONG_ONLY_MODE was False at startup, forcing True for this process to avoid shorts.")
+    LONG_ONLY_MODE = True
 # Suppress noisy third-party driver-manager logs in runtime output.
 import logging as _logging
 _logging.getLogger("WDM").setLevel(_logging.ERROR)

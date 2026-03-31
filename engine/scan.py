@@ -184,13 +184,27 @@ def scan_universe(scan_targets: List[str], sentiment: str) -> Tuple[List, Dict[s
                 scan_errors += 1
 
     signals.sort(key=lambda x: x.confidence, reverse=True)
+    if LONG_ONLY_MODE:
+        pre_len = len(signals)
+        signals = [s for s in signals if s.action == "buy"]
+        if len(signals) != pre_len:
+            _log.info(f"LONG_ONLY_MODE active in scan_universe: dropping {pre_len-len(signals)} short signals")
     return signals, hit_counts, scan_errors
 
 
 def filter_signals(signals, long_only: bool = False, min_conf: float = 0.0, cap: int = None):
     if long_only:
         signals = [s for s in signals if s.action == "buy"]
+
+    original_signals = signals
     signals = [s for s in signals if s.confidence >= min_conf]
+
+    # If all signals got filtered out, optionally retain the top candidate for manual testing.
+    # This is a deliberate dev/test behavior: set min_conf low in production or remove this block.
+    if not signals and original_signals:
+        best = max(original_signals, key=lambda s: s.confidence)
+        signals = [best]
+
     if cap is not None:
         signals = signals[:cap]
     return signals

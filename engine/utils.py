@@ -6,6 +6,7 @@ Common functions for trading operations.
 import logging
 import datetime
 import threading
+import time
 import pytz
 import pandas as pd
 from typing import Optional, Dict, Tuple
@@ -70,6 +71,9 @@ import yfinance as yf
 
 ET = pytz.timezone("America/New_York")
 
+_ALPACA_MIN_INTERVAL = 0.35  # per-symbol delay to reduce 429s
+_last_alpaca_bar_ts = 0.0
+
 _data_client = None
 
 
@@ -77,14 +81,43 @@ _data_client = None
 # Logging
 # ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
 def setup_logging() -> logging.Logger:
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s [%(levelname)s] %(message)s",
-        handlers=[
-            logging.StreamHandler(),
-            logging.FileHandler("apextrader.log", mode="a", encoding="utf-8"),
-        ],
+    from logging.handlers import TimedRotatingFileHandler
+
+    fmt = "%(asctime)s [%(levelname)s] %(message)s"
+    formatter = logging.Formatter(fmt)
+
+    root = logging.getLogger()
+
+    # Default to INFO; override by setting APEXTRADER_LOG_LEVEL env var to DEBUG/INFO/WARNING/ERROR
+    level_name = os.getenv("APEXTRADER_LOG_LEVEL", "INFO").upper()
+    root.setLevel(getattr(logging, level_name, logging.INFO))
+
+    # Avoid duplicate handlers on repeated setup calls
+    for handler in list(root.handlers):
+        root.removeHandler(handler)
+
+    console_handler = logging.StreamHandler()
+    console_handler.setFormatter(formatter)
+
+    file_handler = TimedRotatingFileHandler(
+        filename="apextrader.log",
+        when="midnight",
+        interval=1,
+        backupCount=14,
+        encoding="utf-8",
+        delay=True,
+        utc=False,
     )
+    file_handler.setFormatter(formatter)
+    file_handler.suffix = "%Y-%m-%d"
+
+    root.addHandler(console_handler)
+    root.addHandler(file_handler)
+
+    # Suppress third-party debug spam at default (keep our own INFO+ events)
+    for noisy in ("yfinance", "urllib3", "selenium", "webdriver_manager", "WDM"):
+        logging.getLogger(noisy).setLevel(logging.WARNING)
+
     return logging.getLogger("ApexTrader")
 
 
@@ -380,6 +413,103 @@ def check_sentiment_gate(ticker: str) -> tuple:
 
 # ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
 # Bar Data
+
+def get_bars_batch(symbols, period="5d", interval="15m") -> Dict[str, pd.DataFrame]:
+    """Fetch OHLCV bars for multiple symbols ─ Alpaca batch, yfinance fallback per symbol.
+
+    Results are cached per (symbol, period, interval) for the duration of
+    the current scan cycle. Call clear_bar_cache() to reset.
+    Returns a dict: {symbol: DataFrame}
+    """
+    log = logging.getLogger("ApexTrader")
+    results = {}
+    symbols = [s.strip().upper().lstrip("$") for s in symbols]
+    uncached = []
+    cache_keys = [(s, period, interval) for s in symbols]
+    with _bar_cache_lock:
+        for s, key in zip(symbols, cache_keys):
+            if key in _bar_cache:
+                log.debug(f"{s}: bar cache hit ({period}/{interval}) [batch]")
+                results[s] = _bar_cache[key]
+            else:
+                uncached.append(s)
+
+    import time as _time
+    BATCH_SIZE = 5
+    THROTTLE_SEC = 0.4
+    if ALPACA_AVAILABLE and uncached:
+        try:
+            client = get_data_client()
+            for i in range(0, len(uncached), BATCH_SIZE):
+                batch = uncached[i:i+BATCH_SIZE]
+                if interval.endswith("m"):
+                    tf = TimeFrame(int(interval[:-1]), TimeFrameUnit.Minute)
+                elif interval.endswith("h"):
+                    tf = TimeFrame(int(interval[:-1]), TimeFrameUnit.Hour)
+                elif interval.endswith("d"):
+                    tf = TimeFrame(int(interval[:-1]), TimeFrameUnit.Day)
+                else:
+                    tf = TimeFrame(15, TimeFrameUnit.Minute)
+
+                days  = int(period[:-1]) if period.endswith("d") else 5
+                start = datetime.datetime.now(ET) - datetime.timedelta(days=days)
+
+                try:
+                    bars = client.get_stock_bars(StockBarsRequest(symbol_or_symbols=batch, timeframe=tf, start=start))
+                except Exception as e:
+                    log.debug(f"Alpaca batch failed for {batch}: {e}")
+                    bars = {}
+                for s in batch:
+                    df = None
+                    if s in bars:
+                        data = bars[s].df.reset_index()
+                        data.columns = [c.lower() for c in data.columns]
+                        if "timestamp" in data.columns:
+                            data = data.rename(columns={"timestamp": "time"})
+                        if "time" in data.columns and not data.empty:
+                            latest = pd.to_datetime(data["time"].iloc[-1])
+                            if latest.tzinfo is None:
+                                latest = ET.localize(latest)
+                            staleness = (datetime.datetime.now(ET) - latest).total_seconds()
+                            if interval.endswith("m") and staleness > 120:
+                                log.warning(f"{s}: Alpaca data stale ({staleness:.0f}s) — falling through to yfinance [batch]")
+                            else:
+                                log.debug(f"{s}: Alpaca data OK ({staleness:.0f}s old) [batch]")
+                                df = data
+                    if df is not None:
+                        results[s] = df
+                        with _bar_cache_lock:
+                            _bar_cache[(s, period, interval)] = df
+                    else:
+                        log.debug(f"{s}: Alpaca missing/stale, will try yfinance [batch]")
+                _time.sleep(THROTTLE_SEC)
+        except Exception as e:
+            log.debug(f"Alpaca batch failed, using yfinance for all: {e}")
+
+    # Fallback to yfinance for any missing
+    for s in symbols:
+        if s in results:
+            continue
+        try:
+            data = yf.Ticker(s).history(period=period, interval=interval)
+            if data.empty:
+                _record_empty_bars(s)
+                results[s] = pd.DataFrame()
+                continue
+            data = data.reset_index()
+            data.columns = [c.lower() for c in data.columns]
+            if "datetime" in data.columns:
+                data = data.rename(columns={"datetime": "time"})
+            _record_ok_bars(s)
+            with _bar_cache_lock:
+                _bar_cache[(s, period, interval)] = data
+            results[s] = data
+            log.debug(f"{s}: yfinance fallback [batch]")
+        except Exception as e:
+            _record_empty_bars(s)
+            results[s] = pd.DataFrame()
+            log.warning(f"{s}: yfinance failed in batch: {e}")
+    return results
 # ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
 def get_bars(symbol: str, period: str = "5d", interval: str = "15m") -> pd.DataFrame:
     """Fetch OHLCV bars ─ Alpaca first, yfinance fallback.
@@ -411,7 +541,12 @@ def get_bars(symbol: str, period: str = "5d", interval: str = "15m") -> pd.DataF
             days  = int(period[:-1]) if period.endswith("d") else 5
             start = datetime.datetime.now(ET) - datetime.timedelta(days=days)
 
+            global _last_alpaca_bar_ts
+            elapsed = time.time() - _last_alpaca_bar_ts
+            if elapsed < _ALPACA_MIN_INTERVAL:
+                time.sleep(_ALPACA_MIN_INTERVAL - elapsed)
             bars  = client.get_stock_bars(StockBarsRequest(symbol_or_symbols=symbol, timeframe=tf, start=start))
+            _last_alpaca_bar_ts = time.time()
 
             if symbol in bars:
                 data = bars[symbol].df.reset_index()
