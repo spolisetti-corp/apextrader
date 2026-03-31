@@ -124,14 +124,14 @@ MAX_POSITIONS        = 12     # 7.5% × 12 = 90% of usable equity (within 10% BP
 # When full, close the weakest position to make room if new signal conf > this threshold
 SWAP_ON_FULL         = True
 SWAP_MIN_CONFIDENCE  = 0.85   # Only swap out if new signal >= this confidence
-POSITION_SIZE_PCT    = 7.5    # Per-trade cap (%)
-USE_RISK_EQUALIZED_SIZING = True
-RISK_PER_TRADE_PCT   = 0.8    # Risk 0.8% of account per trade (sniper: protect capital)
+POSITION_SIZE_PCT    = 20.0   # Per-trade cap (%) set to 20% of account
+USE_RISK_EQUALIZED_SIZING = False  # use fixed position sizing instead of risk-scaled
+RISK_PER_TRADE_PCT   = 0.8    # Risk 0.8% of account per trade (unused with fixed sizing)
 
 # Small account reduction caps (sub-$5k equity)
-SMALL_ACCOUNT_POSITION_SIZE_PCT = 4.0  # lower per-trade allocation for 1k~5k
+SMALL_ACCOUNT_POSITION_SIZE_PCT = 20.0  # same 20% allocation for small accounts
 SMALL_ACCOUNT_RISK_PER_TRADE_PCT = 0.5 # lower risk per trade for small accounts
-SMALL_ACCOUNT_MIN_POSITION_DOLLARS = 100.0
+SMALL_ACCOUNT_MIN_POSITION_DOLLARS = 5.0  # lowered to allow ~$5 entry for cheap tickers
 
 # Tiered Profit Targets — aggressive: book profits faster
 TAKE_PROFIT_EXTREME  = 35.0   # was 50
@@ -292,8 +292,8 @@ EMAIL_TO_ADDRESSES      = [a.strip() for a in os.getenv("EMAIL_TO_ADDRESSES", "s
 EMAIL_SUBJECT_PREFIX    = os.getenv("EMAIL_SUBJECT_PREFIX", "ApexTrader EOD Report")
 
 # Enterprise Risk Controls (environment-overridable)
-MIN_BUYING_POWER_PCT  = float(os.getenv("MIN_BUYING_POWER_PCT", "10.0"))   # Reserve this % of equity as free buffer (never spend it)
-MIN_POSITION_DOLLARS  = float(os.getenv("MIN_POSITION_DOLLARS", "500"))   # Minimum trade size in $ — skip if downsized below this
+MIN_BUYING_POWER_PCT  = float(os.getenv("MIN_BUYING_POWER_PCT", "5.0"))   # Reserve this % of equity as free buffer (never spend it)
+MIN_POSITION_DOLLARS  = float(os.getenv("MIN_POSITION_DOLLARS", "5"))   # Minimum trade size in $ — skip if downsized below this
 PDT_WARN_AT_REMAINING = int(os.getenv("PDT_WARN_AT_REMAINING", "1"))      # Warn log when PDT trades remaining falls to this level
 
 # Small account smart sizing (for ~$1k buying power)
@@ -301,10 +301,10 @@ SMALL_ACCOUNT_EQUITY_THRESHOLD = float(os.getenv("SMALL_ACCOUNT_EQUITY_THRESHOLD
 SMALL_ACCOUNT_MAX_POSITIONS     = int(os.getenv("SMALL_ACCOUNT_MAX_POSITIONS", "4"))
 
 # Sniper Mode Controls
-LONG_ONLY_MODE        = False  # Shorts enabled — requires margin, HTB check, 2x BP per short position
-MIN_SIGNAL_CONFIDENCE = 0.82   # Execute signals with confidence >= this
-MIN_SHORT_CONFIDENCE_BEAR = 0.72  # In bear regime, allow Technical short setups at current confidence scale
-SHORT_FAIL_COOLDOWN_MIN = 20   # Re-try failed short symbols only after this cooldown window
+LONG_ONLY_MODE        = True   # Force long-only for non-margin or restricted accounts
+MIN_SIGNAL_CONFIDENCE = 0.65   # Execute signals with confidence >= this
+MIN_SHORT_CONFIDENCE_BEAR = 0.65  # In bear regime, allow Technical short setups at current confidence scale
+SHORT_FAIL_COOLDOWN_MIN = 5    # Re-try failed short symbols immediately
 MAX_SIGNALS_PER_CYCLE = 5      # Execute at most this many signals per scan cycle
 
 # Parallel Scanning
@@ -436,7 +436,7 @@ MAX_GAP_CHASE_PCT        = 15.0       # Skip if already up >15% without consolid
 GAP_CHASE_CONSOL_BARS    = 5          # Number of 1-min bars to check for tight base
 USE_MARKET_REGIME_FILTER = True       # SPY below 200-day MA → cut signals to 1
 MARKET_REGIME_SIGNALS_CAP  = 1        # Max LONG entries per cycle in bear regime (swap-only)
-BEAR_SHORT_SIGNALS_CAP     = 2        # Max SHORT entries per cycle in bear regime (fresh entries, go with trend)
+BEAR_SHORT_SIGNALS_CAP     = 0        # Max SHORT entries per cycle in bear regime (0 when LONG_ONLY_MODE active)
 ATR_STOP_MULTIPLIER      = 1.5        # Stop loss = entry − ATR × 1.5
 ATR_TP_RATIO             = 2.0        # Take-profit at 2:1 R:R (risk × 2)
 MAX_SHORT_FLOAT_PCT      = 20.0       # Never exceed this % of equity per squeeze ticker

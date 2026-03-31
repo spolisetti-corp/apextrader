@@ -460,10 +460,14 @@ def check_kill_mode() -> bool:
     except Exception:
         pass
 
-    # 2. SPY intraday drop from today's open
+    # 2 & 3. Batch fetch SPY and VIX bars
     if trigger_reason is None:
         try:
-            spy_bars = get_bars("SPY", "1d", "1m")
+            from engine.utils import get_bars_batch
+            bars_batch = get_bars_batch(["SPY", "^VIX"], "1d", "1m")
+            spy_bars = bars_batch.get("SPY", pd.DataFrame())
+            vix_bars_1m = bars_batch.get("^VIX", pd.DataFrame())
+            # SPY intraday drop
             if not spy_bars.empty and len(spy_bars) >= 2:
                 spy_open = float(spy_bars["open"].iloc[0])
                 spy_now  = float(spy_bars["close"].iloc[-1])
@@ -473,21 +477,17 @@ def check_kill_mode() -> bool:
                         f"SPY intraday {drop_pct:.2f}% "
                         f"(open ${spy_open:.2f} → now ${spy_now:.2f})"
                     )
-        except Exception:
-            pass
-
-    # 3. VIX spike: up >50% in last 5 hours
-    if trigger_reason is None:
-        try:
-            vix_bars = get_bars("^VIX", "1d", "1h")
-            if not vix_bars.empty and len(vix_bars) >= 5:
-                past_vix    = float(vix_bars["close"].iloc[-5])
-                current_vix = float(vix_bars["close"].iloc[-1])
-                if past_vix > 0:
-                    roc = ((current_vix - past_vix) / past_vix) * 100
-                    if roc >= KILL_MODE_VIX_ROC_PCT:
-                        trigger_reason = (
-                            f"VIX +{roc:.0f}% in 5h "
+            # VIX spike: up >50% in last 5 hours (need 1h bars)
+            if trigger_reason is None:
+                vix_bars_1h = get_bars("^VIX", "1d", "1h")
+                if not vix_bars_1h.empty and len(vix_bars_1h) >= 5:
+                    past_vix    = float(vix_bars_1h["close"].iloc[-5])
+                    current_vix = float(vix_bars_1h["close"].iloc[-1])
+                    if past_vix > 0:
+                        roc = ((current_vix - past_vix) / past_vix) * 100
+                        if roc >= KILL_MODE_VIX_ROC_PCT:
+                            trigger_reason = (
+                                f"VIX +{roc:.0f}% in 5h "
                             f"({past_vix:.1f} -> {current_vix:.1f})"
                         )
         except Exception:
@@ -633,14 +633,22 @@ def scan_and_trade():
             if is_bull:
                 log.info(f"BULL REGIME — signals capped at {signals_cap}/cycle")
             else:
+                effective_short_cap = 0 if (LONG_ONLY_MODE or executor.shorting_blocked) else BEAR_SHORT_SIGNALS_CAP
                 log.info(
                     f"BEAR REGIME — long cap {MARKET_REGIME_SIGNALS_CAP}/cycle, "
-                    f"short cap {BEAR_SHORT_SIGNALS_CAP}/cycle"
+                    f"short cap {effective_short_cap}/cycle"
                 )
         except Exception as e:
             log.error(f"Market regime check FAILED — retaining '{_last_market_regime}' regime: {e}")
 
     signals, hit_counts, scan_errors = scan_universe(scan_targets, sentiment)
+
+    if LONG_ONLY_MODE:
+        pre_len = len(signals)
+        signals = [s for s in signals if s.action == "buy"]
+        log.warning(
+            f"LONG_ONLY_MODE is enabled: filtered {pre_len} -> {len(signals)} signals (buy-only)"
+        )
 
     breakdown = ", ".join(f"{k}: {v}" for k, v in sorted(hit_counts.items()))
     log.info(f"Signal breakdown — {breakdown or 'none'} | Errors: {scan_errors}")
@@ -680,19 +688,42 @@ def scan_and_trade():
         for s in signals:
             if s.symbol in _fresh_held:
                 continue
-            if LONG_ONLY_MODE and s.action != "buy":
+            long_only_hit = LONG_ONLY_MODE or executor.shorting_blocked
+            if long_only_hit and s.action != "buy":
                 continue
             if s.action == "buy":
                 if s.confidence >= MIN_SIGNAL_CONFIDENCE:
                     eligible.append(s)
             elif s.action in ("sell", "short"):
-                if s.confidence >= short_min_conf:
+                if short_min_conf is not None and s.confidence >= short_min_conf:
                     eligible.append(s)
+
+        if executor.shorting_blocked and not LONG_ONLY_MODE:
+            log.warning("Shorting blocked by broker permissions (40310000). Continuing in effective long-only mode this session.")
 
         log.info(
             f"Confidence gate (long>={MIN_SIGNAL_CONFIDENCE:.0%}, "
             f"short>={short_min_conf:.0%}) + position cross-ref: {len(eligible)} signal(s) qualify"
         )
+
+        # ── Long-only fallback: pick the highest buy if no eligible signals are available.
+        # This helps prevent dead cycles when market regime bias + short block leave gaps.
+        long_only_hit = LONG_ONLY_MODE or executor.shorting_blocked
+        if LONG_ONLY_MODE and any(s.action in ("sell", "short") for s in eligible):
+            log.warning("LONG_ONLY_MODE is active - removing short candidates from eligible list")
+            eligible = [s for s in eligible if s.action == "buy"]
+
+        if long_only_hit and not eligible:
+            fallback = next(
+                (s for s in signals
+                 if s.action == "buy" and s.symbol not in _fresh_held and s.confidence >= MIN_SIGNAL_CONFIDENCE),
+                None
+            )
+            if fallback:
+                log.warning(
+                    f"Long-only fallback: no eligible signals, forcing {fallback.symbol} buy @ ${fallback.price:.2f} conf={fallback.confidence:.0%}"
+                )
+                eligible = [fallback]
 
         # ── Log signals that were scanned but did NOT qualify ────────────
         eligible_syms = {s.symbol for s in eligible}
@@ -763,6 +794,10 @@ def scan_and_trade():
             # to the next qualified candidate within the same cycle.
             long_sigs  = [s for s in eligible if s.action == "buy"][:MARKET_REGIME_SIGNALS_CAP]
             short_candidates = [s for s in eligible if s.action in ("sell", "short")]
+            if LONG_ONLY_MODE:
+                if short_candidates:
+                    log.warning(f"LONG_ONLY_MODE active — dropping {len(short_candidates)} short candidate(s)")
+                short_candidates = []
             short_queue = []
             now_ts = time.monotonic()
             expired = [sym for sym, ts in _short_fail_cooldown.items() if ts <= now_ts]
@@ -790,9 +825,10 @@ def scan_and_trade():
                     log.warning(f"Pre-check asset failed for {s.symbol}: {e} — keeping candidate")
                 short_queue.append(s)
 
+            short_target = 0 if (LONG_ONLY_MODE or executor.shorting_blocked) else BEAR_SHORT_SIGNALS_CAP
             log.info(
                 f"BEAR execution plan: {len(long_sigs)} long(s) swap-only, "
-                f"target {BEAR_SHORT_SIGNALS_CAP} short(s) from queue {len(short_queue)}"
+                f"target {short_target} short(s) from queue {len(short_queue)}"
             )
 
             # Execute cautious longs first.
@@ -816,7 +852,7 @@ def scan_and_trade():
             # Execute shorts with fallback: keep trying next candidate on failure.
             short_success = 0
             for sig in short_queue:
-                if short_success >= BEAR_SHORT_SIGNALS_CAP:
+                if short_target <= 0 or short_success >= short_target:
                     break
                 try:
                     _cur_acct = client.get_account()
@@ -979,13 +1015,16 @@ def start():
     log.info("Starting… Press Ctrl+C to stop")
     log.info("=" * 70)
 
-    # Protect any existing positions that have no orders
-    executor.protect_positions()
+    # Protect any existing positions that have no orders (recover on transient failures)
+    try:
+        executor.protect_positions()
+    except Exception as e:
+        log.error(f"protect_positions initial load error: {e}", exc_info=True)
 
     try:
         scan_and_trade()
     except Exception as e:
-        log.error(f"Initial scan error: {e}")
+        log.error(f"Initial scan error: {e}", exc_info=True)
 
     last_vix_check   = time.time()
     current_interval = get_adaptive_interval()
@@ -995,33 +1034,53 @@ def start():
 
     try:
         while True:
-            if ADAPTIVE_INTERVALS and (time.time() - last_vix_check) >= 900:
-                new_interval = get_adaptive_interval()
-                if new_interval != current_interval:
-                    log.info(f"Scan interval: {current_interval} → {new_interval} min")
-                    current_interval = new_interval
-                last_vix_check = time.time()
+            try:
+                if ADAPTIVE_INTERVALS and (time.time() - last_vix_check) >= 900:
+                    new_interval = get_adaptive_interval()
+                    if new_interval != current_interval:
+                        log.info(f"Scan interval: {current_interval} → {new_interval} min")
+                        current_interval = new_interval
+                    last_vix_check = time.time()
 
-            if (time.time() - last_scan) >= (current_interval * 60):
-                executor.protect_positions()
-                eod_summary = executor.close_eod_positions()
-
-                if eod_summary:
+                if (time.time() - last_scan) >= (current_interval * 60):
                     try:
-                        account   = client.get_account()
-                        positions = client.get_all_positions()
-                        notify_eod(eod_summary, account, positions, daily_pnl, trades, trending_stocks)
+                        executor.protect_positions()
                     except Exception as e:
-                        log.error(f"EOD account fetch error: {e}")
+                        log.error(f"protect_positions loop error: {e}", exc_info=True)
 
-                try:
-                    scan_and_trade()
-                except Exception as e:
-                    log.error(f"Scan cycle error: {e}")
-                last_scan = time.time()
+                    try:
+                        eod_summary = executor.close_eod_positions()
+                    except Exception as e:
+                        log.error(f"close_eod_positions loop error: {e}", exc_info=True)
+                        eod_summary = None
 
-            schedule.run_pending()
-            time.sleep(30)
+                    if eod_summary:
+                        try:
+                            account   = client.get_account()
+                            positions = client.get_all_positions()
+                            notify_eod(eod_summary, account, positions, daily_pnl, trades, trending_stocks)
+                        except Exception as e:
+                            log.error(f"EOD account fetch error: {e}", exc_info=True)
+
+                    try:
+                        scan_and_trade()
+                    except Exception as e:
+                        log.error(f"Scan cycle error: {e}", exc_info=True)
+
+                    last_scan = time.time()
+                    log.info(f"Heartbeat: scan cycle completed at {datetime.datetime.now().isoformat()}")
+
+                schedule.run_pending()
+                time.sleep(30)
+
+            except KeyboardInterrupt:
+                log.info("Stopped by user")
+                log_status()
+                break
+
+            except Exception as e:
+                log.error(f"Unexpected main loop error: {e}", exc_info=True)
+                time.sleep(10)
 
     except KeyboardInterrupt:
         log.info("Stopped by user")

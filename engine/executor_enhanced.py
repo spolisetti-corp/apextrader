@@ -39,6 +39,7 @@ from .config import (
     TAKE_PROFIT_NORMAL, TAKE_PROFIT_HIGH, STOP_LOSS_PCT,
     ATR_TP_RATIO, MAX_SHORT_FLOAT_PCT, HIGH_SHORT_FLOAT_STOCKS, is_high_short_float,
     EOD_CLOSE_ENABLED, EOD_CLOSE_TIME, EOD_CLOSE_STRATEGIES,
+    LONG_ONLY_MODE,
     STALE_ORDER_MINUTES, STALE_ORDER_MINUTES_INTRADAY,
     KILL_MODE_TRAIL_PCT,
     SMALL_ACCOUNT_EQUITY_THRESHOLD, SMALL_ACCOUNT_MAX_POSITIONS,
@@ -123,6 +124,7 @@ class EnhancedExecutor:
         self._entry_log:   Dict[str, dict] = {}  # {symbol: {"strategy": str, "date": date}}
         self._swap_cycle_closed: set = set()     # positions already swapped this scan cycle
         self._tp_targets: Dict[str, float] = {} # {symbol: take-profit price} for ATR-based TP tracking
+        self.shorting_blocked: bool = False  # set true when broker rejects all short attempts for account
 
     # -- Position Cache ----------------------------------------------------
     def _find_weakest_position(self) -> Optional[str]:
@@ -293,6 +295,13 @@ class EnhancedExecutor:
             )
 
         cost = shares * signal.price
+
+        # Debug trace for min position handling.
+        log.debug(
+            f"size check {signal.symbol}: equity={account_snapshot.equity:.2f}, "
+            f"min_position=${min_position:.2f}, shares={shares}, cost=${cost:.2f}, desired={desired}, max_bp={max_bp}, usable=${usable:.2f}"
+        )
+
         if cost < min_position:
             return 0, f"{signal.symbol} too small after downsize: ${cost:.0f} < min ${min_position:.0f}"
 
@@ -365,10 +374,14 @@ class EnhancedExecutor:
             self._log_bracket(signal, shares, risk_info, trail_pct, None, order_type)
             return True
         except Exception as e:
-            err = str(e)
-            if "cannot be sold short" in err:
+            err = str(e).lower()
+            if "cannot be sold short" in err or "40310000" in err or "account is not allowed to short" in err:
                 self._htb_cache.add(signal.symbol)
-                log.info(f"HTB cached {signal.symbol} - will skip shorts this session")
+                self.shorting_blocked = True
+                log.warning(
+                    f"Short entry blocked for {signal.symbol} (broker permission). "
+                    "Disabling shorts for this session."
+                )
             elif "insufficient buying power" in err:
                 log.warning(f"Bracket skip {signal.symbol}: insufficient buying power")
             else:
@@ -426,10 +439,14 @@ class EnhancedExecutor:
                 return True
 
         except Exception as e:
-            err = str(e)
-            if "cannot be sold short" in err:
+            err = str(e).lower()
+            if "cannot be sold short" in err or "40310000" in err or "account is not allowed to short" in err:
                 self._htb_cache.add(signal.symbol)
-                log.info(f"HTB cached {signal.symbol} - will skip shorts this session")
+                self.shorting_blocked = True
+                log.warning(
+                    f"Short entry blocked for {signal.symbol} (broker permission). "
+                    "Disabling shorts for this session."
+                )
             elif "insufficient buying power" in err:
                 log.warning(f"Skip {signal.symbol}: insufficient buying power")
             else:
@@ -463,6 +480,10 @@ class EnhancedExecutor:
                 log.info(f"Skip {signal.symbol}: too small after short-float cap")
                 return False
 
+        if order_type == OrderType.SHORT and LONG_ONLY_MODE:
+            log.info(f"Skipping {signal.symbol} SHORT because LONG_ONLY_MODE is active")
+            return False
+
         if self.use_bracket_orders and is_regular_hours():
             if self._create_bracket_order(signal, shares, risk_info, order_type):
                 self.pdt.add(datetime.date.today())
@@ -494,6 +515,17 @@ class EnhancedExecutor:
                 return self._execute_entry(signal, acct, OrderType.LONG, swap_only=swap_only)
 
             elif signal.action in ("sell", "short"):
+                if LONG_ONLY_MODE:
+                    log.info(
+                        f"Skipping {signal.symbol} {signal.action.upper()} because LONG_ONLY_MODE is enabled"
+                    )
+                    return False
+                if self.shorting_blocked:
+                    log.info(
+                        f"Skipping {signal.symbol} {signal.action.upper()} because shorting is blocked for this account/session"
+                    )
+                    return False
+
                 if positions.has_position(signal.symbol) and positions.is_long(signal.symbol):
                     return self._close_long_position(signal, acct.equity)
                 return self._execute_entry(signal, acct, OrderType.SHORT, swap_only=swap_only)
@@ -562,14 +594,65 @@ class EnhancedExecutor:
         AND no existing sell/buy-to-cover order on that symbol), place a GTC
         trailing stop.  Skips any position already covered by an active order.
         """
-        try:
-            positions   = self.client.get_all_positions()
-            open_orders = self.client.get_orders()
-            # Build covered set: any active order on the symbol blocks re-coverage
-            covered = {o.symbol for o in open_orders}
-        except Exception as e:
-            log.error(f"protect_positions: failed to fetch data: {e}")
-            return
+        positions = []
+        covered = set()
+
+        # Resist transient connection drops by retrying fetch operations.
+        for attempt in range(1, 4):
+            try:
+                positions = self.client.get_all_positions()
+                open_orders = self.client.get_orders()
+                covered = {o.symbol for o in open_orders}
+                break
+            except Exception as e:
+                log.warning(
+                    f"protect_positions: data fetch attempt {attempt}/3 failed: {e}"
+                )
+                if attempt < 3:
+                    time.sleep(2)
+                else:
+                    log.error("protect_positions: all fetch retries failed; skipping this cycle")
+                    return
+
+        for pos in positions:
+            sym = pos.symbol
+
+            # Primary guard: don't add orders if symbol already has any active order
+            if sym in covered:
+                continue
+
+            # Secondary guard: skip if broker reports zero available qty
+            # Fall back to 0 (safe) rather than pos.qty if attribute is absent
+            try:
+                qty_available = int(float(pos.qty_available))
+            except (AttributeError, TypeError, ValueError):
+                qty_available = 0
+            if qty_available <= 0:
+                continue
+
+            try:
+                qty         = int(float(pos.qty))
+                avail       = abs(qty_available)
+                current     = float(pos.current_price)
+                is_long_pos = qty > 0
+
+                tier_info  = get_dynamic_tier(sym, current)
+                trail_pct  = tier_info["ts"]
+                tier_label = tier_info["tier"]
+
+                stop_side = OrderSide.SELL if is_long_pos else OrderSide.BUY
+                self.client.submit_order(TrailingStopOrderRequest(
+                    symbol        = sym,
+                    qty           = avail,
+                    side          = stop_side,
+                    type          = AlpacaOrderType.TRAILING_STOP,
+                    time_in_force = TimeInForce.GTC,
+                    trail_percent = trail_pct,
+                ))
+                direction = "LONG" if is_long_pos else "SHORT"
+                log.info(f"PROTECT {direction} {sym} [{tier_label}]: trailing stop {trail_pct:.1f}% GTC")
+            except Exception as e:
+                log.error(f"protect_positions {sym}: {e}")
 
         for pos in positions:
             sym = pos.symbol
