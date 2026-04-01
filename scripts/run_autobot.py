@@ -3,13 +3,82 @@ import subprocess
 import time
 import sys
 import atexit
+from datetime import datetime, time as dtime
 from pathlib import Path
+
+try:
+    from zoneinfo import ZoneInfo
+except Exception:  # pragma: no cover
+    ZoneInfo = None
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 LOG_FILE = BASE_DIR / "autobot.log"
 PID_FILE = BASE_DIR / "autobot.pid"
 PYTHON = BASE_DIR / ".venv" / "Scripts" / "python.exe"
 MAIN_SCRIPT = BASE_DIR / "main.py"
+_ET = ZoneInfo("America/New_York") if ZoneInfo else None
+_LIVE_WINDOWS_SPEC = os.getenv("LIVE_TRADE_WINDOWS_ET", "09:30-11:00,15:00-16:00")
+
+
+def _parse_windows(spec: str):
+    windows = []
+    for part in (spec or "").split(","):
+        p = part.strip()
+        if not p or "-" not in p:
+            continue
+        a, b = [x.strip() for x in p.split("-", 1)]
+        try:
+            sh, sm = [int(x) for x in a.split(":", 1)]
+            eh, em = [int(x) for x in b.split(":", 1)]
+            windows.append((dtime(sh, sm), dtime(eh, em)))
+        except Exception:
+            continue
+    return windows
+
+
+_LIVE_WINDOWS = _parse_windows(_LIVE_WINDOWS_SPEC)
+
+
+def _now_et() -> datetime:
+    if _ET is None:
+        # Safe fallback: if timezone support is unavailable, keep paper mode.
+        return datetime.utcnow()
+    return datetime.now(_ET)
+
+
+def _is_live_window(now_et: datetime) -> bool:
+    if _ET is None:
+        return False
+    if now_et.weekday() >= 5:  # Sat/Sun
+        return False
+    t = now_et.time().replace(second=0, microsecond=0)
+    for start_t, end_t in _LIVE_WINDOWS:
+        if start_t <= t < end_t:
+            return True
+    return False
+
+
+def _desired_mode() -> str:
+    return "live" if _is_live_window(_now_et()) else "paper"
+
+
+def _mode_env(mode: str):
+    env = os.environ.copy()
+    if mode == "live":
+        env["ALPACA_PAPER"] = "false"
+        env["ALPACA_BASE_URL"] = "https://api.alpaca.markets"
+        if env.get("ALPACA_LIVE_API_KEY"):
+            env["ALPACA_API_KEY"] = env["ALPACA_LIVE_API_KEY"]
+        if env.get("ALPACA_LIVE_API_SECRET"):
+            env["ALPACA_API_SECRET"] = env["ALPACA_LIVE_API_SECRET"]
+    else:
+        env["ALPACA_PAPER"] = "true"
+        env["ALPACA_BASE_URL"] = "https://paper-api.alpaca.markets/v2"
+        if env.get("ALPACA_PAPER_API_KEY"):
+            env["ALPACA_API_KEY"] = env["ALPACA_PAPER_API_KEY"]
+        if env.get("ALPACA_PAPER_API_SECRET"):
+            env["ALPACA_API_SECRET"] = env["ALPACA_PAPER_API_SECRET"]
+    return env
 
 
 def is_process_running(pid):
@@ -62,21 +131,46 @@ if __name__ == "__main__":
 
     while True:
         try:
-            write_log("Launching main.py")
+            launch_mode = _desired_mode()
+            write_log(
+                f"Launching main.py mode={launch_mode.upper()} "
+                f"(windows ET: {_LIVE_WINDOWS_SPEC})"
+            )
             started_at = time.time()
             saw_duplicate_main_lock = False
             proc = subprocess.Popen(
                 [str(PYTHON), str(MAIN_SCRIPT)],
                 cwd=str(BASE_DIR),
+                env=_mode_env(launch_mode),
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
                 universal_newlines=True,
             )
 
+            last_mode_check = time.time()
             for line in proc.stdout:
                 if "Another main.py instance is already running" in line:
                     saw_duplicate_main_lock = True
                 write_log(line.rstrip())
+
+                # Auto-switch between LIVE and PAPER by ET windows.
+                if time.time() - last_mode_check >= 30:
+                    last_mode_check = time.time()
+                    now_mode = _desired_mode()
+                    if now_mode != launch_mode:
+                        write_log(
+                            f"Mode window changed {launch_mode.upper()} -> {now_mode.upper()} "
+                            "(restarting main.py)"
+                        )
+                        try:
+                            proc.terminate()
+                            proc.wait(timeout=20)
+                        except Exception:
+                            try:
+                                proc.kill()
+                            except Exception:
+                                pass
+                        break
 
             proc.wait()
             write_log(f"main.py exited with {proc.returncode}")

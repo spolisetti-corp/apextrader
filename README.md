@@ -211,6 +211,26 @@ The bot auto-starts Mon–Fri at 7:00 AM via Windows Task Scheduler.
 **Launcher:** [`scripts/run_autobot_task.ps1`](scripts/run_autobot_task.ps1)
 **Watchdog:** [`scripts/run_autobot.py`](scripts/run_autobot.py) — relaunches `main.py` on crash (10s delay)
 
+### Auto LIVE/PAPER Mode Windows (ET)
+
+`run_autobot.py` now auto-selects mode by Eastern Time windows:
+
+- LIVE: `09:30-11:00`, `15:00-16:00` (Mon-Fri)
+- PAPER: all other times
+
+Override windows with env var:
+
+```powershell
+$env:LIVE_TRADE_WINDOWS_ET = "09:30-11:00,15:00-16:00"
+```
+
+Optional separate credentials (recommended):
+
+- `ALPACA_LIVE_API_KEY`, `ALPACA_LIVE_API_SECRET`
+- `ALPACA_PAPER_API_KEY`, `ALPACA_PAPER_API_SECRET`
+
+If not set, watchdog falls back to `ALPACA_API_KEY/SECRET` from `.env`.
+
 To manually trigger:
 ```powershell
 schtasks /Run /TN "ApexTraderAutoRun"

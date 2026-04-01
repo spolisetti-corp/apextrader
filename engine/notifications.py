@@ -3,6 +3,8 @@ from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from datetime import date
 from typing import List, Dict, Optional
+import hashlib
+import time
 
 import os
 
@@ -14,6 +16,8 @@ from .config import (
     EMAIL_SMTP_PASSWORD,
     EMAIL_FROM_ADDRESS,
     EMAIL_TO_ADDRESSES,
+    EMAIL_SCAN_MIN_INTERVAL_SEC,
+    EMAIL_SCAN_SEND_ON_CHANGE,
 )
 
 
@@ -91,12 +95,24 @@ def _build_positions_table(positions) -> str:
 
 def build_top5_report(signals, report_date: date, sentiment: str = "neutral",
                       regime: str = "bull") -> Dict[str, str]:
-    subject = f"\U0001f4c8 ApexTrader Top 5 Picks \u2014 {report_date.strftime('%b %d, %Y')}"
+    action_counts = {"buy": 0, "sell": 0, "short": 0}
+    for s in signals[:5]:
+        action_counts[s.action.lower()] = action_counts.get(s.action.lower(), 0) + 1
+    top_conf = max((s.confidence for s in signals[:5]), default=0.0)
+    subject = (
+        f"\U0001f4c8 ApexTrader {regime.upper()} {sentiment.upper()} | "
+        f"{len(signals[:5])} picks | top {top_conf:.0%} \u2014 {report_date.strftime('%b %d, %Y')}"
+    )
 
     # Plain text
     text_lines = [
         f"ApexTrader Top 5 Scan Picks — {report_date.isoformat()}",
         f"Market Sentiment: {sentiment.upper()} | Regime: {regime.upper()}",
+        (
+            f"Action Mix: BUY {action_counts.get('buy', 0)} | "
+            f"SHORT {action_counts.get('short', 0)} | "
+            f"SELL {action_counts.get('sell', 0)}"
+        ),
         "",
     ]
     text_lines.append(_format_signal_text(signals))
@@ -201,6 +217,11 @@ def build_top5_report(signals, report_date: date, sentiment: str = "neutral",
       <span style="background:{_sent_color}22;color:{_sent_color};border:1px solid {_sent_color}44;padding:2px 10px;border-radius:20px;font-size:10px;font-weight:700;letter-spacing:1px;">{sentiment.upper()}</span>
       <span style="margin-left:auto;color:#334155;font-size:9px;">{report_date.strftime('%H:%M') if hasattr(report_date,'hour') else 'SCAN'}</span>
     </div>
+
+        <div style="background:#0f172a;color:#94a3b8;padding:10px 16px;font-size:11px;border-bottom:1px solid #1e3a5f;">
+            Action Mix: BUY {action_counts.get('buy', 0)} · SHORT {action_counts.get('short', 0)} · SELL {action_counts.get('sell', 0)}
+            <span style="float:right;">Top Confidence: {top_conf:.0%}</span>
+        </div>
 
     <!-- Cards -->
     <div style="background:#111827;padding:18px 14px;border-radius:0 0 14px 14px;">
@@ -436,17 +457,51 @@ def send_email(subject: str, text: str, html: Optional[str] = None) -> bool:
 # ── High-level notification helpers ───────────────────────────────────────
 import logging as _logging
 _nlog = _logging.getLogger("ApexTrader")
+_last_scan_sent_at: float = 0.0
+_last_scan_fingerprint: str = ""
+
+
+def _scan_fingerprint(picks, sentiment: str, regime: str) -> str:
+    core = [(s.symbol, s.action, round(float(s.confidence), 2), s.strategy) for s in picks[:5]]
+    payload = f"{regime}|{sentiment}|{core}"
+    return hashlib.sha1(payload.encode("utf-8")).hexdigest()
 
 
 def notify_scan_results(signals, report_date, sentiment: str, regime: str) -> bool:
     """Send top-5 scan picks email. Returns True if sent, False otherwise."""
+    global _last_scan_sent_at, _last_scan_fingerprint
     picks = list(signals)[:5]
     if not picks:
         _nlog.info("notify_scan_results: no picks to send")
         return False
+    now = time.time()
+    fp = _scan_fingerprint(picks, sentiment, regime)
+    age = now - _last_scan_sent_at if _last_scan_sent_at else float("inf")
+
+    if fp == _last_scan_fingerprint and age < EMAIL_SCAN_MIN_INTERVAL_SEC:
+        _nlog.info(f"Scan email throttled: unchanged picks ({age:.0f}s < {EMAIL_SCAN_MIN_INTERVAL_SEC}s)")
+        return False
+
+    # Hard minimum interval: never send more often than this, even if picks changed.
+    # This prevents scan-cycle spam during fast-moving markets.
+    # For changed picks, still enforce a meaningful cool-down window to avoid
+    # near-every-cycle emails in choppy sessions.
+    min_change_interval = max(300, EMAIL_SCAN_MIN_INTERVAL_SEC)
+    if age < EMAIL_SCAN_MIN_INTERVAL_SEC:
+        changed = fp != _last_scan_fingerprint
+        if not (EMAIL_SCAN_SEND_ON_CHANGE and changed and age >= min_change_interval):
+            _nlog.info(
+                "Scan email throttled: "
+                f"age={age:.0f}s, changed={changed}, min={EMAIL_SCAN_MIN_INTERVAL_SEC}s"
+            )
+            return False
+
     try:
         report = build_top5_report(picks, report_date, sentiment, regime)
         sent   = send_email(report["subject"], report["text"], report["html"])
+        if sent:
+            _last_scan_sent_at = now
+            _last_scan_fingerprint = fp
         _nlog.info("Scan email sent" if sent else "Scan email skipped (disabled)")
         return bool(sent)
     except Exception as e:
