@@ -835,7 +835,8 @@ def scan_and_trade():
                 f"target {short_target} short(s) from queue {len(short_queue)}"
             )
 
-            # Execute cautious longs first.
+            # Execute cautious longs first — cascade through signals until one fills
+            # (the first affordable inverse ETF will succeed; others will be skipped)
             for sig in long_sigs:
                 try:
                     _cur_acct = client.get_account()
@@ -851,6 +852,7 @@ def scan_and_trade():
                 log.info(f"EXECUTE: {sig.action.upper()} {sig.symbol} @ ${sig.price:.2f} | {sig.strategy} | {sig.reason}")
                 if executor.execute(sig, swap_only=True):
                     trades += 1
+                    break   # one bear long per cycle is enough — stop after first fill
                 time.sleep(1)
 
             # Execute shorts with fallback: keep trying next candidate on failure.

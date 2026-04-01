@@ -443,7 +443,7 @@ MIN_DOLLAR_VOLUME        = 20_000_000  # Skip illiquid setups: price × day_vol 
 MAX_GAP_CHASE_PCT        = 15.0       # Skip if already up >15% without consolidation
 GAP_CHASE_CONSOL_BARS    = 5          # Number of 1-min bars to check for tight base
 USE_MARKET_REGIME_FILTER = True       # SPY below 200-day MA → cut signals to 1
-MARKET_REGIME_SIGNALS_CAP  = 1        # Max LONG entries per cycle in bear regime (swap-only)
+MARKET_REGIME_SIGNALS_CAP  = 5        # Max LONG entries per cycle in bear regime (swap-only); tries until one succeeds
 BEAR_SHORT_SIGNALS_CAP     = 0        # Max SHORT entries per cycle in bear regime (0 when LONG_ONLY_MODE active)
 ATR_STOP_MULTIPLIER      = 1.5        # Stop loss = entry − ATR × 1.5
 ATR_TP_RATIO             = 2.0        # Take-profit at 2:1 R:R (risk × 2)
