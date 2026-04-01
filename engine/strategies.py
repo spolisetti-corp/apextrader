@@ -357,8 +357,8 @@ class TechnicalStrategy:
 
         # Inverse ETFs are LONG buys in bear market — flip sentiment and relax thresholds
         is_inverse = symbol in _INVERSE_ETFS
-        if is_inverse and market_sentiment == "bearish":
-            market_sentiment = "bullish"  # bear market = tailwind for inverse ETFs
+        if is_inverse and market_sentiment in ("bearish", "neutral"):
+            market_sentiment = "bullish"  # bear/neutral market = tailwind for inverse ETFs
 
         price   = float(bars["close"].iloc[-1])
         rsi     = calc_rsi(bars["close"])
