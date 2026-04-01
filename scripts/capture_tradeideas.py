@@ -110,6 +110,9 @@ _IGNORE = {
     # stockracecentral UI words
     "RACE", "CENTRAL", "LEADER", "LEADERS", "LAGGARD", "LAGGARDS",
     "WINNER", "WINNERS", "LOSER", "LOSERS", "RANK", "RANKED",
+    # Index / non-tradeable symbols seen in TI page text
+    "DJI", "NASD", "ADR", "TX", "TI", "LLC", "SWING", "SMART",
+    "SP", "NDX", "RUT", "VIX", "DJIA",
 }
 
 _TICKER_RE = re.compile(r'\b([A-Z]{2,5})\b')
@@ -122,6 +125,26 @@ DROPDOWN_REFRESH_SEC = 2
 
 
 # ── Selenium driver ───────────────────────────────────────────────
+def _find_existing_chromedriver() -> Optional[str]:
+    """Locate an already-downloaded chromedriver.exe under ~/.wdm to avoid
+    webdriver_manager rename/permission errors on Windows."""
+    import glob, os
+    wdm_root = os.path.expandvars(r"%USERPROFILE%\.wdm\drivers\chromedriver")
+    patterns = [
+        os.path.join(wdm_root, "**", "chromedriver.exe"),
+        os.path.join(wdm_root, "**", "chromedriver-win32", "chromedriver.exe"),
+        os.path.join(wdm_root, "**", "chromedriver-win64", "chromedriver.exe"),
+    ]
+    candidates = []
+    for pattern in patterns:
+        candidates.extend(glob.glob(pattern, recursive=True))
+    # Prefer the most recently modified match
+    candidates = [c for c in candidates if os.path.isfile(c)]
+    if candidates:
+        return max(candidates, key=lambda p: os.path.getmtime(p))
+    return None
+
+
 def _build_driver(headless: bool = False, chrome_profile: Optional[str] = None) -> "webdriver.Chrome":
     # Silence noisy webdriver_manager INFO logs in bot runtime logs.
     import os
@@ -149,7 +172,13 @@ def _build_driver(headless: bool = False, chrome_profile: Optional[str] = None) 
         opts.add_argument(f"--user-data-dir={user_data}")
         opts.add_argument(f"--profile-directory={chrome_profile}")
 
-    service = ChromeService(ChromeDriverManager().install())
+    # Use already-downloaded driver if available (avoids WinError 5 rename failure)
+    existing = _find_existing_chromedriver()
+    if existing:
+        print(f"[INFO ] Using cached chromedriver: {existing}")
+        service = ChromeService(existing)
+    else:
+        service = ChromeService(ChromeDriverManager().install())
     try:
         driver = webdriver.Chrome(service=service, options=opts)
     except SessionNotCreatedException as e:

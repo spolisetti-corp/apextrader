@@ -69,6 +69,8 @@ DELISTED_STOCKS = [
     "CGV", "CHAC", "CIFG", "CNVS",
     # Index tickers (not tradeable)
     "DJI", "$DJI",
+    # Broken / no-data tickers seen in live scans
+    "ADR",
 ]
 
 # Remove delisted from core lists
@@ -474,7 +476,7 @@ HIGH_SHORT_FLOAT_STOCKS  = {
     "CRCA", "CRCG", "CRDF", "CRK", "CRSR", "CRVS",
     "CRWD", "CRWG", "CRWL", "CRWV", "CSIQ", "CTXR",
     "CV", "CVI", "CVV", "CYN", "DAMD", "DBGI",
-    "DBI", "DBVT", "DERM", "DIN", "DJI", "DNA",
+    "DBI", "DBVT", "DERM", "DIN", "DNA",
     "DNTH", "DNUT", "DOCN", "DRVN", "DTCX", "DUOG",
     "DUOL", "DUST", "DVLT", "DWSN", "DXST", "DXYZ",
     "EAF", "EBS", "EDSA", "EEIQ", "ELVN", "ENLT",
@@ -529,6 +531,9 @@ HIGH_SHORT_FLOAT_STOCKS  = {
     "XYF", "YANG", "YDDL", "YINN", "ZBIO", "ZNTL",
     "ZS", "ZSL",
 }
+
+# Remove any DELISTED_STOCKS entries that crept into HIGH_SHORT_FLOAT_STOCKS
+HIGH_SHORT_FLOAT_STOCKS = {s for s in HIGH_SHORT_FLOAT_STOCKS if s not in DELISTED_STOCKS}
 
 # Live HSF lookup — merges the static set above with tier-2 universe.json entries
 # so newly TI-scraped tickers are recognised as HSF without restarting the bot.
