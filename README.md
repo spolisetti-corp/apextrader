@@ -116,10 +116,24 @@ EMAIL_TO_ADDRESSES=you@gmail.com
 python main.py
 ```
 
-### Quick switch live/paper (1 command)
+### Quick switch live/paper (recommended)
 
 ```powershell
-# Switch to live (then restart bot)
+# Windows PowerShell (no .env edits required)
+.\run_local_ps.ps1 -Mode paper
+.\run_local_ps.ps1 -Mode live
+```
+
+```bash
+# macOS / Linux
+./run_local_sh.sh paper
+./run_local_sh.sh live
+```
+
+### Legacy .env toggle (optional)
+
+```powershell
+# Switch to live in .env (then restart bot)
 (set-content .env (get-content .env) -replace 'ALPACA_PAPER=.*', 'ALPACA_PAPER=false')
 
 # Switch back to paper

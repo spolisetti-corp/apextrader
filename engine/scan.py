@@ -100,6 +100,10 @@ def get_scan_targets(excluded: Set[str] = None) -> List[str]:
     targets = []
     seen = set()
 
+    # Inverse ETFs guaranteed first in bear — they profit from market decline
+    # and are valid LONG buys with LONG_ONLY_MODE=True.
+    _INVERSE_ETFS = ["SQQQ", "SPXU", "UVXY", "TZA", "FAZ", "SOXS", "LABD", "DUST"]
+
     def _push(symbols: List[str], limit: int = None) -> None:
         for s in symbols:
             if limit is not None and len(targets) >= limit:
@@ -112,9 +116,11 @@ def get_scan_targets(excluded: Set[str] = None) -> List[str]:
             targets.append(s)
 
     if in_bear:
+        # Always seed with inverse ETFs first — they are valid longs in bear regime
+        _push(_INVERSE_ETFS)
         # Bear mode: scan the freshest TI/live picks first (mostly tier-2),
         # then only use static/core lists as fallback if live tiers are short.
-        live_p2_cap = min(SCAN_MAX_SYMBOLS, max(1, int(SCAN_MAX_SYMBOLS * 0.7)))
+        live_p2_cap = min(SCAN_MAX_SYMBOLS, max(1, int(SCAN_MAX_SYMBOLS * 0.55)))
         _push(live_p2, limit=live_p2_cap)
         _push(live_p1, limit=SCAN_MAX_SYMBOLS)
 
@@ -184,11 +190,12 @@ def scan_universe(scan_targets: List[str], sentiment: str) -> Tuple[List, Dict[s
                 scan_errors += 1
 
     signals.sort(key=lambda x: x.confidence, reverse=True)
-    # Hard long-only enforcement: do not return any sell/short signals from scan
-    pre_len = len(signals)
-    signals = [s for s in signals if s.action == "buy"]
-    if len(signals) != pre_len:
-        _log.info(f"Long-only enforced in scan_universe: dropping {pre_len-len(signals)} short signals")
+    if LONG_ONLY_MODE:
+        # Long-only enforcement: drop sell/short signals only when LONG_ONLY_MODE is active
+        pre_len = len(signals)
+        signals = [s for s in signals if s.action == "buy"]
+        if len(signals) != pre_len:
+            _log.info(f"Long-only enforced in scan_universe: dropping {pre_len-len(signals)} short signals")
     return signals, hit_counts, scan_errors
 
 

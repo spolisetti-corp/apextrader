@@ -73,7 +73,7 @@ DELISTED_STOCKS = [
     # Index tickers (not tradeable)
     "DJI", "$DJI",
     # Broken / no-data tickers seen in live scans
-    "ADR",
+    "ADR", "BF", "AMEX", "ADVB",
 ]
 
 # Remove delisted from core lists
@@ -130,7 +130,7 @@ STOCKS = {
 MAX_POSITIONS        = 12     # 7.5% × 12 = 90% of usable equity (within 10% BP reserve)
 # When full, close the weakest position to make room if new signal conf > this threshold
 SWAP_ON_FULL         = True
-SWAP_MIN_CONFIDENCE  = 0.85   # Only swap out if new signal >= this confidence
+SWAP_MIN_CONFIDENCE  = 0.75   # Swap out weakest when new signal >= this confidence (was 0.85)
 POSITION_SIZE_PCT    = 20.0   # Per-trade cap (%) set to 20% of account
 USE_RISK_EQUALIZED_SIZING = False  # use fixed position sizing instead of risk-scaled
 RISK_PER_TRADE_PCT   = 0.8    # Risk 0.8% of account per trade (unused with fixed sizing)
@@ -309,7 +309,7 @@ SMALL_ACCOUNT_MAX_POSITIONS     = int(os.getenv("SMALL_ACCOUNT_MAX_POSITIONS", "
 
 # Sniper Mode Controls
 # Set to False to allow both long and short (recommended for non-restricted paper trading).
-LONG_ONLY_MODE        = True  # Force long-only for non-margin or restricted accounts
+LONG_ONLY_MODE        = False  # False = allow shorts (paper); True = long-only (live restricted accounts)
 MIN_SIGNAL_CONFIDENCE = 0.72   # Execute signals with confidence >= this (lowered from 0.78 for bear regime coverage)
 MIN_SHORT_CONFIDENCE_BEAR = 0.65  # In bear regime, allow Technical short setups at current confidence scale
 SHORT_FAIL_COOLDOWN_MIN = 5    # Re-try failed short symbols immediately
@@ -443,8 +443,8 @@ MIN_DOLLAR_VOLUME        = 20_000_000  # Skip illiquid setups: price × day_vol 
 MAX_GAP_CHASE_PCT        = 15.0       # Skip if already up >15% without consolidation
 GAP_CHASE_CONSOL_BARS    = 5          # Number of 1-min bars to check for tight base
 USE_MARKET_REGIME_FILTER = True       # SPY below 200-day MA → cut signals to 1
-MARKET_REGIME_SIGNALS_CAP  = 1        # Max LONG entries per cycle in bear regime (swap-only)
-BEAR_SHORT_SIGNALS_CAP     = 0        # Max SHORT entries per cycle in bear regime (0 when LONG_ONLY_MODE active)
+MARKET_REGIME_SIGNALS_CAP  = 5        # Max LONG entries per cycle in bear regime (swap-only); tries until one succeeds
+BEAR_SHORT_SIGNALS_CAP     = 3        # Max SHORT entries per cycle in bear regime
 ATR_STOP_MULTIPLIER      = 1.5        # Stop loss = entry − ATR × 1.5
 ATR_TP_RATIO             = 2.0        # Take-profit at 2:1 R:R (risk × 2)
 MAX_SHORT_FLOAT_PCT      = 20.0       # Never exceed this % of equity per squeeze ticker

@@ -92,8 +92,7 @@ from engine.universe import filter_universe_by_positions
 log      = setup_logging()
 log.info(f"Trade mode: {TRADE_MODE} (PAPER={PAPER}, LIVE={LIVE})")
 if not LONG_ONLY_MODE:
-    log.warning("LONG_ONLY_MODE was False at startup, forcing True for this process to avoid shorts.")
-    LONG_ONLY_MODE = True
+    log.info("Shorting enabled (LONG_ONLY_MODE=False).")
 # Suppress noisy third-party driver-manager logs in runtime output.
 import logging as _logging
 _logging.getLogger("WDM").setLevel(_logging.ERROR)
@@ -597,9 +596,8 @@ def scan_and_trade():
                 if q_gain_pct >= QUARTERLY_PROFIT_TARGET_PCT:
                     log.info(
                         f"QUARTERLY TARGET HIT: +{q_gain_pct:.1f}% >= {QUARTERLY_PROFIT_TARGET_PCT:.0f}% | "
-                        f"${quarterly_start_equity:,.2f} -> ${_equity:,.2f} | Halting new entries"
+                        f"${quarterly_start_equity:,.2f} -> ${_equity:,.2f} | Target reached (continuing)"
                     )
-                    return
         except Exception as e:
             log.warning(f"Quarterly target check error: {e}")
 
@@ -688,15 +686,17 @@ def scan_and_trade():
         )
 
         # ── Gate: per-side confidence + held-symbol cross-ref ──
-        # Force long-only at execution gating as well.
         short_min_conf = MIN_SHORT_CONFIDENCE_BEAR if market_regime == "bear" else MIN_SIGNAL_CONFIDENCE
         eligible = []
+        log.info(f"[DBG] LONG_ONLY_MODE={LONG_ONLY_MODE} shorting_blocked={executor.shorting_blocked} short_min={short_min_conf} regime={market_regime}")
         for s in signals:
             if s.symbol in _fresh_held:
                 continue
-            if s.action != "buy":
-                continue
-            if s.confidence >= MIN_SIGNAL_CONFIDENCE:
+            conf = round(float(s.confidence), 2)
+            log.info(f"[DBG] signal {s.symbol} action={s.action} conf={conf:.2f} held={s.symbol in _fresh_held}")
+            if s.action == "buy" and conf >= MIN_SIGNAL_CONFIDENCE:
+                eligible.append(s)
+            elif s.action in ("sell", "short") and not LONG_ONLY_MODE and conf >= short_min_conf:
                 eligible.append(s)
 
         if executor.shorting_blocked and not LONG_ONLY_MODE:
@@ -717,7 +717,7 @@ def scan_and_trade():
         if long_only_hit and not eligible:
             fallback = next(
                 (s for s in signals
-                 if s.action == "buy" and s.symbol not in _fresh_held and s.confidence >= MIN_SIGNAL_CONFIDENCE),
+                 if s.action == "buy" and s.symbol not in _fresh_held and round(float(s.confidence), 2) >= MIN_SIGNAL_CONFIDENCE),
                 None
             )
             if fallback:
@@ -733,12 +733,13 @@ def scan_and_trade():
         if not_qualified:
             log.info("── NOT QUALIFIED (top-10 raw, excluded from execution) ──────────")
             for s in not_qualified:
+                conf = round(float(s.confidence), 2)
                 if s.symbol in _fresh_held:
                     reason_str = "already held/ordered"
-                elif s.action == "buy" and s.confidence < MIN_SIGNAL_CONFIDENCE:
-                    reason_str = f"conf {s.confidence:.0%} < long min {MIN_SIGNAL_CONFIDENCE:.0%}"
-                elif s.action in ("sell", "short") and s.confidence < short_min_conf:
-                    reason_str = f"conf {s.confidence:.0%} < short min {short_min_conf:.0%}"
+                elif s.action == "buy" and conf < MIN_SIGNAL_CONFIDENCE:
+                    reason_str = f"conf {conf:.0%} < long min {MIN_SIGNAL_CONFIDENCE:.0%}"
+                elif s.action in ("sell", "short") and conf < short_min_conf:
+                    reason_str = f"conf {conf:.0%} < short min {short_min_conf:.0%}"
                 elif LONG_ONLY_MODE and s.action != "buy":
                     reason_str = "long-only mode"
                 else:
@@ -749,8 +750,9 @@ def scan_and_trade():
                 )
             log.info("────────────────────────────────────────────────────────────────")
 
-        # Ensure no shorts are listed in eligible picks; hard enforced.
-        eligible = [s for s in eligible if s.action == "buy"]
+        # Only strip shorts from eligible picks when long-only mode is active.
+        if LONG_ONLY_MODE:
+            eligible = [s for s in eligible if s.action == "buy"]
 
         # ── Top 5 eligible picks ──────────────────────────────────────────
         log.info("——————————————————————————————")
@@ -824,6 +826,12 @@ def scan_and_trade():
                             f"Pre-skip {s.symbol} SHORT: "
                             f"status={status}, tradable={tradable}, shortable={shortable}"
                         )
+                        # Cool down non-shortable/inactive symbols so we don't waste
+                        # every 3-minute cycle re-checking the same blocked short.
+                        _short_fail_cooldown[s.symbol] = max(
+                            _short_fail_cooldown.get(s.symbol, 0.0),
+                            time.monotonic() + (SHORT_FAIL_COOLDOWN_MIN * 60),
+                        )
                         continue
                 except Exception as e:
                     log.warning(f"Pre-check asset failed for {s.symbol}: {e} — keeping candidate")
@@ -835,7 +843,8 @@ def scan_and_trade():
                 f"target {short_target} short(s) from queue {len(short_queue)}"
             )
 
-            # Execute cautious longs first.
+            # Execute cautious longs first — cascade through signals until one fills
+            # (the first affordable inverse ETF will succeed; others will be skipped)
             for sig in long_sigs:
                 try:
                     _cur_acct = client.get_account()
@@ -851,6 +860,7 @@ def scan_and_trade():
                 log.info(f"EXECUTE: {sig.action.upper()} {sig.symbol} @ ${sig.price:.2f} | {sig.strategy} | {sig.reason}")
                 if executor.execute(sig, swap_only=True):
                     trades += 1
+                    break   # one bear long per cycle is enough — stop after first fill
                 time.sleep(1)
 
             # Execute shorts with fallback: keep trying next candidate on failure.
