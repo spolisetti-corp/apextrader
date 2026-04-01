@@ -696,7 +696,12 @@ def scan_and_trade():
             log.info(f"[DBG] signal {s.symbol} action={s.action} conf={conf:.2f} held={s.symbol in _fresh_held}")
             if s.action == "buy" and conf >= MIN_SIGNAL_CONFIDENCE:
                 eligible.append(s)
-            elif s.action in ("sell", "short") and not LONG_ONLY_MODE and conf >= short_min_conf:
+            elif (
+                s.action in ("sell", "short")
+                and not LONG_ONLY_MODE
+                and not executor.shorting_blocked
+                and conf >= short_min_conf
+            ):
                 eligible.append(s)
 
         if executor.shorting_blocked and not LONG_ONLY_MODE:
@@ -740,6 +745,8 @@ def scan_and_trade():
                     reason_str = f"conf {conf:.0%} < long min {MIN_SIGNAL_CONFIDENCE:.0%}"
                 elif s.action in ("sell", "short") and conf < short_min_conf:
                     reason_str = f"conf {conf:.0%} < short min {short_min_conf:.0%}"
+                elif executor.shorting_blocked and s.action in ("sell", "short"):
+                    reason_str = "shorting blocked by broker"
                 elif LONG_ONLY_MODE and s.action != "buy":
                     reason_str = "long-only mode"
                 else:
@@ -750,8 +757,8 @@ def scan_and_trade():
                 )
             log.info("────────────────────────────────────────────────────────────────")
 
-        # Only strip shorts from eligible picks when long-only mode is active.
-        if LONG_ONLY_MODE:
+        # Only strip shorts from eligible picks when long-only is effectively active.
+        if LONG_ONLY_MODE or executor.shorting_blocked:
             eligible = [s for s in eligible if s.action == "buy"]
 
         # ── Top 5 eligible picks ──────────────────────────────────────────
@@ -803,6 +810,10 @@ def scan_and_trade():
             if LONG_ONLY_MODE:
                 if short_candidates:
                     log.warning(f"LONG_ONLY_MODE active — dropping {len(short_candidates)} short candidate(s)")
+                short_candidates = []
+            if executor.shorting_blocked:
+                if short_candidates:
+                    log.warning(f"Shorting blocked — dropping {len(short_candidates)} short candidate(s)")
                 short_candidates = []
             short_queue = []
             now_ts = time.monotonic()
