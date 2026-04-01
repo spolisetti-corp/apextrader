@@ -73,7 +73,7 @@ DELISTED_STOCKS = [
     # Index tickers (not tradeable)
     "DJI", "$DJI",
     # Broken / no-data tickers seen in live scans
-    "ADR",
+    "ADR", "BF", "AMEX",
 ]
 
 # Remove delisted from core lists
