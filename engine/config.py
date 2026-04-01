@@ -15,14 +15,20 @@ OPTIONS_BROKER = "alpaca"                               # Only Alpaca supports o
 # ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
 # Alpaca API Configuration
 # ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
-API_KEY    = os.getenv("ALPACA_API_KEY", "")
-API_SECRET = os.getenv("ALPACA_API_SECRET", "")
 # PAPER mode is strongly recommended for development/testing.
 # Set environment variable ALPACA_PAPER=true to force paper mode.
 PAPER      = os.getenv("ALPACA_PAPER", "true").lower() == "true"
 LIVE       = not PAPER
 TRADE_MODE = "paper" if PAPER else "live"
-ALPACA_BASE_URL = os.getenv("ALPACA_BASE_URL") or ("https://paper-api.alpaca.markets" if PAPER else "https://api.alpaca.markets")
+_MODE      = "PAPER" if PAPER else "LIVE"
+
+API_KEY    = os.getenv(f"{_MODE}_ALPACA_API_KEY") or os.getenv("ALPACA_API_KEY", "")
+API_SECRET = os.getenv(f"{_MODE}_ALPACA_API_SECRET") or os.getenv("ALPACA_API_SECRET", "")
+ALPACA_BASE_URL = (
+    os.getenv("ALPACA_BASE_URL")
+    or os.getenv(f"{_MODE}_ALPACA_BASE_URL")
+    or ("https://paper-api.alpaca.markets" if PAPER else "https://api.alpaca.markets")
+)
 
 # Convenience for switching: override per branch by env var if needed.
 MIN_POSITION_DOLLARS = float(os.getenv("MIN_POSITION_DOLLARS", "500"))
