@@ -66,8 +66,8 @@ jobs:
 
       - name: Run single scan cycle
         env:
-          ALPACA_API_KEY: ${{ secrets.ALPACA_API_KEY }}
-          ALPACA_API_SECRET: ${{ secrets.ALPACA_API_SECRET }}
-          ALPACA_PAPER: ${{ vars.ALPACA_PAPER || 'true' }}
+          TRADE_MODE: paper
+          PAPER_ALPACA_API_KEY: ${{ secrets.PAPER_ALPACA_API_KEY }}
+          PAPER_ALPACA_API_SECRET: ${{ secrets.PAPER_ALPACA_API_SECRET }}
           FINNHUB_API_KEY: ${{ secrets.FINNHUB_API_KEY }}
         run: python main.py --once

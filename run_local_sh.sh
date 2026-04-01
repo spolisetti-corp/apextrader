@@ -15,21 +15,13 @@ else
   echo "Warning: .venv/bin/activate not found"
 fi
 
+export TRADE_MODE="$MODE"
+
 if [[ "$MODE" == "paper" ]]; then
-  export ALPACA_PAPER=true
-  export ALPACA_API_KEY="${PAPER_ALPACA_API_KEY}"
-  export ALPACA_API_SECRET="${PAPER_ALPACA_API_SECRET}"
-  export ALPACA_BASE_URL="${PAPER_ALPACA_BASE_URL:-https://paper-api.alpaca.markets/v2}"
+  [[ -z "${PAPER_ALPACA_API_KEY:-}" ]] && echo "Warning: PAPER_ALPACA_API_KEY not set in .env"
 else
-  export ALPACA_PAPER=false
-  export ALPACA_API_KEY="${LIVE_ALPACA_API_KEY}"
-  export ALPACA_API_SECRET="${LIVE_ALPACA_API_SECRET}"
-  export ALPACA_BASE_URL="${LIVE_ALPACA_BASE_URL:-https://api.alpaca.markets}"
+  [[ -z "${LIVE_ALPACA_API_KEY:-}" ]] && echo "Warning: LIVE_ALPACA_API_KEY not set in .env"
 fi
 
-if [[ -z "$ALPACA_API_KEY" || -z "$ALPACA_API_SECRET" ]]; then
-  echo "Warning: keys not set — define PAPER_ALPACA_API_KEY/PAPER_ALPACA_API_SECRET or LIVE_ALPACA_API_KEY/LIVE_ALPACA_API_SECRET in .env"
-fi
-
-echo "Running main.py in $MODE mode (ALPACA_PAPER=$ALPACA_PAPER)"
+echo "Running main.py in $MODE mode (TRADE_MODE=$TRADE_MODE)"
 python main.py

@@ -64,20 +64,11 @@ def _desired_mode() -> str:
 
 def _mode_env(mode: str):
     env = os.environ.copy()
-    if mode == "live":
-        env["ALPACA_PAPER"] = "false"
-        env["ALPACA_BASE_URL"] = env.get("LIVE_ALPACA_BASE_URL", "https://api.alpaca.markets")
-        if env.get("LIVE_ALPACA_API_KEY"):
-            env["ALPACA_API_KEY"] = env["LIVE_ALPACA_API_KEY"]
-        if env.get("LIVE_ALPACA_API_SECRET"):
-            env["ALPACA_API_SECRET"] = env["LIVE_ALPACA_API_SECRET"]
-    else:
-        env["ALPACA_PAPER"] = "true"
-        env["ALPACA_BASE_URL"] = env.get("PAPER_ALPACA_BASE_URL", "https://paper-api.alpaca.markets/v2")
-        if env.get("PAPER_ALPACA_API_KEY"):
-            env["ALPACA_API_KEY"] = env["PAPER_ALPACA_API_KEY"]
-        if env.get("PAPER_ALPACA_API_SECRET"):
-            env["ALPACA_API_SECRET"] = env["PAPER_ALPACA_API_SECRET"]
+    env["TRADE_MODE"] = mode
+    # Validate that the required credentials exist for this mode
+    key_var = f"{'LIVE' if mode == 'live' else 'PAPER'}_ALPACA_API_KEY"
+    if not env.get(key_var):
+        raise RuntimeError(f"Missing {key_var} — set it in .env before running in {mode} mode")
     return env
 
 
