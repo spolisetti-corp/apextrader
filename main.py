@@ -370,7 +370,9 @@ def scan_tradeideas_universe():
     # Use explicit profile only when provided; default to a clean no-profile
     # session since it has been more reliable than locked desktop profiles.
     ti_profile = (TRADEIDEAS_CHROME_PROFILE or "").strip() or None
-    ti_headless = TRADEIDEAS_HEADLESS
+    # Force headless=True for background process — prevents Chrome crash when
+    # running as a hidden/background process with no display.
+    ti_headless = True
 
     log.info(
         f"Scanning Trade Ideas in background (profile={ti_profile or 'none'}, "

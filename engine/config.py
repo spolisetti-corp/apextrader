@@ -50,6 +50,9 @@ PRIORITY_1_MOMENTUM = [
     "MRNA", "BCRX", "SNDX", "IMVT",
     # Energy / commodities momentum
     "RIG", "NOG", "CNX", "BTU", "DK",
+    # ── Bear-market long plays (inverse ETFs — go UP when market falls) ──
+    # Valid LONG buys in bear regime as LONG_ONLY_MODE=True
+    "SQQQ", "SPXU", "UVXY", "TZA", "FAZ", "SOXS", "LABD", "DUST",
 ]
 
 PRIORITY_2_ESTABLISHED = [
@@ -307,7 +310,7 @@ SMALL_ACCOUNT_MAX_POSITIONS     = int(os.getenv("SMALL_ACCOUNT_MAX_POSITIONS", "
 # Sniper Mode Controls
 # Set to False to allow both long and short (recommended for non-restricted paper trading).
 LONG_ONLY_MODE        = True  # Force long-only for non-margin or restricted accounts
-MIN_SIGNAL_CONFIDENCE = 0.78   # Execute signals with confidence >= this
+MIN_SIGNAL_CONFIDENCE = 0.72   # Execute signals with confidence >= this (lowered from 0.78 for bear regime coverage)
 MIN_SHORT_CONFIDENCE_BEAR = 0.65  # In bear regime, allow Technical short setups at current confidence scale
 SHORT_FAIL_COOLDOWN_MIN = 5    # Re-try failed short symbols immediately
 MAX_SIGNALS_PER_CYCLE = 5      # Execute at most this many signals per scan cycle
@@ -315,7 +318,7 @@ MAX_SIGNALS_PER_CYCLE = 5      # Execute at most this many signals per scan cycl
 # Parallel Scanning
 SCAN_WORKERS        = 8    # Threads scanning symbols concurrently (kept below Alpaca pool defaults)
 SCAN_SYMBOL_TIMEOUT = 15   # Max seconds per symbol before it is skipped
-SCAN_MAX_SYMBOLS    = 50   # Max symbols to scan per cycle (to keep latency reasonable)
+SCAN_MAX_SYMBOLS    = 75   # Max symbols to scan per cycle (increased for better bear regime coverage)
 BEAR_SHORT_TARGET_RESERVE = 30  # In bear regime, reserve more scan slots for short universe backups
 
 # ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
