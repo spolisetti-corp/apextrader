@@ -747,6 +747,9 @@ def scan_and_trade():
                 )
             log.info("────────────────────────────────────────────────────────────────")
 
+        # Ensure no shorts are listed in eligible picks; hard enforced.
+        eligible = [s for s in eligible if s.action == "buy"]
+
         # ── Top 5 eligible picks ──────────────────────────────────────────
         log.info("——————————————————————————————")
         log.info("TOP 5 ELIGIBLE PICKS:")

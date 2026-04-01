@@ -17,6 +17,8 @@ OPTIONS_BROKER = "alpaca"                               # Only Alpaca supports o
 # ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
 API_KEY    = os.getenv("ALPACA_API_KEY", "")
 API_SECRET = os.getenv("ALPACA_API_SECRET", "")
+# PAPER mode is strongly recommended for development/testing.
+# Set environment variable ALPACA_PAPER=true to force paper mode.
 PAPER      = os.getenv("ALPACA_PAPER", "true").lower() == "true"
 LIVE       = not PAPER
 TRADE_MODE = "paper" if PAPER else "live"
@@ -301,8 +303,9 @@ SMALL_ACCOUNT_EQUITY_THRESHOLD = float(os.getenv("SMALL_ACCOUNT_EQUITY_THRESHOLD
 SMALL_ACCOUNT_MAX_POSITIONS     = int(os.getenv("SMALL_ACCOUNT_MAX_POSITIONS", "4"))
 
 # Sniper Mode Controls
-LONG_ONLY_MODE        = True   # Force long-only for non-margin or restricted accounts
-MIN_SIGNAL_CONFIDENCE = 0.65   # Execute signals with confidence >= this
+# Set to False to allow both long and short (recommended for non-restricted paper trading).
+LONG_ONLY_MODE        = True  # Force long-only for non-margin or restricted accounts
+MIN_SIGNAL_CONFIDENCE = 0.78   # Execute signals with confidence >= this
 MIN_SHORT_CONFIDENCE_BEAR = 0.65  # In bear regime, allow Technical short setups at current confidence scale
 SHORT_FAIL_COOLDOWN_MIN = 5    # Re-try failed short symbols immediately
 MAX_SIGNALS_PER_CYCLE = 5      # Execute at most this many signals per scan cycle

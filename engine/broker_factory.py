@@ -36,7 +36,17 @@ class BrokerFactory:
                 raise ValueError("Alpaca credentials not found in environment")
 
             log.info(f"Using Alpaca for stock trading (paper={paper}, base_url={base_url})")
-            return TradingClient(api_key, api_secret, paper=paper, base_url=base_url)
+            try:
+                return TradingClient(api_key, api_secret, paper=paper, base_url=base_url)
+            except TypeError as exc:
+                if "unexpected keyword argument 'base_url'" in str(exc):
+                    # alpaca-py TradingClient uses environment vars for endpoint config
+                    os.environ.setdefault("APCA_API_BASE_URL", base_url)
+                    os.environ.setdefault("APCA_API_KEY_ID", api_key)
+                    os.environ.setdefault("APCA_API_SECRET_KEY", api_secret)
+                    log.info("TradingClient constructor does not support base_url; using APCA_API_BASE_URL env var fallback")
+                    return TradingClient(api_key, api_secret, paper=paper)
+                raise
 
         elif broker == "etrade":
             from .etrade_client import ETradeClient

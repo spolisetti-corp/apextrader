@@ -211,9 +211,10 @@ class SweepeaStrategy:
         if bull_pin and _is_bull_regime():
             return Signal(symbol, "buy",  float(cur["close"]), bull_conf,
                           f"Liquidity sweep + bullish pinbar | wick {lower_wick_ratio:.0f}% | vol x{vol_ratio:.1f}", "Sweepea")
-        elif bear_pin and not LONG_ONLY_MODE:
-            return Signal(symbol, "sell", float(cur["close"]), bear_conf,
-                          f"Liquidity sweep + bearish pinbar | wick {upper_wick_ratio:.0f}% | vol x{vol_ratio:.1f}", "Sweepea")
+        # Shorts are globally disabled
+        # elif bear_pin and not LONG_ONLY_MODE:
+        #     return Signal(symbol, "sell", float(cur["close"]), bear_conf,
+        #                   f"Liquidity sweep + bearish pinbar | wick {upper_wick_ratio:.0f}% | vol x{vol_ratio:.1f}", "Sweepea")
 
         return None
 
@@ -321,14 +322,15 @@ class SentimentStrategy:
                 )
             return None
 
-        if market_sentiment == "bearish" and not LONG_ONLY_MODE:
-            if price < sma20:
-                return Signal(
-                    symbol, "short", price, confidence,
-                    f"Sentiment bearish + vol x{vol_ratio:.2f} + price<20SMA", "Sentiment",
-                    atr_stop=None,
-                )
-            return None
+        # Shorts are globally disabled
+        # if market_sentiment == "bearish" and not LONG_ONLY_MODE:
+        #     if price < sma20:
+        #         return Signal(
+        #             symbol, "short", price, confidence,
+        #             f"Sentiment bearish + vol x{vol_ratio:.2f} + price<20SMA", "Sentiment",
+        #             atr_stop=None,
+        #         )
+        #     return None
 
         return None
 
