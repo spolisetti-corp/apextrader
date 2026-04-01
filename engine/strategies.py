@@ -29,6 +29,11 @@ from .config import (
 
 ET = pytz.timezone("America/New_York")
 
+# Inverse ETFs profit from market declines — treat as LONG buys in bear regime
+_INVERSE_ETFS: frozenset = frozenset({
+    "SQQQ", "SPXU", "UVXY", "TZA", "FAZ", "SOXS", "LABD", "DUST",
+})
+
 
 @dataclass
 class Signal:
@@ -104,7 +109,10 @@ class SweepeaStrategy:
                         and cur["close"] >= float(cur["ema20"]) * 0.995)
                 # Prior trend must be up (close > 8-bar lookback mean)
                 uptrend = float(prev["close"]) > float(daily["close"].iloc[-10:-2].mean())
-                if (pb8 or pb20) and uptrend and _is_bull_regime():
+                is_inverse = symbol in _INVERSE_ETFS
+                # Inverse ETFs are valid LONG buys in bear regime
+                regime_ok = is_inverse or _is_bull_regime()
+                if (pb8 or pb20) and uptrend and regime_ok:
                     atr14    = _calc_atr14(daily)
                     ema_lbl  = "8-EMA" if pb8 else "20-EMA"
                     return Signal(
@@ -208,7 +216,8 @@ class SweepeaStrategy:
         bull_conf = min(0.72 + max(lower_wick_ratio - SWEEPEA["pinbar_threshold"], 0) / 200 + max(vol_ratio - 1.0, 0) * 0.05, 0.88)
         bear_conf = min(0.72 + max(upper_wick_ratio - SWEEPEA["pinbar_threshold"], 0) / 200 + max(vol_ratio - 1.0, 0) * 0.05, 0.88)
 
-        if bull_pin and _is_bull_regime():
+        _is_inv = symbol in _INVERSE_ETFS
+        if bull_pin and (_is_bull_regime() or _is_inv):
             return Signal(symbol, "buy",  float(cur["close"]), bull_conf,
                           f"Liquidity sweep + bullish pinbar | wick {lower_wick_ratio:.0f}% | vol x{vol_ratio:.1f}", "Sweepea")
         # Shorts are globally disabled
@@ -346,6 +355,11 @@ class TechnicalStrategy:
         if bars.empty or len(bars) < 50:
             return None
 
+        # Inverse ETFs are LONG buys in bear market — flip sentiment and relax thresholds
+        is_inverse = symbol in _INVERSE_ETFS
+        if is_inverse and market_sentiment == "bearish":
+            market_sentiment = "bullish"  # bear market = tailwind for inverse ETFs
+
         price   = float(bars["close"].iloc[-1])
         rsi     = calc_rsi(bars["close"])
         cur_rsi = rsi.iloc[-1]
@@ -361,7 +375,9 @@ class TechnicalStrategy:
             score += 0.3
             reasons.append("Oversold")
         elif cur_rsi > TECHNICAL["rsi_overbought"]:
-            score -= 0.3
+            # Inverse ETFs can stay overbought during sustained bear markets — don't penalize
+            if not is_inverse:
+                score -= 0.3
             reasons.append("Overbought")
 
         if macd["hist"].iloc[-1] > 0 and macd["hist"].iloc[-1] > macd["hist"].iloc[-2]:
@@ -390,10 +406,13 @@ class TechnicalStrategy:
         elif market_sentiment == "bearish":
             score -= 0.1
 
-        if score >= 0.50:
-            return Signal(symbol, "buy",   price, score,       ", ".join(reasons), "Technical")
+        # Inverse ETFs: lower entry bar; guarantee confidence meets minimum
+        buy_threshold = 0.38 if is_inverse else 0.50
+        if score >= buy_threshold:
+            conf = max(score, 0.73) if is_inverse else score
+            return Signal(symbol, "buy", price, conf, ", ".join(reasons), "Technical")
         elif not LONG_ONLY_MODE and score <= -0.45:
-            return Signal(symbol, "short", price, abs(score),  ", ".join(reasons), "Technical")
+            return Signal(symbol, "short", price, abs(score), ", ".join(reasons), "Technical")
 
         return None
 
@@ -405,6 +424,23 @@ class MomentumStrategy:
     """Pure momentum trading with volume confirmation."""
 
     def scan(self, symbol: str, market_regime: str = "bull") -> Optional[Signal]:
+        is_inverse = symbol in _INVERSE_ETFS
+
+        if is_inverse:
+            # Inverse ETFs: measure 5-day daily momentum (more reliable than 30-min intraday)
+            daily = get_bars(symbol, "10d", "1d")
+            if daily.empty or len(daily) < 5:
+                return None
+            price    = float(daily["close"].iloc[-1])
+            price_5d = float(daily["close"].iloc[-6]) if len(daily) >= 6 else float(daily["close"].iloc[0])
+            momentum_5d = ((price / price_5d) - 1) * 100
+            sma5  = float(daily["close"].rolling(5).mean().iloc[-1])
+            if momentum_5d >= 2.0 and price >= sma5 * 0.98:
+                confidence = min(0.73 + (momentum_5d / 100), 0.95)
+                return Signal(symbol, "buy", price, confidence,
+                              f"Bear inverse ETF momentum ({momentum_5d:.1f}% / 5d)", "Momentum")
+            return None
+
         bars = get_bars(symbol, "1d", "1m")
         if bars.empty or len(bars) < 30:
             return None
