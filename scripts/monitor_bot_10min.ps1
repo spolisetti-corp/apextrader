@@ -34,9 +34,9 @@ function Get-ActiveMode {
             if ($modeLine -match 'mode=PAPER') { return 'PAPER' }
         }
     }
-    # Fallback: read ALPACA_PAPER from .env
-    $paperFlag = $envVars['ALPACA_PAPER']
-    return if ($paperFlag -eq 'false') { 'LIVE' } else { 'PAPER' }
+    # Fallback: read TRADE_MODE from .env
+    $tradeMode = $envVars['TRADE_MODE']
+    return if ($tradeMode -eq 'live') { 'LIVE' } else { 'PAPER' }
 }
 
 function Get-ActiveKeyPrefix {
@@ -63,15 +63,8 @@ function Start-BotWatchdog {
     if (-not (Test-Path $py) -or -not (Test-Path $runner)) { return $false }
     # Inject correct key set for current mode before spawning
     $mode = Get-ActiveMode
-    $keyVar    = if ($mode -eq 'LIVE') { 'LIVE_ALPACA_API_KEY'    } else { 'PAPER_ALPACA_API_KEY'    }
-    $secretVar = if ($mode -eq 'LIVE') { 'LIVE_ALPACA_API_SECRET' } else { 'PAPER_ALPACA_API_SECRET' }
-    $baseVar   = if ($mode -eq 'LIVE') { 'LIVE_ALPACA_BASE_URL'   } else { 'PAPER_ALPACA_BASE_URL'   }
-    $env:ALPACA_PAPER      = if ($mode -eq 'LIVE') { 'false' } else { 'true' }
-    $env:ALPACA_API_KEY    = $envVars[$keyVar]
-    $env:ALPACA_API_SECRET = $envVars[$secretVar]
-    $env:ALPACA_BASE_URL   = if ($envVars[$baseVar]) { $envVars[$baseVar] } `
-                             elseif ($mode -eq 'LIVE') { 'https://api.alpaca.markets' } `
-                             else { 'https://paper-api.alpaca.markets/v2' }
+    $keyVar = if ($mode -eq 'LIVE') { 'LIVE_ALPACA_API_KEY' } else { 'PAPER_ALPACA_API_KEY' }
+    $env:TRADE_MODE = $mode.ToLower()
     Start-Process -FilePath $py -ArgumentList $runner -WorkingDirectory $root -WindowStyle Hidden | Out-Null
     Start-Sleep -Seconds 4
     return $true
