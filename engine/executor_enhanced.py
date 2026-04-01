@@ -645,9 +645,16 @@ class EnhancedExecutor:
         For every open position whose shares are fully free (qty_available > 0
         AND no existing sell/buy-to-cover order on that symbol), place a GTC
         trailing stop.  Skips any position already covered by an active order.
+
+        PDT SAFETY: Never places a trailing stop on a position entered TODAY.
+        A GTC trailing stop that fills same-day counts as an open+close round-trip
+        (= 1 day trade).  Instead, same-day positions are left unprotected by stop
+        orders; the bot's existing PDT guard prevents entries when day-trades are
+        exhausted and the position will carry overnight naturally.
         """
         positions = []
         covered = set()
+        today = datetime.date.today()
 
         # Resist transient connection drops by retrying fetch operations.
         for attempt in range(1, 4):
@@ -666,55 +673,39 @@ class EnhancedExecutor:
                     log.error("protect_positions: all fetch retries failed; skipping this cycle")
                     return
 
+        # Build a set of symbols confirmed entered today, using _entry_log first,
+        # then falling back to Alpaca's filled order timestamps (survives restarts).
+        entered_today: set = {
+            sym for sym, info in self._entry_log.items()
+            if info.get("date") == today
+        }
+        try:
+            # Alpaca returns orders newest-first; check last 50 for same-day fills
+            all_orders = self.client.get_orders(filter={"status": "filled", "limit": 50})
+            import pytz as _pytz
+            _et = _pytz.timezone("America/New_York")
+            for o in all_orders:
+                filled_at = getattr(o, "filled_at", None)
+                if filled_at and hasattr(filled_at, "astimezone"):
+                    if filled_at.astimezone(_et).date() == today:
+                        entered_today.add(o.symbol)
+        except Exception:
+            pass  # best-effort; _entry_log is the primary source
+
         for pos in positions:
             sym = pos.symbol
+
+            # PDT GUARD: do NOT place a stop on a position entered today.
+            # If it fills same-day it counts as a day trade round-trip.
+            if sym in entered_today:
+                log.debug(f"protect_positions: skipping {sym} (entered today — PDT-safe)")
+                continue
 
             # Primary guard: don't add orders if symbol already has any active order
             if sym in covered:
                 continue
 
             # Secondary guard: skip if broker reports zero available qty
-            # Fall back to 0 (safe) rather than pos.qty if attribute is absent
-            try:
-                qty_available = int(float(pos.qty_available))
-            except (AttributeError, TypeError, ValueError):
-                qty_available = 0
-            if qty_available <= 0:
-                continue
-
-            try:
-                qty         = int(float(pos.qty))
-                avail       = abs(qty_available)
-                current     = float(pos.current_price)
-                is_long_pos = qty > 0
-
-                tier_info  = get_dynamic_tier(sym, current)
-                trail_pct  = tier_info["ts"]
-                tier_label = tier_info["tier"]
-
-                stop_side = OrderSide.SELL if is_long_pos else OrderSide.BUY
-                self.client.submit_order(TrailingStopOrderRequest(
-                    symbol        = sym,
-                    qty           = avail,
-                    side          = stop_side,
-                    type          = AlpacaOrderType.TRAILING_STOP,
-                    time_in_force = TimeInForce.GTC,
-                    trail_percent = trail_pct,
-                ))
-                direction = "LONG" if is_long_pos else "SHORT"
-                log.info(f"PROTECT {direction} {sym} [{tier_label}]: trailing stop {trail_pct:.1f}% GTC")
-            except Exception as e:
-                log.error(f"protect_positions {sym}: {e}")
-
-        for pos in positions:
-            sym = pos.symbol
-
-            # Primary guard: don't add orders if symbol already has any active order
-            if sym in covered:
-                continue
-
-            # Secondary guard: skip if broker reports zero available qty
-            # Fall back to 0 (safe) rather than pos.qty if attribute is absent
             try:
                 qty_available = int(float(pos.qty_available))
             except (AttributeError, TypeError, ValueError):
