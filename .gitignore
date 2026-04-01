@@ -14,6 +14,12 @@ __pycache__/
 *.pid
 autobot.pid
 
+# Temp/scratch files (never commit)
+temp_*.py
+tmp_*.py
+tmp_*.txt
+tmp_*.log
+
 # Local task scheduler export (machine-specific)
 apextrader_task.xml
 

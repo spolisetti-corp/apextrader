@@ -127,11 +127,10 @@ def setup_logging() -> logging.Logger:
 def get_data_client() -> "StockHistoricalDataClient":
     global _data_client
     if _data_client is None:
-        api_key    = os.getenv("ALPACA_API_KEY")
-        api_secret = os.getenv("ALPACA_SECRET_KEY") or os.getenv("ALPACA_API_SECRET")
-        if not api_key or not api_secret:
+        from engine.config import API_KEY, API_SECRET
+        if not API_KEY or not API_SECRET:
             raise ValueError("Alpaca API credentials not found in environment")
-        _data_client = StockHistoricalDataClient(api_key, api_secret)
+        _data_client = StockHistoricalDataClient(API_KEY, API_SECRET)
     return _data_client
 
 
