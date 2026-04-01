@@ -130,7 +130,7 @@ STOCKS = {
 MAX_POSITIONS        = 12     # 7.5% × 12 = 90% of usable equity (within 10% BP reserve)
 # When full, close the weakest position to make room if new signal conf > this threshold
 SWAP_ON_FULL         = True
-SWAP_MIN_CONFIDENCE  = 0.85   # Only swap out if new signal >= this confidence
+SWAP_MIN_CONFIDENCE  = 0.75   # Swap out weakest when new signal >= this confidence (was 0.85)
 POSITION_SIZE_PCT    = 20.0   # Per-trade cap (%) set to 20% of account
 USE_RISK_EQUALIZED_SIZING = False  # use fixed position sizing instead of risk-scaled
 RISK_PER_TRADE_PCT   = 0.8    # Risk 0.8% of account per trade (unused with fixed sizing)

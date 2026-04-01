@@ -154,6 +154,41 @@ class EnhancedExecutor:
             log.warning(f"_find_weakest_position error: {e}")
             return None
 
+    def _find_least_confident_position(self, min_new_conf: float = 0.0) -> tuple:
+        """Return (symbol, entry_confidence) of the held long position with the lowest
+        entry confidence that is strictly below min_new_conf.
+        Skips positions entered today (give them a full day) and those already swapped.
+        Returns (None, 1.0) if no suitable candidate found."""
+        try:
+            today = datetime.date.today()
+            entered_today = {
+                sym for sym, info in self._entry_log.items()
+                if info.get("date") == today
+            }
+            positions = self.client.get_all_positions()
+            candidates = [
+                p for p in positions
+                if float(p.qty) > 0
+                and float(getattr(p, "qty_available", p.qty)) > 0
+                and p.symbol not in self._swap_cycle_closed
+                and p.symbol not in entered_today
+            ]
+            if not candidates:
+                return None, 1.0
+
+            def _entry_conf(p):
+                return self._entry_log.get(p.symbol, {}).get("confidence", 0.0)
+
+            worst = min(candidates, key=_entry_conf)
+            worst_conf = _entry_conf(worst)
+            # Only swap if new signal is meaningfully more confident (>5% gap)
+            if worst_conf >= min_new_conf - 0.05:
+                return None, worst_conf
+            return worst.symbol, worst_conf
+        except Exception as e:
+            log.warning(f"_find_least_confident_position error: {e}")
+            return None, 1.0
+
     def _get_positions(self, force_refresh: bool = False) -> PositionInfo:
         import time
         now = time.time()
@@ -464,8 +499,25 @@ class EnhancedExecutor:
         risk_info = calculate_risk_adjusted_size(acct.equity, signal.symbol, signal.price)
         shares, skip_reason = self._size_with_buying_power(acct.buying_power, signal, risk_info, order_type)
         if shares < 1:
-            log.info(f"Skip {signal.symbol}: {skip_reason}")
-            return False
+            # Confidence-swap: if a held position has lower entry confidence, rotate into the new signal
+            if order_type == OrderType.LONG:
+                victim, victim_conf = self._find_least_confident_position(signal.confidence)
+                if victim:
+                    log.info(
+                        f"CONF-SWAP: closing {victim} (conf={victim_conf:.0%}) "
+                        f"to make room for {signal.symbol} (conf={signal.confidence:.0%})"
+                    )
+                    try:
+                        self.client.close_position(victim)
+                        self._swap_cycle_closed.add(victim)
+                        # Do not count the close as a day trade (exits are always allowed)
+                        acct = self._get_account(force_refresh=True)
+                        shares, skip_reason = self._size_with_buying_power(acct.buying_power, signal, risk_info, order_type)
+                    except Exception as e:
+                        log.warning(f"Conf-swap close failed for {victim}: {e}")
+            if shares < 1:
+                log.info(f"Skip {signal.symbol}: {skip_reason}")
+                return False
 
         # Short-float position cap: never exceed 20% of equity in a single squeeze ticker
         if is_high_short_float(signal.symbol):
@@ -487,7 +539,7 @@ class EnhancedExecutor:
         if self.use_bracket_orders and is_regular_hours():
             if self._create_bracket_order(signal, shares, risk_info, order_type):
                 self.pdt.add(datetime.date.today())
-                self._entry_log[signal.symbol] = {"strategy": signal.strategy, "date": datetime.date.today()}
+                self._entry_log[signal.symbol] = {"strategy": signal.strategy, "date": datetime.date.today(), "confidence": signal.confidence}
                 self._swap_cycle_closed.add(signal.symbol)  # protect from same-cycle swap-out
                 self._get_positions(force_refresh=True)
                 self._get_account(force_refresh=True)
@@ -495,7 +547,7 @@ class EnhancedExecutor:
 
         if self._create_simple_order(signal, shares, order_type):
             self.pdt.add(datetime.date.today())
-            self._entry_log[signal.symbol] = {"strategy": signal.strategy, "date": datetime.date.today()}
+            self._entry_log[signal.symbol] = {"strategy": signal.strategy, "date": datetime.date.today(), "confidence": signal.confidence}
             self._swap_cycle_closed.add(signal.symbol)  # protect from same-cycle swap-out
             self._get_positions(force_refresh=True)
             self._get_account(force_refresh=True)
