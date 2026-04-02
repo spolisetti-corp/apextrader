@@ -13,8 +13,11 @@ import sys
 from pathlib import Path
 import schedule
 import pytz
+import pandas as pd
 import yfinance as yf
 from dotenv import load_dotenv
+
+REPO_ROOT = Path(__file__).parent
 
 load_dotenv()
 
@@ -79,21 +82,20 @@ from engine.utils import (
     get_trending_tickers, filter_trending_momentum,
     get_finnhub_trending_tickers, check_sentiment_gate,
     get_vix_interval, get_market_hours_interval, get_position_tuning_interval,
-    get_bars, get_live_holdings,
+    get_bars, get_live_holdings, get_market_sentiment,
 )
 from engine.strategies import _is_bull_regime
 from engine.executor_enhanced import EnhancedExecutor
 from engine.notifications import notify_scan_results, notify_eod
 from engine.scan import get_scan_targets, scan_universe, filter_signals
 from engine.broker_factory import BrokerFactory
-from engine.universe import filter_universe_by_positions
+from engine.predictions import save_day_picks
 
 # ── Initialise ────────────────────────────────────
 log      = setup_logging()
 log.info(f"Trade mode: {TRADE_MODE} (PAPER={PAPER}, LIVE={LIVE})")
 if not LONG_ONLY_MODE:
-    log.warning("LONG_ONLY_MODE was False at startup, forcing True for this process to avoid shorts.")
-    LONG_ONLY_MODE = True
+    log.info("Shorting enabled (LONG_ONLY_MODE=False).")
 # Suppress noisy third-party driver-manager logs in runtime output.
 import logging as _logging
 _logging.getLogger("WDM").setLevel(_logging.ERROR)
@@ -154,34 +156,6 @@ _ti_warned_running = False
 _ti_executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
 _last_market_regime: str = "bull"  # retained across cycles; never resets to bull on error
 _short_fail_cooldown: dict = {}      # {symbol: monotonic_expiry_ts}
-
-
-# ── Market Sentiment ────────────────────────────────────────────
-_sentiment_cache: dict = {"ts": 0.0, "value": "neutral"}
-_SENTIMENT_TTL = 900  # 15 min — matches regime cache TTL
-
-def get_market_sentiment() -> str:
-    now = time.monotonic()
-    if now - _sentiment_cache["ts"] < _SENTIMENT_TTL:
-        return _sentiment_cache["value"]
-    try:
-        spy = yf.Ticker("SPY").history(period="5d", interval="1h")
-        vix = yf.Ticker("^VIX").history(period="5d", interval="1h")
-        if spy.empty:
-            result = "neutral"
-        else:
-            spy_mom = ((spy["Close"].iloc[-1] / spy["Close"].iloc[0]) - 1) * 100
-            vix_val = float(vix["Close"].iloc[-1]) if not vix.empty else 20
-            if spy_mom > 1 and vix_val < 20:
-                result = "bullish"
-            elif spy_mom < -1 or vix_val > 30:
-                result = "bearish"
-            else:
-                result = "neutral"
-    except Exception:
-        result = "neutral"
-    _sentiment_cache.update({"ts": now, "value": result})
-    return result
 
 
 # ── Trending Scan ───────────────────────────────────────────────
@@ -256,32 +230,6 @@ def scan_trending_stocks():
 
 
 # ── Trade Ideas Universe Refresh ───────────────────────────────
-# UI labels, column headers, and other non-ticker strings the TI scraper sometimes
-# picks up alongside real symbols.  Anything in this set is silently dropped before
-# it can pollute the priority lists.
-_TI_SCRAPE_GARBAGE = {
-    "TI", "NASD", "SWING", "SMART", "CBD", "LLC", "DJI", "SPY", "ARTL",  # known artifacts
-    "BUY", "SELL", "SHORT", "LONG", "ALL", "NEW", "TOP", "HOT",            # action words
-    "NYSE", "AMEX", "OTC", "ETF", "ADR",                                   # exchange/type labels
-    "HIGH", "LOW", "OPEN", "CLOSE", "VOL", "RVOL", "FLOAT",               # column headers
-    "BF", "NOTE",                                                          # consistently no data on all feeds
-}
-
-def _is_valid_ti_ticker(sym: str) -> bool:
-    """Return False for obvious scraper garbage: too short, too long, non-alpha, or block-listed."""
-    if not sym or not isinstance(sym, str):
-        return False
-    s = sym.strip().upper()
-    if not s:
-        return False
-    # Must be 1–5 uppercase letters (optionally ending in one digit for share classes)
-    import re as _re
-    if not _re.fullmatch(r"[A-Z]{1,5}[0-9]?", s):
-        return False
-    if s in _TI_SCRAPE_GARBAGE:
-        return False
-    return True
-
 
 def _apply_tradeideas_results(results: dict, scans: dict) -> None:
     for scan_key, tickers in results.items():
@@ -335,7 +283,7 @@ def scan_tradeideas_universe():
         _scripts = str(REPO_ROOT / "scripts")
         if _scripts not in sys.path:
             sys.path.insert(0, _scripts)
-        from capture_tradeideas import scrape_tradeideas, SCANS
+        from capture_tradeideas import scrape_tradeideas, SCANS, _is_valid_ti_ticker
     except ImportError as e:
         log.warning(f"Trade Ideas scraper unavailable (selenium not installed?): {e}")
         last_ti_scan = time.time()
@@ -389,7 +337,6 @@ def scan_tradeideas_universe():
     )
 
 
-REPO_ROOT = __import__('pathlib').Path(__file__).parent
 
 
 # ── Main Scan & Trade ───────────────────────────────────────────
@@ -597,9 +544,8 @@ def scan_and_trade():
                 if q_gain_pct >= QUARTERLY_PROFIT_TARGET_PCT:
                     log.info(
                         f"QUARTERLY TARGET HIT: +{q_gain_pct:.1f}% >= {QUARTERLY_PROFIT_TARGET_PCT:.0f}% | "
-                        f"${quarterly_start_equity:,.2f} -> ${_equity:,.2f} | Halting new entries"
+                        f"${quarterly_start_equity:,.2f} -> ${_equity:,.2f} | Target reached (continuing)"
                     )
-                    return
         except Exception as e:
             log.warning(f"Quarterly target check error: {e}")
 
@@ -688,15 +634,22 @@ def scan_and_trade():
         )
 
         # ── Gate: per-side confidence + held-symbol cross-ref ──
-        # Force long-only at execution gating as well.
         short_min_conf = MIN_SHORT_CONFIDENCE_BEAR if market_regime == "bear" else MIN_SIGNAL_CONFIDENCE
         eligible = []
+        log.info(f"[DBG] LONG_ONLY_MODE={LONG_ONLY_MODE} shorting_blocked={executor.shorting_blocked} short_min={short_min_conf} regime={market_regime}")
         for s in signals:
             if s.symbol in _fresh_held:
                 continue
-            if s.action != "buy":
-                continue
-            if s.confidence >= MIN_SIGNAL_CONFIDENCE:
+            conf = round(float(s.confidence), 2)
+            log.info(f"[DBG] signal {s.symbol} action={s.action} conf={conf:.2f} held={s.symbol in _fresh_held}")
+            if s.action == "buy" and conf >= MIN_SIGNAL_CONFIDENCE:
+                eligible.append(s)
+            elif (
+                s.action in ("sell", "short")
+                and not LONG_ONLY_MODE
+                and not executor.shorting_blocked
+                and conf >= short_min_conf
+            ):
                 eligible.append(s)
 
         if executor.shorting_blocked and not LONG_ONLY_MODE:
@@ -717,7 +670,7 @@ def scan_and_trade():
         if long_only_hit and not eligible:
             fallback = next(
                 (s for s in signals
-                 if s.action == "buy" and s.symbol not in _fresh_held and s.confidence >= MIN_SIGNAL_CONFIDENCE),
+                 if s.action == "buy" and s.symbol not in _fresh_held and round(float(s.confidence), 2) >= MIN_SIGNAL_CONFIDENCE),
                 None
             )
             if fallback:
@@ -733,12 +686,15 @@ def scan_and_trade():
         if not_qualified:
             log.info("── NOT QUALIFIED (top-10 raw, excluded from execution) ──────────")
             for s in not_qualified:
+                conf = round(float(s.confidence), 2)
                 if s.symbol in _fresh_held:
                     reason_str = "already held/ordered"
-                elif s.action == "buy" and s.confidence < MIN_SIGNAL_CONFIDENCE:
-                    reason_str = f"conf {s.confidence:.0%} < long min {MIN_SIGNAL_CONFIDENCE:.0%}"
-                elif s.action in ("sell", "short") and s.confidence < short_min_conf:
-                    reason_str = f"conf {s.confidence:.0%} < short min {short_min_conf:.0%}"
+                elif s.action == "buy" and conf < MIN_SIGNAL_CONFIDENCE:
+                    reason_str = f"conf {conf:.0%} < long min {MIN_SIGNAL_CONFIDENCE:.0%}"
+                elif s.action in ("sell", "short") and conf < short_min_conf:
+                    reason_str = f"conf {conf:.0%} < short min {short_min_conf:.0%}"
+                elif executor.shorting_blocked and s.action in ("sell", "short"):
+                    reason_str = "shorting blocked by broker"
                 elif LONG_ONLY_MODE and s.action != "buy":
                     reason_str = "long-only mode"
                 else:
@@ -749,8 +705,9 @@ def scan_and_trade():
                 )
             log.info("────────────────────────────────────────────────────────────────")
 
-        # Ensure no shorts are listed in eligible picks; hard enforced.
-        eligible = [s for s in eligible if s.action == "buy"]
+        # Only strip shorts from eligible picks when long-only is effectively active.
+        if LONG_ONLY_MODE or executor.shorting_blocked:
+            eligible = [s for s in eligible if s.action == "buy"]
 
         # ── Top 5 eligible picks ──────────────────────────────────────────
         log.info("——————————————————————————————")
@@ -762,31 +719,8 @@ def scan_and_trade():
             )
         log.info("——————————————————————————————")
 
-        # ── Persist day picks to predictions/day_picks.json ────────────────
-        try:
-            import json as _json
-            from pathlib import Path as _Path
-            _picks_path = _Path(__file__).parent / "predictions" / "day_picks.json"
-            _picks_path.parent.mkdir(parents=True, exist_ok=True)
-            _picks_data = {
-                "generated_at": datetime.datetime.now(_ET).isoformat(timespec="seconds"),
-                "date": str(datetime.date.today()),
-                "market_regime": market_regime,
-                "picks": [
-                    {
-                        "symbol":     s.symbol,
-                        "action":     s.action,
-                        "price":      round(s.price, 4),
-                        "confidence": round(s.confidence, 4),
-                        "strategy":   s.strategy,
-                        "reason":     s.reason,
-                    }
-                    for s in eligible[:5]
-                ],
-            }
-            _picks_path.write_text(_json.dumps(_picks_data, indent=2), encoding="utf-8")
-        except Exception as _e:
-            log.warning(f"day_picks.json write failed: {_e}")
+        # ── Persist day picks ───────────────────────────────────────────────
+        save_day_picks(eligible[:5], market_regime)
 
         # ── Email notification ────────────────────────────────────────────
         notify_scan_results(eligible[:5], datetime.date.today(), sentiment, market_regime)
@@ -801,6 +735,10 @@ def scan_and_trade():
             if LONG_ONLY_MODE:
                 if short_candidates:
                     log.warning(f"LONG_ONLY_MODE active — dropping {len(short_candidates)} short candidate(s)")
+                short_candidates = []
+            if executor.shorting_blocked:
+                if short_candidates:
+                    log.warning(f"Shorting blocked — dropping {len(short_candidates)} short candidate(s)")
                 short_candidates = []
             short_queue = []
             now_ts = time.monotonic()
@@ -823,6 +761,12 @@ def scan_and_trade():
                         log.info(
                             f"Pre-skip {s.symbol} SHORT: "
                             f"status={status}, tradable={tradable}, shortable={shortable}"
+                        )
+                        # Cool down non-shortable/inactive symbols so we don't waste
+                        # every 3-minute cycle re-checking the same blocked short.
+                        _short_fail_cooldown[s.symbol] = max(
+                            _short_fail_cooldown.get(s.symbol, 0.0),
+                            time.monotonic() + (SHORT_FAIL_COOLDOWN_MIN * 60),
                         )
                         continue
                 except Exception as e:

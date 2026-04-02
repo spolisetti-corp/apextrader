@@ -15,14 +15,17 @@ OPTIONS_BROKER = "alpaca"                               # Only Alpaca supports o
 # ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
 # Alpaca API Configuration
 # ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
-API_KEY    = os.getenv("ALPACA_API_KEY", "")
-API_SECRET = os.getenv("ALPACA_API_SECRET", "")
 # PAPER mode is strongly recommended for development/testing.
-# Set environment variable ALPACA_PAPER=true to force paper mode.
-PAPER      = os.getenv("ALPACA_PAPER", "true").lower() == "true"
+# Set environment variable TRADE_MODE=paper or TRADE_MODE=live.
+TRADE_MODE = os.getenv("TRADE_MODE", "paper").lower()
+PAPER      = TRADE_MODE == "paper"
 LIVE       = not PAPER
-TRADE_MODE = "paper" if PAPER else "live"
-ALPACA_BASE_URL = os.getenv("ALPACA_BASE_URL") or ("https://paper-api.alpaca.markets" if PAPER else "https://api.alpaca.markets")
+_MODE      = "PAPER" if PAPER else "LIVE"
+
+API_KEY    = os.getenv(f"{_MODE}_ALPACA_API_KEY", "")
+API_SECRET = os.getenv(f"{_MODE}_ALPACA_API_SECRET", "")
+# SDK picks the correct endpoint automatically via paper=True/False — no URL override needed
+ALPACA_BASE_URL = "https://paper-api.alpaca.markets" if PAPER else "https://api.alpaca.markets"
 
 # Convenience for switching: override per branch by env var if needed.
 MIN_POSITION_DOLLARS = float(os.getenv("MIN_POSITION_DOLLARS", "500"))
@@ -73,7 +76,7 @@ DELISTED_STOCKS = [
     # Index tickers (not tradeable)
     "DJI", "$DJI",
     # Broken / no-data tickers seen in live scans
-    "ADR", "BF", "AMEX",
+    "ADR", "BF", "AMEX", "ADVB",
 ]
 
 # Remove delisted from core lists
@@ -86,17 +89,7 @@ PRIORITY_2_ESTABLISHED = [s for s in PRIORITY_2_ESTABLISHED if s not in DELISTED
 #
 # get_dynamic_universe() is called live each scan cycle so newly scraped TI
 # tickers are picked up without restarting the bot.
-from engine.universe import get_tier as _get_tier  # noqa: E402
-
-
-def _merge_live(dyn: list, core: list, exclude: set) -> list:
-    seen: set = set(exclude)
-    out = []
-    for s in list(dyn) + list(core):
-        if s not in seen:
-            seen.add(s)
-            out.append(s)
-    return out
+from engine.universe import get_tier as _get_tier, merge_live as _merge_live  # noqa: E402
 
 
 def get_dynamic_universe() -> tuple:
@@ -297,6 +290,8 @@ EMAIL_SMTP_PASSWORD     = os.getenv("EMAIL_SMTP_PASSWORD", "")
 EMAIL_FROM_ADDRESS      = os.getenv("EMAIL_FROM_ADDRESS", "apextrader_bot@gmail.com")
 EMAIL_TO_ADDRESSES      = [a.strip() for a in os.getenv("EMAIL_TO_ADDRESSES", "spolisetti.archive@gmail.com,alerts@apextrader.example.com").split(",") if a.strip()]
 EMAIL_SUBJECT_PREFIX    = os.getenv("EMAIL_SUBJECT_PREFIX", "ApexTrader EOD Report")
+EMAIL_SCAN_MIN_INTERVAL_SEC = int(os.getenv("EMAIL_SCAN_MIN_INTERVAL_SEC", "600"))
+EMAIL_SCAN_SEND_ON_CHANGE   = os.getenv("EMAIL_SCAN_SEND_ON_CHANGE", "true").lower() in ("1", "true", "yes")
 
 # Enterprise Risk Controls (environment-overridable)
 MIN_BUYING_POWER_PCT  = float(os.getenv("MIN_BUYING_POWER_PCT", "5.0"))   # Reserve this % of equity as free buffer (never spend it)
@@ -309,7 +304,7 @@ SMALL_ACCOUNT_MAX_POSITIONS     = int(os.getenv("SMALL_ACCOUNT_MAX_POSITIONS", "
 
 # Sniper Mode Controls
 # Set to False to allow both long and short (recommended for non-restricted paper trading).
-LONG_ONLY_MODE        = True  # Force long-only for non-margin or restricted accounts
+LONG_ONLY_MODE        = False  # False = allow shorts (paper); True = long-only (live restricted accounts)
 MIN_SIGNAL_CONFIDENCE = 0.72   # Execute signals with confidence >= this (lowered from 0.78 for bear regime coverage)
 MIN_SHORT_CONFIDENCE_BEAR = 0.65  # In bear regime, allow Technical short setups at current confidence scale
 SHORT_FAIL_COOLDOWN_MIN = 5    # Re-try failed short symbols immediately
@@ -444,7 +439,7 @@ MAX_GAP_CHASE_PCT        = 15.0       # Skip if already up >15% without consolid
 GAP_CHASE_CONSOL_BARS    = 5          # Number of 1-min bars to check for tight base
 USE_MARKET_REGIME_FILTER = True       # SPY below 200-day MA → cut signals to 1
 MARKET_REGIME_SIGNALS_CAP  = 5        # Max LONG entries per cycle in bear regime (swap-only); tries until one succeeds
-BEAR_SHORT_SIGNALS_CAP     = 0        # Max SHORT entries per cycle in bear regime (0 when LONG_ONLY_MODE active)
+BEAR_SHORT_SIGNALS_CAP     = 3        # Max SHORT entries per cycle in bear regime
 ATR_STOP_MULTIPLIER      = 1.5        # Stop loss = entry − ATR × 1.5
 ATR_TP_RATIO             = 2.0        # Take-profit at 2:1 R:R (risk × 2)
 MAX_SHORT_FLOAT_PCT      = 20.0       # Never exceed this % of equity per squeeze ticker

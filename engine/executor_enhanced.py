@@ -9,6 +9,7 @@ Optimized trade executor with consolidated logic:
 
 import logging
 import datetime
+import time
 from typing import Optional, Dict, Tuple
 from dataclasses import dataclass, field
 from enum import Enum
@@ -384,7 +385,7 @@ class EnhancedExecutor:
                 qty             = shares,
                 side            = side,
                 time_in_force   = TimeInForce.DAY,
-                client_order_id = f"apex-{signal.strategy}-{signal.symbol}",
+                client_order_id = f"apex-{signal.strategy}-{signal.symbol}-{int(time.time())}",
             )
             order = self.client.submit_order(entry_req)
             self.order_cache[signal.symbol] = order.id

@@ -153,3 +153,18 @@ def stats() -> dict:
 def filter_universe_by_positions(universe: list[str], held_symbols: set[str], exclude_unfilled_buys: bool = True) -> list[str]:
     """Filter out symbols already held or with unfilled buy orders from the scan universe."""
     return [s for s in universe if s not in held_symbols]
+
+
+def merge_live(dyn: list[str], core: list[str], exclude: set[str]) -> list[str]:
+    """Merge dynamic (TTL-managed) tickers with core static list, deduplicating and excluding.
+
+    Dynamic tickers appear first so recently-added ones are prioritised during
+    scan slicing.  Core tickers that are not yet in *dyn* are appended after.
+    """
+    seen: set[str] = set(exclude)
+    out: list[str] = []
+    for s in list(dyn) + list(core):
+        if s not in seen:
+            seen.add(s)
+            out.append(s)
+    return out

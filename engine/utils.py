@@ -127,11 +127,10 @@ def setup_logging() -> logging.Logger:
 def get_data_client() -> "StockHistoricalDataClient":
     global _data_client
     if _data_client is None:
-        api_key    = os.getenv("ALPACA_API_KEY")
-        api_secret = os.getenv("ALPACA_SECRET_KEY") or os.getenv("ALPACA_API_SECRET")
-        if not api_key or not api_secret:
+        from engine.config import API_KEY, API_SECRET
+        if not API_KEY or not API_SECRET:
             raise ValueError("Alpaca API credentials not found in environment")
-        _data_client = StockHistoricalDataClient(api_key, api_secret)
+        _data_client = StockHistoricalDataClient(API_KEY, API_SECRET)
     return _data_client
 
 
@@ -732,3 +731,37 @@ def get_position_tuning_interval(pos_count: int, config: dict) -> tuple:
         return config.get("LOW_POSITION_INTERVAL", 3), f"LOW POS ({pos_count})"
 
     return None, "DISABLED"
+
+
+# ── Market Sentiment ─────────────────────────────────────────────
+_sentiment_cache: dict = {"ts": 0.0, "value": "neutral"}
+_SENTIMENT_TTL = 900  # 15 min
+
+
+def get_market_sentiment() -> str:
+    """Return 'bullish', 'bearish', or 'neutral' based on SPY momentum and VIX.
+
+    Result is cached for _SENTIMENT_TTL seconds to avoid redundant yfinance calls.
+    """
+    import time as _time
+    now = _time.monotonic()
+    if now - _sentiment_cache["ts"] < _SENTIMENT_TTL:
+        return _sentiment_cache["value"]
+    try:
+        spy = yf.Ticker("SPY").history(period="5d", interval="1h")
+        vix = yf.Ticker("^VIX").history(period="5d", interval="1h")
+        if spy.empty:
+            result = "neutral"
+        else:
+            spy_mom = ((spy["Close"].iloc[-1] / spy["Close"].iloc[0]) - 1) * 100
+            vix_val = float(vix["Close"].iloc[-1]) if not vix.empty else 20
+            if spy_mom > 1 and vix_val < 20:
+                result = "bullish"
+            elif spy_mom < -1 or vix_val > 30:
+                result = "bearish"
+            else:
+                result = "neutral"
+    except Exception:
+        result = "neutral"
+    _sentiment_cache.update({"ts": now, "value": result})
+    return result
