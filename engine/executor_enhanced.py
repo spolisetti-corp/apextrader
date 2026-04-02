@@ -245,6 +245,17 @@ class EnhancedExecutor:
         if dt_left <= PDT_WARN_AT_REMAINING and acct.equity < PDT_ACCOUNT_MIN:
             log.warning(f"PDT WARNING: only {dt_left} day trade(s) remaining (equity ${acct.equity:,.0f})")
 
+        # With 0 day trades remaining (sub-$25k), any new long can't be stopped same-day — forced
+        # overnight hold with no broker protection.  Allow only inverse ETFs (bear-regime hedges)
+        # or very high conviction (≥85%) signals.  Skip all marginal entries.
+        if dt_left == 0 and acct.equity < PDT_ACCOUNT_MIN and order_type == OrderType.LONG:
+            _PDT_EXEMPT = {"SQQQ", "SPXU", "UVXY", "TZA", "FAZ", "SOXS", "LABD", "DUST"}
+            if signal.symbol not in _PDT_EXEMPT and signal.confidence < 0.85:
+                return False, (
+                    f"PDT=0 remaining: confidence {signal.confidence:.0%} < 85% required "
+                    f"(no same-day stop possible — overnight risk unacceptable)"
+                )
+
         # Skip hard-to-borrow shorts cached from previous failures this session
         if order_type == OrderType.SHORT and signal.symbol in self._htb_cache:
             return False, f"{signal.symbol} hard-to-borrow (cached)"
@@ -525,8 +536,10 @@ class EnhancedExecutor:
         risk_info = calculate_risk_adjusted_size(acct.equity, signal.symbol, signal.price)
         shares, skip_reason = self._size_with_buying_power(acct.buying_power, signal, risk_info, order_type)
         if shares < 1:
-            # Confidence-swap: if a held position has lower entry confidence, rotate into the new signal
-            if order_type == OrderType.LONG:
+            # Confidence-swap: if a held position has lower entry confidence, rotate into the new signal.
+            # Skip entirely when PDT = 0 — closing a same-day position would itself be a day trade.
+            _dt_left_swap = self.pdt.remaining(acct.equity, acct.daytrade_count)
+            if order_type == OrderType.LONG and _dt_left_swap > 0:
                 victim, victim_conf = self._find_least_confident_position(signal.confidence)
                 if victim:
                     log.info(

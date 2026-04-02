@@ -291,6 +291,12 @@ class TrendBreakerStrategy:
         vol_ratio = vol_today / vol_avg
         if vol_ratio < 3.0:   # "Volume Gift": need 3×–5× for aggressive squeeze entry
             return None
+        if vol_ratio > 40:    # extreme outlier = likely pump/manipulation, not a squeeze
+            return None
+
+        # Minimum price gate: sub-$5 penny stocks are too volatile and pump-prone
+        if price < 5.0:
+            return None
 
         # RSI crossing above 50
         rsi = calc_rsi(closes, period=14)

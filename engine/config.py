@@ -391,7 +391,7 @@ SENTIMENT_STRATEGY = {
 # ─────────────────────────────────────────────────────────────────
 GAP_BREAKOUT = {
     "min_gap_pct":       5.0,   # Minimum gap-up % from prior close
-    "volume_multiplier": 1.5,   # Recent vol must be > X * session avg
+    "volume_multiplier": 2.5,   # Recent vol must be > X * session avg (raised from 1.5 — x1.5 was noise-level)
     "entry_window_min":  90,    # Only enter within first 90 min of open
 }
 
@@ -403,7 +403,7 @@ ORB = {
     "entry_start_min":     15,   # Start looking for breakouts after ORB forms
     "entry_end_min":       120,  # Stop entering after 2 hrs into session
     "breakout_buffer_pct": 0.1,  # Require 0.1% above ORB high to confirm
-    "volume_surge":        1.5,  # Post-ORB vol must be > 1.5x ORB avg
+    "volume_surge":        2.0,  # Post-ORB vol must be > 2.0x ORB avg (raised from 1.5)
 }
 
 # ─────────────────────────────────────────────────────────────────
