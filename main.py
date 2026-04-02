@@ -88,6 +88,7 @@ from engine.strategies import _is_bull_regime
 from engine.executor_enhanced import EnhancedExecutor
 from engine.notifications import notify_scan_results, notify_eod
 from engine.scan import get_scan_targets, scan_universe, filter_signals
+from engine.universe import filter_universe_by_positions
 from engine.broker_factory import BrokerFactory
 from engine.predictions import save_day_picks
 from engine.config import OPTIONS_ENABLED
@@ -238,6 +239,18 @@ def scan_trending_stocks():
 # ── Trade Ideas Universe Refresh ───────────────────────────────
 
 def _apply_tradeideas_results(results: dict, scans: dict) -> None:
+    # ── Step 1: collect validated tickers per destination, preserving source order ─
+    # Sources are visited in SCANS dict order (highshortfloat → marketscope360 →
+    # stockracecentral derived keys), so the primary scan always lands at index 0.
+    #   PRIORITY_1_MOMENTUM:   [0] marketscope360  (primary)
+    #                          [1] stockracecentral_leaders (secondary)
+    #   PRIORITY_2_ESTABLISHED:[0] highshortfloat  (primary)
+    #                          [1] stockracecentral_laggards (secondary)
+    by_dest: dict[str, list[tuple[str, list[str]]]] = {
+        "PRIORITY_1_MOMENTUM": [],
+        "PRIORITY_2_ESTABLISHED": [],
+    }
+
     for scan_key, tickers in results.items():
         if scan_key in scans:
             target_list_name = scans[scan_key]["target"]
@@ -253,28 +266,87 @@ def _apply_tradeideas_results(results: dict, scans: dict) -> None:
         else:
             continue
 
+        valid = [t for t in tickers if _is_valid_ti_ticker(t)]
+        if not valid:
+            log.warning(
+                f"Trade Ideas {label}: scrape returned 0 valid tickers — "
+                f"skipping to preserve {target_list_name}"
+            )
+            continue
+        by_dest[target_list_name].append((label, valid))
+
+    # ── Step 2: merge per destination with primary-first ordering ────────────
+    # Within each source list, screenshot position = priority (rank 1 = slot 1).
+    # When two sources feed the same destination:
+    #   • Primary source (dedicated scan) owns the first PRIMARY_SLOTS slots.
+    #   • Secondary source (race leaders/laggards) fills the remaining slots.
+    # This preserves capture order within each source while giving the dedicated
+    # scan its earned priority — e.g. highshortfloat rank-1 = P2 slot-1.
+    PRIMARY_SLOTS = 35  # out of 50 total
+    SECONDARY_SLOTS = 50 - PRIMARY_SLOTS  # 15
+
+    for target_list_name, sources in by_dest.items():
+        if not sources:
+            continue
+
         dest = PRIORITY_1_MOMENTUM if target_list_name == "PRIORITY_1_MOMENTUM" else PRIORITY_2_ESTABLISHED
-        tickers = [t for t in tickers if _is_valid_ti_ticker(t)]
-        existing = set(dest)
-        new_tickers = [t for t in tickers if t not in existing]
-        tickers_set = set(tickers)
-        fresh = [t for t in tickers if t in existing]
-        demote = [t for t in dest if t not in tickers_set]
+        existing_set = set(dest)
+
+        if len(sources) == 1:
+            merged = sources[0][1][:]
+        else:
+            # Primary source: fill first PRIMARY_SLOTS slots in screenshot rank order
+            seen: set[str] = set()
+            primary_part: list[str] = []
+            for t in sources[0][1]:
+                if len(primary_part) >= PRIMARY_SLOTS:
+                    break
+                if t not in seen:
+                    primary_part.append(t)
+                    seen.add(t)
+
+            # Secondary source(s): fill remaining SECONDARY_SLOTS in their rank order
+            secondary_part: list[str] = []
+            for _, src in sources[1:]:
+                for t in src:
+                    if len(secondary_part) >= SECONDARY_SLOTS:
+                        break
+                    if t not in seen:
+                        secondary_part.append(t)
+                        seen.add(t)
+
+            merged = primary_part + secondary_part
+
+        merged_set = set(merged)
+        new_tickers = [t for t in merged if t not in existing_set]
+        fresh       = [t for t in merged if t in existing_set]
+        demote      = [t for t in dest   if t not in merged_set]
 
         dest.clear()
-        dest.extend(tickers[:50])
+        dest.extend(merged[:50])
         for t in demote:
-            if t not in tickers_set and t not in dest:
+            if t not in merged_set and t not in dest:
                 dest.append(t)
 
+        labels = " + ".join(
+            f"{s[0]}({len(s[1])})" for s in sources
+        )
         if new_tickers:
             log.info(
-                f"Trade Ideas {label}: +{len(new_tickers)} new, {len(fresh)} re-promoted to top of {target_list_name} "
-                f"→ {tickers[:10]}"
+                f"Trade Ideas [{target_list_name}] {labels}: "
+                f"+{len(new_tickers)} new, {len(fresh)} existing → top-10: {merged[:10]}"
             )
         else:
-            log.info(f"Trade Ideas {label}: {len(fresh)} tickers re-promoted to top of {target_list_name}")
-        log.info(f"── TI current top-20 [{target_list_name}]: " + ", ".join(dest[:20]))
+            log.info(
+                f"Trade Ideas [{target_list_name}] {labels}: "
+                f"{len(fresh)} merged → top-10: {merged[:10]}"
+            )
+        log.info(
+            f"── TI top-20 [{target_list_name}] "
+            f"(primary={len(sources[0][1]) if sources else 0} "
+            f"secondary={sum(len(s[1]) for s in sources[1:]) if len(sources)>1 else 0}): "
+            + ", ".join(dest[:20])
+        )
 
 
 def scan_tradeideas_universe():
@@ -866,9 +938,10 @@ def scan_and_trade():
             options_executor.monitor_positions()
 
             # Build held positions map {symbol: qty} for covered call logic
+            _all_positions = client.get_all_positions()
             _held_map = {
                 p.symbol: int(float(p.qty))
-                for p in _open_positions
+                for p in _all_positions
                 if float(p.qty) > 0
             }
             # Existing option symbols (to avoid duplicate covered calls)

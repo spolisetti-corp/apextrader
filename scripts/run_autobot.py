@@ -12,6 +12,7 @@ except Exception:  # pragma: no cover
     ZoneInfo = None
 
 BASE_DIR = Path(__file__).resolve().parent.parent
+MAIN_LOCK_FILE = BASE_DIR / ".mainbot.lock"
 
 # Load .env before anything reads credentials — must happen before os.environ is
 # copied in _mode_env() so key vars like PAPER_ALPACA_API_KEY are visible.
@@ -170,10 +171,23 @@ if __name__ == "__main__":
                                 proc.kill()
                             except Exception:
                                 pass
+                        # Windows TerminateProcess() skips atexit; clean the lock manually
+                        try:
+                            MAIN_LOCK_FILE.unlink(missing_ok=True)
+                        except Exception:
+                            pass
                         break
 
             proc.wait()
             write_log(f"main.py exited with {proc.returncode}")
+
+            # If main.py died abnormally (crash/kill), atexit won't have run —
+            # remove any stale lock file so the next restart isn't blocked.
+            if proc.returncode not in (0, None) and not saw_duplicate_main_lock:
+                try:
+                    MAIN_LOCK_FILE.unlink(missing_ok=True)
+                except Exception:
+                    pass
 
             # If this watchdog is the duplicate one, do not keep restarting forever.
             # Exit and let the already-running watchdog/main pair continue.

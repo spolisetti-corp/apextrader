@@ -113,11 +113,25 @@ class SweepeaStrategy:
                 # Inverse ETFs are valid LONG buys in bear regime
                 regime_ok = is_inverse or _is_bull_regime()
                 if (pb8 or pb20) and uptrend and regime_ok:
-                    atr14    = _calc_atr14(daily)
-                    ema_lbl  = "8-EMA" if pb8 else "20-EMA"
+                    atr14   = _calc_atr14(daily)
+                    ema_lbl = "8-EMA" if pb8 else "20-EMA"
+                    # High-Tight Flag: up ≥50% in last 4 weeks + tight 5-day consolidation
+                    is_htf   = False
+                    htf_note = ""
+                    if len(daily) >= 22:
+                        price_4w    = float(daily["close"].iloc[-22])
+                        gain_4w_pct = ((float(cur["close"]) - price_4w) / price_4w * 100
+                                       if price_4w > 0 else 0.0)
+                        last5_hi = float(daily["high"].iloc[-6:-1].max())
+                        last5_lo = float(daily["low"].iloc[-6:-1].min())
+                        tight    = (last5_hi - last5_lo) < float(cur["close"]) * 0.10
+                        if gain_4w_pct >= 50.0 and tight:
+                            is_htf   = True
+                            htf_note = f" | HTF +{gain_4w_pct:.0f}% / 4w"
+                    conf = 0.88 if is_htf else 0.82
                     return Signal(
-                        symbol, "buy", float(cur["close"]), 0.82,
-                        f"Daily Sweepea pullback to {ema_lbl} | ATR ${atr14:.2f}",
+                        symbol, "buy", float(cur["close"]), conf,
+                        f"Daily Sweepea pullback to {ema_lbl}{htf_note} | ATR ${atr14:.2f}",
                         "Sweepea",
                         atr_stop=atr14 * ATR_STOP_MULTIPLIER if atr14 > 0 else None,
                     )
@@ -275,7 +289,7 @@ class TrendBreakerStrategy:
         if vol_avg <= 0:
             return None
         vol_ratio = vol_today / vol_avg
-        if vol_ratio < 2.0:
+        if vol_ratio < 3.0:   # "Volume Gift": need 3×–5× for aggressive squeeze entry
             return None
 
         # RSI crossing above 50
@@ -287,10 +301,22 @@ class TrendBreakerStrategy:
 
         atr14 = _calc_atr14(daily)
 
-        # Confidence: base 0.80, +0.05 if in high short float set, scales with vol_ratio
-        confidence = 0.80 + min((vol_ratio - 2.0) * 0.02, 0.08)
+        # Small-cap gate: squeeze plays require market cap < $1B
+        _mcap = _mcap_cache.get(symbol)
+        if _mcap is None:
+            try:
+                _mcap = getattr(yf.Ticker(symbol).fast_info, "market_cap", None)
+                _mcap_cache[symbol] = float(_mcap) if _mcap else 0.0
+                _mcap = _mcap_cache[symbol]
+            except Exception:
+                _mcap = 0.0
+        if _mcap and _mcap > 1_000_000_000:
+            return None
+
+        # Confidence: base 0.78, scales with volume gift (3×→5× = 0.78→0.83)
+        confidence = 0.78 + min((vol_ratio - 3.0) * 0.025, 0.12)
         if is_high_short_float(symbol):
-            confidence = min(confidence + 0.05, 0.95)
+            confidence = min(confidence + 0.07, 0.95)
 
         return Signal(
             symbol, "buy", price, round(confidence, 2),
@@ -662,8 +688,9 @@ class VWAPReclaimStrategy:
 # ──────────────────────────────────────────────────────────────
 # Float Rotation Strategy
 # ──────────────────────────────────────────────────────────────
-# Module-level float cache — persists across scan cycles and strategy instances
+# Module-level caches — persist across scan cycles and strategy instances
 _float_info_cache: dict = {}
+_mcap_cache:        dict = {}  # {symbol: market_cap_float}
 
 
 class FloatRotationStrategy:
@@ -1073,6 +1100,94 @@ class BearBreakdownStrategy:
         )
 
 
+# ──────────────────────────────────────────────────────────────────────────────
+# Power of 3 Strategy  (ICT: Accumulation → Manipulation → Distribution)
+# ──────────────────────────────────────────────────────────────────────────────
+class PowerOf3Strategy:
+    """ICT Power of 3: tight morning accumulation → sweep below the range low
+    (manipulation) → recovery and breakout above morning high (distribution).
+
+    Entry window: 11:30 AM–2:30 PM ET (pattern must have fully formed).
+    Stop: just below the manipulation low — very tight relative to target.
+    Target: morning range high (distribution leg).
+    """
+
+    def scan(self, symbol: str) -> Optional[Signal]:
+        now_et      = datetime.datetime.now(ET)
+        market_open = now_et.replace(hour=9, minute=30, second=0, microsecond=0)
+        mins_since  = (now_et - market_open).total_seconds() / 60.0
+
+        # Pattern needs ≥120 min to form; stale after 2:30 PM
+        if not (120.0 <= mins_since <= 300.0):
+            return None
+
+        bars = get_bars(symbol, "1d", "1m")
+        if bars.empty or len(bars) < 125:
+            return None
+
+        # ── Accumulation: first 120 bars (9:30–11:30) ────────────────────
+        accum  = bars.iloc[:120]
+        a_high = float(accum["high"].max())
+        a_low  = float(accum["low"].min())
+        if a_low <= 0:
+            return None
+        range_pct = (a_high - a_low) / a_low * 100
+        if range_pct > 3.0:       # must be a tight consolidation (≤3%)
+            return None
+
+        # ── Post-accumulation bars ────────────────────────────────────────
+        post = bars.iloc[120:]
+        if len(post) < 3:
+            return None
+
+        cur_close  = float(bars["close"].iloc[-1])
+        prev_close = float(bars["close"].iloc[-2])
+
+        # ── Manipulation: price swept below accumulation low ──────────────
+        post_low = float(post["low"].min())
+        if post_low >= a_low:      # no sweep — pattern not triggered
+            return None
+
+        # ── Distribution entry ────────────────────────────────────────────
+        # Case A: fresh reclaim of morning low (prev ≤ a_low, cur > a_low)
+        # Case B: already breaking above morning high (distribution fully underway)
+        fresh_reclaim    = prev_close <= a_low   and cur_close >  a_low
+        breaking_high    = prev_close <= a_high * 1.002 and cur_close > a_high
+        if not (fresh_reclaim or breaking_high):
+            return None
+
+        # ── Volume: post-accum bars must be livelier than accumulation avg ─
+        vol_accum_avg = float(accum["volume"].mean())
+        vol_recent    = float(post["volume"].iloc[-3:].mean())
+        if vol_accum_avg <= 0:
+            return None
+        vol_ratio = vol_recent / vol_accum_avg
+        if vol_ratio < 1.5:
+            return None
+
+        # ── RSI not yet overbought ────────────────────────────────────────
+        rsi = calc_rsi(bars["close"])
+        if not rsi.empty and not pd.isna(rsi.iloc[-1]):
+            if rsi.iloc[-1] > 75:
+                return None
+
+        daily = get_bars(symbol, "5d", "1d")
+        atr14 = _calc_atr14(daily) if not daily.empty and len(daily) >= 5 else 0.0
+
+        # Tight stop: just below the manipulation sweep low
+        stop_dist  = max(cur_close - post_low, atr14 * 0.3)
+        stage      = "distribution" if breaking_high else "reclaim"
+        base_conf  = 0.79 if breaking_high else 0.74
+        confidence = round(min(base_conf + max(vol_ratio - 1.5, 0) * 0.03, 0.92), 2)
+
+        return Signal(
+            symbol, "buy", cur_close, confidence,
+            f"Power of 3 {stage}: accum {range_pct:.1f}% range | sweep ${post_low:.2f} | vol x{vol_ratio:.1f}",
+            "PowerOf3",
+            atr_stop=stop_dist if stop_dist > 0 else None,
+        )
+
+
 def get_strategy_instances(bear_regime: bool = True):
     """Return instantiated strategy objects for current market regime."""
     strategies = [
@@ -1089,13 +1204,9 @@ def get_strategy_instances(bear_regime: bool = True):
         OpeningBellSurgeStrategy(),
         PMHighBreakoutStrategy(),
         EarlySqueezeDetector(),
+        PowerOf3Strategy(),
     ]
 
-    if not bear_regime:
-        strategies.append(BearBreakdownStrategy())
-    else:
-        # Bear regime also considers breakdown plus caution in bull-specific trend setups
-        strategies.append(BearBreakdownStrategy())
-
+    strategies.append(BearBreakdownStrategy())
     return strategies
 
