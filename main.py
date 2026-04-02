@@ -90,6 +90,9 @@ from engine.notifications import notify_scan_results, notify_eod
 from engine.scan import get_scan_targets, scan_universe, filter_signals
 from engine.broker_factory import BrokerFactory
 from engine.predictions import save_day_picks
+from engine.config import OPTIONS_ENABLED
+from engine.options_strategies import scan_options_universe
+from engine.options_executor import OptionsExecutor
 
 # ── Initialise ────────────────────────────────────
 log      = setup_logging()
@@ -100,8 +103,11 @@ if not LONG_ONLY_MODE:
 import logging as _logging
 _logging.getLogger("WDM").setLevel(_logging.ERROR)
 _logging.getLogger("webdriver_manager").setLevel(_logging.ERROR)
-client   = BrokerFactory.create_stock_client(STOCKS_BROKER)
-executor = EnhancedExecutor(client, use_bracket_orders=True)
+client          = BrokerFactory.create_stock_client(STOCKS_BROKER)
+executor        = EnhancedExecutor(client, use_bracket_orders=True)
+options_executor = OptionsExecutor(client) if OPTIONS_ENABLED else None
+if OPTIONS_ENABLED:
+    log.info("Options trading ENABLED (Level 3, 15% allocation, 7-21 DTE)")
 
 # ── Kill Mode state ────────────────────────────────
 _kill_mode_active = False
@@ -457,6 +463,8 @@ def check_kill_mode() -> bool:
     try:
         _acct = client.get_account()
         executor.emergency_close_all(float(_acct.equity))
+        if options_executor is not None:
+            options_executor.close_all()
     except Exception as e:
         log.error(f"Kill mode close error: {e}")
     return True
@@ -850,6 +858,36 @@ def scan_and_trade():
                 time.sleep(1)
     else:
         log.info("No signals found this cycle")
+
+    # ── Options scan & execution (runs every cycle if OPTIONS_ENABLED) ────────
+    if options_executor is not None and is_market_open():
+        try:
+            # Monitor existing options P&L / expiry
+            options_executor.monitor_positions()
+
+            # Build held positions map {symbol: qty} for covered call logic
+            _held_map = {
+                p.symbol: int(float(p.qty))
+                for p in _open_positions
+                if float(p.qty) > 0
+            }
+            # Existing option symbols (to avoid duplicate covered calls)
+            _existing_opt_syms = {
+                pos.occ_symbol for pos in options_executor._positions.values()
+            }
+
+            opt_signals = scan_options_universe(_held_map, _existing_opt_syms)
+            if opt_signals:
+                log.info(f"Options signals: {len(opt_signals)} — top: {opt_signals[0].symbol} {opt_signals[0].option_type} conf={opt_signals[0].confidence:.0%}")
+                for opt_sig in opt_signals:
+                    if options_executor.place_option_order(opt_sig):
+                        break   # one options order per cycle
+            else:
+                log.info("Options scan: no qualifying signals this cycle")
+
+            log.info(options_executor.status_summary())
+        except Exception as _opt_err:
+            log.error(f"Options cycle error: {_opt_err}")
 
 
 # ── Status Logger ───────────────────────────────────────────────

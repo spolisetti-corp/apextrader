@@ -1,0 +1,300 @@
+"""
+ApexTrader - Options Executor (Level 3 Account / Alpaca)
+Manages opening, monitoring, and closing options positions via the
+Alpaca trading API.
+
+Responsibilities:
+  - Enforce 15% portfolio allocation cap across all open options
+  - Size each trade (number of contracts) within allocation budget
+  - Place buy_to_open (calls/puts) and sell_to_open (covered calls) orders
+  - Monitor open options P&L, close at profit target (+50%) or stop (-40%)
+  - Cancel expired or near-expiry contracts (DTE <= 1)
+"""
+
+import logging
+import datetime
+import time
+from typing import Optional, List, Dict, Tuple
+from dataclasses import dataclass, field
+
+from alpaca.trading.client import TradingClient
+from alpaca.trading.requests import (
+    LimitOrderRequest,
+    MarketOrderRequest,
+    GetOrdersRequest,
+)
+from alpaca.trading.enums import OrderSide, TimeInForce, QueryOrderStatus
+
+from .config import (
+    OPTIONS_ENABLED,
+    OPTIONS_ALLOCATION_PCT,
+    OPTIONS_MAX_POSITIONS,
+    OPTIONS_PROFIT_TARGET_PCT,
+    OPTIONS_STOP_LOSS_PCT,
+    OPTIONS_DTE_MIN,
+    API_KEY, API_SECRET, PAPER,
+)
+from .options_strategies import OptionSignal, CONTRACT_SIZE
+
+log = logging.getLogger("ApexTrader.Options")
+
+
+# ── Helpers ───────────────────────────────────────────────────────────────────
+
+def _alpaca_option_symbol(symbol: str, expiry: datetime.date, option_type: str, strike: float) -> str:
+    """Build the OCC option symbol used by Alpaca.
+    Format: <underlying><YYMMDD><C|P><8-digit-strike-in-thousandths>
+    e.g. AAPL260418C00185000
+    """
+    exp_str    = expiry.strftime("%y%m%d")
+    cp         = "C" if option_type.lower() == "call" else "P"
+    strike_int = int(round(strike * 1000))
+    return f"{symbol}{exp_str}{cp}{strike_int:08d}"
+
+
+@dataclass
+class OptionsPosition:
+    """Tracked open options position."""
+    occ_symbol:  str
+    symbol:      str
+    option_type: str
+    action:      str          # 'buy_to_open' or 'sell_to_open'
+    strike:      float
+    expiry:      datetime.date
+    contracts:   int
+    entry_price: float        # per-share premium paid/received
+    strategy:    str
+    entered_at:  datetime.date = field(default_factory=datetime.date.today)
+
+
+class OptionsExecutor:
+    """Manages options positions within a 15% portfolio allocation."""
+
+    def __init__(self, client: TradingClient):
+        self.client = client
+        self._positions: Dict[str, OptionsPosition] = {}   # occ_symbol -> OptionsPosition
+        self._last_monitor_ts: float = 0.0
+        self._MONITOR_INTERVAL = 60   # seconds between P&L checks
+
+    # ── Allocation / Budget ────────────────────────────────────────────────────
+
+    def _get_options_budget(self) -> Tuple[float, float]:
+        """Returns (total_options_budget $, remaining_budget $) based on current equity."""
+        try:
+            acct          = self.client.get_account()
+            equity        = float(acct.equity)
+            total_budget  = equity * (OPTIONS_ALLOCATION_PCT / 100.0)
+            # Deduct current open option premium cost
+            used          = self._current_options_cost()
+            remaining     = max(0.0, total_budget - used)
+            return total_budget, remaining
+        except Exception as e:
+            log.warning(f"OptionsExecutor: could not fetch account budget: {e}")
+            return 0.0, 0.0
+
+    def _current_options_cost(self) -> float:
+        """Estimate total capital deployed in open options positions."""
+        total = 0.0
+        for pos in self._positions.values():
+            if pos.action == "buy_to_open":
+                total += pos.entry_price * CONTRACT_SIZE * pos.contracts
+        return total
+
+    def _count_open_options(self) -> int:
+        return len(self._positions)
+
+    # ── Position Sizing ────────────────────────────────────────────────────────
+
+    def _calc_contracts(self, signal: OptionSignal, remaining_budget: float) -> int:
+        """Calculate how many contracts to buy within the remaining budget.
+        Each contract costs: mid_price × CONTRACT_SIZE dollars.
+        We size to use ~33% of remaining budget (split across 3 max positions).
+        """
+        if signal.mid_price <= 0:
+            return 0
+        per_contract_cost = signal.mid_price * CONTRACT_SIZE
+        # Use up to 1/3 of remaining budget per position
+        position_budget = remaining_budget / max(1, OPTIONS_MAX_POSITIONS - self._count_open_options())
+        contracts = int(position_budget // per_contract_cost)
+        return max(0, min(contracts, 10))  # hard cap: never more than 10 contracts
+
+    # ── Order Placement ────────────────────────────────────────────────────────
+
+    def place_option_order(self, signal: OptionSignal) -> bool:
+        """Place a limit order for the options signal.
+        Returns True if order was submitted successfully.
+        """
+        if not OPTIONS_ENABLED:
+            return False
+
+        if self._count_open_options() >= OPTIONS_MAX_POSITIONS:
+            log.info(f"Options: at max positions ({OPTIONS_MAX_POSITIONS}), skipping {signal.symbol}")
+            return False
+
+        _, remaining = self._get_options_budget()
+        if remaining <= 0:
+            log.info(f"Options: no budget remaining (allocation exhausted), skipping {signal.symbol}")
+            return False
+
+        contracts = self._calc_contracts(signal, remaining)
+        if contracts <= 0:
+            log.info(f"Options: {signal.symbol} — not enough budget for 1 contract (need ${signal.mid_price * CONTRACT_SIZE:.2f})")
+            return False
+
+        occ_sym = _alpaca_option_symbol(
+            signal.symbol, signal.expiry, signal.option_type, signal.strike
+        )
+
+        # Check for duplicate
+        if occ_sym in self._positions:
+            log.info(f"Options: already have position in {occ_sym}, skipping")
+            return False
+
+        side = OrderSide.BUY if signal.action == "buy_to_open" else OrderSide.SELL
+
+        # Use limit at mid_price (+ small buffer for fills)
+        limit_price = round(signal.mid_price * (1.02 if side == OrderSide.BUY else 0.98), 2)
+
+        try:
+            order_req = LimitOrderRequest(
+                symbol=occ_sym,
+                qty=contracts,
+                side=side,
+                type="limit",
+                time_in_force=TimeInForce.DAY,
+                limit_price=limit_price,
+            )
+            order = self.client.submit_order(order_req)
+            log.info(
+                f"OPTIONS ORDER: {signal.action.upper()} {contracts}x {occ_sym} "
+                f"@ ${limit_price:.2f} | {signal.reason} | conf={signal.confidence:.0%}"
+            )
+
+            self._positions[occ_sym] = OptionsPosition(
+                occ_symbol=occ_sym,
+                symbol=signal.symbol,
+                option_type=signal.option_type,
+                action=signal.action,
+                strike=signal.strike,
+                expiry=signal.expiry,
+                contracts=contracts,
+                entry_price=signal.mid_price,
+                strategy=signal.strategy,
+            )
+            return True
+
+        except Exception as e:
+            log.error(f"Options order failed for {occ_sym}: {e}")
+            return False
+
+    # ── Position Monitoring ────────────────────────────────────────────────────
+
+    def monitor_positions(self) -> None:
+        """Check open options positions and close at profit target or stop loss.
+        Also closes positions with DTE <= 1 to avoid expiry risk.
+        Run every MONITOR_INTERVAL seconds.
+        """
+        now = time.monotonic()
+        if now - self._last_monitor_ts < self._MONITOR_INTERVAL:
+            return
+        self._last_monitor_ts = now
+
+        if not self._positions:
+            return
+
+        try:
+            all_positions = {p.symbol: p for p in self.client.get_all_positions()}
+        except Exception as e:
+            log.warning(f"Options monitor: could not fetch positions: {e}")
+            return
+
+        to_close: List[str] = []
+        today = datetime.date.today()
+
+        for occ_sym, pos in list(self._positions.items()):
+            dte = (pos.expiry - today).days
+
+            # 1. Expiry risk: close day-before or day-of expiry
+            if dte <= 1:
+                log.warning(f"OPTIONS: {occ_sym} expiring in {dte}d — closing to avoid expiry")
+                to_close.append(occ_sym)
+                continue
+
+            # 2. Fetch current market value from Alpaca positions
+            ap = all_positions.get(occ_sym)
+            if ap is None:
+                # Position no longer exists (filled/closed externally)
+                log.info(f"OPTIONS: {occ_sym} no longer in positions, removing from tracker")
+                del self._positions[occ_sym]
+                continue
+
+            try:
+                current_price = float(ap.current_price)
+                entry_price   = pos.entry_price
+                if entry_price <= 0:
+                    continue
+
+                if pos.action == "buy_to_open":
+                    pnl_pct = (current_price - entry_price) / entry_price * 100
+                    if pnl_pct >= OPTIONS_PROFIT_TARGET_PCT:
+                        log.info(f"OPTIONS: {occ_sym} hit profit target +{pnl_pct:.1f}% — closing")
+                        to_close.append(occ_sym)
+                    elif pnl_pct <= -OPTIONS_STOP_LOSS_PCT:
+                        log.warning(f"OPTIONS: {occ_sym} hit stop loss {pnl_pct:.1f}% — closing")
+                        to_close.append(occ_sym)
+                else:
+                    # sell_to_open (covered call) — monitor for buy-to-close
+                    # Close when premium decays 75%+ (retain most income) or 3 DTE
+                    decay_pct = (entry_price - current_price) / entry_price * 100
+                    if decay_pct >= 75 or dte <= 3:
+                        log.info(
+                            f"OPTIONS: covered call {occ_sym} decay={decay_pct:.0f}% DTE={dte} — closing"
+                        )
+                        to_close.append(occ_sym)
+
+            except Exception as e:
+                log.debug(f"Options monitor error for {occ_sym}: {e}")
+
+        for occ_sym in to_close:
+            self._close_option(occ_sym)
+
+    def _close_option(self, occ_sym: str) -> None:
+        """Market close an options position."""
+        pos = self._positions.get(occ_sym)
+        if pos is None:
+            return
+
+        side = OrderSide.SELL if pos.action == "buy_to_open" else OrderSide.BUY
+
+        try:
+            order_req = MarketOrderRequest(
+                symbol=occ_sym,
+                qty=pos.contracts,
+                side=side,
+                time_in_force=TimeInForce.DAY,
+            )
+            self.client.submit_order(order_req)
+            log.info(f"OPTIONS CLOSE: {side.value.upper()} {pos.contracts}x {occ_sym}")
+            del self._positions[occ_sym]
+        except Exception as e:
+            log.error(f"Options close failed for {occ_sym}: {e}")
+
+    def close_all(self) -> None:
+        """Emergency: close all open options positions."""
+        for occ_sym in list(self._positions.keys()):
+            self._close_option(occ_sym)
+
+    # ── Status ─────────────────────────────────────────────────────────────────
+
+    def status_summary(self) -> str:
+        if not self._positions:
+            return "Options: no open positions"
+        lines = [f"Options: {len(self._positions)} position(s)"]
+        today = datetime.date.today()
+        for occ_sym, pos in self._positions.items():
+            dte = (pos.expiry - today).days
+            lines.append(
+                f"  {occ_sym} | {pos.contracts}x {pos.strategy} "
+                f"entry=${pos.entry_price:.2f} DTE={dte}"
+            )
+        return "\n".join(lines)

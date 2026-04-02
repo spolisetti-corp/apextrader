@@ -156,81 +156,73 @@ def build_top5_report(signals, report_date: date, sentiment: str = "neutral",
             risk_line  = f"Stop ~${stop_price:.2f} (3% default)"
 
         cards += f"""
-        <div style="background:#1e293b;border-radius:12px;padding:18px 20px;margin-bottom:14px;border-left:4px solid {acolor};box-shadow:0 2px 8px rgba(0,0,0,0.3);">
+        <div style="background:#ffffff;border-radius:0;padding:16px 24px;margin-bottom:0;border-left:4px solid {acolor};border-bottom:1px solid #f0f2f5;">
           <!-- Symbol row -->
           <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
-            <span style="font-size:20px;font-weight:900;color:#f8fafc;letter-spacing:0.5px;">{medal} {s.symbol}</span>
+            <span style="font-size:18px;font-weight:800;color:#1a1a2e;letter-spacing:0.5px;">{medal} {s.symbol}</span>
             <span style="background:{acolor};color:#fff;padding:4px 13px;border-radius:20px;font-size:11px;font-weight:800;letter-spacing:1px;">{s.action.upper()}</span>
           </div>
           <!-- Stats row -->
           <div style="display:flex;gap:16px;flex-wrap:wrap;margin-bottom:10px;">
-            <div style="background:#0f172a;border-radius:8px;padding:6px 12px;text-align:center;">
-              <div style="color:#64748b;font-size:9px;letter-spacing:1px;text-transform:uppercase;">Entry</div>
-              <div style="color:#f1f5f9;font-size:14px;font-weight:700;">${s.price:.2f}</div>
+            <div style="background:#f5f7fa;border-radius:5px;padding:6px 12px;text-align:center;border:1px solid #e8eaed;">
+              <div style="color:#888;font-size:9px;letter-spacing:1px;text-transform:uppercase;">Entry</div>
+              <div style="color:#1a1a2e;font-size:14px;font-weight:700;">${s.price:.2f}</div>
             </div>
-            <div style="background:#0f172a;border-radius:8px;padding:6px 12px;text-align:center;">
-              <div style="color:#64748b;font-size:9px;letter-spacing:1px;text-transform:uppercase;">Confidence</div>
+            <div style="background:#f5f7fa;border-radius:5px;padding:6px 12px;text-align:center;border:1px solid #e8eaed;">
+              <div style="color:#888;font-size:9px;letter-spacing:1px;text-transform:uppercase;">Confidence</div>
               <div style="color:{acolor};font-size:14px;font-weight:700;">{conf_pct}%</div>
             </div>
-            <div style="background:#0f172a;border-radius:8px;padding:6px 12px;text-align:center;">
-              <div style="color:#64748b;font-size:9px;letter-spacing:1px;text-transform:uppercase;">Strategy</div>
-              <div style="color:#38bdf8;font-size:12px;font-weight:700;">{s.strategy}</div>
+            <div style="background:#f5f7fa;border-radius:5px;padding:6px 12px;text-align:center;border:1px solid #e8eaed;">
+              <div style="color:#888;font-size:9px;letter-spacing:1px;text-transform:uppercase;">Strategy</div>
+              <div style="color:#2563eb;font-size:12px;font-weight:700;">{s.strategy}</div>
             </div>
           </div>
           <!-- Confidence bar -->
           <div style="margin-bottom:10px;">
-            <div style="background:#0f172a;border-radius:999px;height:5px;width:100%;overflow:hidden;">
-              <div style="background:linear-gradient(90deg,{acolor}88,{acolor});height:5px;border-radius:999px;width:{conf_pct}%;transition:width 0.3s;"></div>
+            <div style="background:#e5e7eb;border-radius:999px;height:4px;width:100%;overflow:hidden;">
+              <div style="background:{acolor};height:4px;border-radius:999px;width:{conf_pct}%;"></div>
             </div>
           </div>
           <!-- Insight -->
-          <div style="background:#0f172a;border-radius:8px;padding:8px 12px;margin-bottom:8px;">
-            <div style="color:#94a3b8;font-size:11px;line-height:1.5;">💡 {insight}</div>
+          <div style="background:#f5f7fa;border-radius:5px;padding:8px 12px;margin-bottom:8px;border:1px solid #e8eaed;">
+            <div style="color:#555;font-size:11px;line-height:1.5;">💡 {insight}</div>
           </div>
           <!-- Risk line -->
-          <div style="color:#475569;font-size:10px;padding-top:2px;">⚡ {risk_line}</div>
+          <div style="color:#888;font-size:10px;padding-top:2px;">⚡ {risk_line}</div>
           <!-- Raw reason -->
-          <div style="color:#334155;font-size:10px;margin-top:4px;font-style:italic;">{s.reason}</div>
+          <div style="color:#aaa;font-size:10px;margin-top:4px;font-style:italic;">{s.reason}</div>
         </div>"""
 
     if not signals:
-        cards = "<div style='text-align:center;padding:32px;color:#475569;'>🔍 No qualifying signals this scan cycle.</div>"
+        cards = "<div style='padding:28px;text-align:center;color:#999;font-size:13px;'>No qualifying signals this scan cycle.</div>"
 
     html = f"""<!DOCTYPE html>
 <html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'></head>
-<body style="margin:0;padding:0;background:#0a0f1a;font-family:'Segoe UI',system-ui,Arial,sans-serif;">
-  <div style="max-width:560px;margin:24px auto;padding:0 12px;">
+<body style="margin:0;padding:0;background:#f4f6f8;font-family:'Segoe UI',Arial,sans-serif;color:#1a1a2e;">
+  <div style="max-width:580px;margin:20px auto;background:#ffffff;border-radius:8px;border:1px solid #d8dde4;overflow:hidden;box-shadow:0 1px 4px rgba(0,0,0,0.07);">
 
     <!-- Header -->
-    <div style="background:linear-gradient(135deg,#1e293b 0%,#162032 100%);border-radius:14px 14px 0 0;padding:26px 24px 18px;text-align:center;border-bottom:1px solid #1e3a5f;">
-      <div style="font-size:10px;color:#38bdf8;letter-spacing:3px;text-transform:uppercase;margin-bottom:6px;">ApexTrader &nbsp;·&nbsp; Automated Scan</div>
+    <div style="background:#1a1a2e;padding:20px 24px 16px;text-align:center;">
+      <div style="font-size:10px;color:#7b8fa3;letter-spacing:2px;text-transform:uppercase;margin-bottom:6px;">ApexTrader &nbsp;·&nbsp; Automated Scan</div>
       <div style="font-size:24px;font-weight:900;color:#f8fafc;">📈 Top Picks</div>
-      <div style="font-size:12px;color:#475569;margin-top:5px;">{report_date.strftime('%A, %B %d, %Y')}</div>
+      <div style="font-size:12px;color:#7b8fa3;margin-top:3px;">{report_date.strftime('%A, %B %d, %Y')}</div>
     </div>
 
-    <!-- Regime + Sentiment bar -->
-    <div style="background:#1e293b;padding:10px 20px;display:flex;align-items:center;gap:10px;border-bottom:1px solid #1e3a5f;flex-wrap:wrap;">
-      <span style="font-size:13px;">{_regime_icon}</span>
-      <span style="background:{_regime_color}22;color:{_regime_color};border:1px solid {_regime_color}44;padding:2px 10px;border-radius:20px;font-size:10px;font-weight:700;letter-spacing:1px;">{regime.upper()} REGIME</span>
-      <span style="color:#1e3a5f;margin:0 2px;">|</span>
-      <span style="font-size:13px;">{_sent_icon}</span>
-      <span style="background:{_sent_color}22;color:{_sent_color};border:1px solid {_sent_color}44;padding:2px 10px;border-radius:20px;font-size:10px;font-weight:700;letter-spacing:1px;">{sentiment.upper()}</span>
-      <span style="margin-left:auto;color:#334155;font-size:9px;">{report_date.strftime('%H:%M') if hasattr(report_date,'hour') else 'SCAN'}</span>
+    <!-- Regime bar -->
+    <div style="background:#f8f9fa;padding:9px 24px;border-bottom:1px solid #e0e4ea;display:flex;align-items:center;gap:8px;font-size:11px;">
+      <span style="background:{_regime_color};color:#fff;padding:2px 9px;border-radius:3px;font-size:10px;font-weight:700;">{regime.upper()}</span>
+      <span style="background:{_sent_color};color:#fff;padding:2px 9px;border-radius:3px;font-size:10px;font-weight:700;">{sentiment.upper()}</span>
+      <span style="margin-left:auto;color:#888;">BUY {action_counts.get('buy', 0)} / SHORT {action_counts.get('short', 0)} &nbsp;·&nbsp; Top: {top_conf:.0%}</span>
     </div>
-
-        <div style="background:#0f172a;color:#94a3b8;padding:10px 16px;font-size:11px;border-bottom:1px solid #1e3a5f;">
-            Action Mix: BUY {action_counts.get('buy', 0)} · SHORT {action_counts.get('short', 0)} · SELL {action_counts.get('sell', 0)}
-            <span style="float:right;">Top Confidence: {top_conf:.0%}</span>
-        </div>
 
     <!-- Cards -->
-    <div style="background:#111827;padding:18px 14px;border-radius:0 0 14px 14px;">
+    <div style="background:#ffffff;padding:8px 0 16px;">
       {cards}
     </div>
 
     <!-- Footer -->
-    <div style="text-align:center;padding:14px 0 8px;">
-      <span style="color:#1e3a5f;font-size:9px;letter-spacing:1px;">APEXTRADER &nbsp;·&nbsp; PAPER TRADING &nbsp;·&nbsp; {report_date.isoformat()}</span>
+    <div style="text-align:center;background:#f8f9fa;padding:10px 24px;border-top:1px solid #e0e4ea;">
+      <span style="color:#aaa;font-size:10px;">ApexTrader &nbsp;·&nbsp; {report_date.isoformat()}</span>
     </div>
 
   </div>
@@ -467,7 +459,8 @@ def _scan_fingerprint(picks, sentiment: str, regime: str) -> str:
     return hashlib.sha1(payload.encode("utf-8")).hexdigest()
 
 
-def notify_scan_results(signals, report_date, sentiment: str, regime: str) -> bool:
+def notify_scan_results(signals, report_date, sentiment: str, regime: str,
+                        subject_prefix: str = "") -> bool:
     """Send top-5 scan picks email. Returns True if sent, False otherwise."""
     global _last_scan_sent_at, _last_scan_fingerprint
     picks = list(signals)[:5]
@@ -498,6 +491,8 @@ def notify_scan_results(signals, report_date, sentiment: str, regime: str) -> bo
 
     try:
         report = build_top5_report(picks, report_date, sentiment, regime)
+        if subject_prefix:
+            report["subject"] = subject_prefix + report["subject"]
         sent   = send_email(report["subject"], report["text"], report["html"])
         if sent:
             _last_scan_sent_at = now
