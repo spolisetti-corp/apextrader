@@ -378,8 +378,8 @@ class EnhancedExecutor:
         stop_side = OrderSide.SELL if order_type == OrderType.LONG else OrderSide.BUY
         trail_pct = risk_info["stop_loss_pct"]  # tiered: NORMAL=3%, MEDIUM=4%, HIGH=5%, EXTREME=7%
 
+        # ── Step 1: Entry order (failure aborts the whole bracket) ──────────
         try:
-            # 1. Market entry
             entry_req = MarketOrderRequest(
                 symbol          = signal.symbol,
                 qty             = shares,
@@ -396,19 +396,6 @@ class EnhancedExecutor:
                 self._tp_targets[signal.symbol] = _tp
                 log.info(f"TP target set {signal.symbol}: ${_tp:.2f} (ATR R:R {ATR_TP_RATIO}:1)")
 
-            # 2. Trailing stop — trails the high-water mark at trail_pct below
-            ts_req = TrailingStopOrderRequest(
-                symbol        = signal.symbol,
-                qty           = shares,
-                side          = stop_side,
-                type          = AlpacaOrderType.TRAILING_STOP,
-                time_in_force = TimeInForce.GTC,
-                trail_percent = trail_pct,
-            )
-            self.client.submit_order(ts_req)
-
-            self._log_bracket(signal, shares, risk_info, trail_pct, None, order_type)
-            return True
         except Exception as e:
             err = str(e).lower()
             if "cannot be sold short" in err or "40310000" in err or "account is not allowed to short" in err:
@@ -423,6 +410,29 @@ class EnhancedExecutor:
             else:
                 log.error(f"Bracket order failed {signal.symbol}: {e}")
             return False
+
+        # ── Step 2: Trailing stop — best-effort; entry already filled ────────
+        # Inverse ETFs (SOXS, DUST, UVXY …) may reject a GTC SELL trailing stop
+        # with 40310000.  This must NOT cancel the entry or disable shorting for
+        # the session.  protect_positions() will re-place the stop next cycle.
+        try:
+            ts_req = TrailingStopOrderRequest(
+                symbol        = signal.symbol,
+                qty           = shares,
+                side          = stop_side,
+                type          = AlpacaOrderType.TRAILING_STOP,
+                time_in_force = TimeInForce.GTC,
+                trail_percent = trail_pct,
+            )
+            self.client.submit_order(ts_req)
+        except Exception as e:
+            log.warning(
+                f"Trailing stop skipped {signal.symbol} (entry filled): {e} — "
+                "protect_positions() will re-place next cycle"
+            )
+
+        self._log_bracket(signal, shares, risk_info, trail_pct, None, order_type)
+        return True
 
     def _log_bracket(self, signal, shares, risk_info, trail_pct, _tp_unused, order_type):
         action    = "BUY"  if order_type == OrderType.LONG else "SHORT"
@@ -444,7 +454,7 @@ class EnhancedExecutor:
         action = "BUY"         if order_type == OrderType.LONG else "SHORT"
 
         try:
-            coid = f"apex-{signal.strategy}-{signal.symbol}"
+            coid = f"apex-{signal.strategy}-{signal.symbol}-{int(time.time())}"
             if EXTENDED_HOURS and not is_regular_hours():
                 adj   = 1.002 if order_type == OrderType.LONG else 0.998
                 limit = round(signal.price * adj, 2)
