@@ -438,6 +438,24 @@ class TechnicalStrategy:
         elif market_sentiment == "bearish":
             score -= 0.1
 
+        # Inverse ETFs: boost score when today's price is above yesterday's close
+        # (crash-day gap signals bear tailwind even if intraday technicals are mixed).
+        if is_inverse:
+            try:
+                _daily = get_bars(symbol, "3d", "1d")
+                if not _daily.empty and len(_daily) >= 2:
+                    _prev = float(_daily["close"].iloc[-2])
+                    if _prev > 0:
+                        _gap_pct = (price - _prev) / _prev * 100
+                        if _gap_pct >= 2.0:
+                            score += 0.20
+                            reasons.append(f"Daily gap +{_gap_pct:.1f}%")
+                        elif _gap_pct >= 0.5:
+                            score += 0.10
+                            reasons.append(f"Daily gap +{_gap_pct:.1f}%")
+            except Exception:
+                pass
+
         # Inverse ETFs: lower entry bar; guarantee confidence meets minimum
         buy_threshold = 0.38 if is_inverse else 0.50
         if score >= buy_threshold:
@@ -459,18 +477,26 @@ class MomentumStrategy:
         is_inverse = symbol in _INVERSE_ETFS
 
         if is_inverse:
-            # Inverse ETFs: measure 5-day daily momentum (more reliable than 30-min intraday)
+            # Inverse ETFs: measure 5-day daily momentum (more reliable than 30-min intraday).
+            # Also accepts crash-day entries where today's gap vs yesterday >= 2% even if the
+            # 5-day trend is temporarily negative (market was recovering before today's crash).
             daily = get_bars(symbol, "10d", "1d")
             if daily.empty or len(daily) < 5:
                 return None
-            price    = float(daily["close"].iloc[-1])
-            price_5d = float(daily["close"].iloc[-6]) if len(daily) >= 6 else float(daily["close"].iloc[0])
+            price      = float(daily["close"].iloc[-1])
+            prev_close = float(daily["close"].iloc[-2]) if len(daily) >= 2 else price
+            price_5d   = float(daily["close"].iloc[-6]) if len(daily) >= 6 else float(daily["close"].iloc[0])
             momentum_5d = ((price / price_5d) - 1) * 100
+            gap_today   = ((price - prev_close) / prev_close) * 100 if prev_close > 0 else 0.0
             sma5  = float(daily["close"].rolling(5).mean().iloc[-1])
-            if momentum_5d >= 2.0 and price >= sma5 * 0.98:
-                confidence = min(0.73 + (momentum_5d / 100), 0.95)
+            has_5d_trend  = momentum_5d >= 2.0 and price >= sma5 * 0.98
+            has_crash_gap = gap_today >= 2.0 and price >= sma5 * 0.92
+            if has_5d_trend or has_crash_gap:
+                momentum   = max(momentum_5d, gap_today)
+                confidence = min(0.73 + (momentum / 100), 0.95)
+                label      = "5d trend" if has_5d_trend else "crash-day gap"
                 return Signal(symbol, "buy", price, confidence,
-                              f"Bear inverse ETF momentum ({momentum_5d:.1f}% / 5d)", "Momentum")
+                              f"Bear inverse ETF momentum ({momentum:.1f}% / {label})", "Momentum")
             return None
 
         bars = get_bars(symbol, "1d", "1m")

@@ -44,6 +44,8 @@ from .config import (
     STALE_ORDER_MINUTES, STALE_ORDER_MINUTES_INTRADAY,
     KILL_MODE_TRAIL_PCT,
     SMALL_ACCOUNT_EQUITY_THRESHOLD, SMALL_ACCOUNT_MAX_POSITIONS,
+    POSITION_SIZE_PCT, SMALL_ACCOUNT_POSITION_SIZE_PCT,
+    LIVE,
 )
 from .strategies import Signal
 from .utils import is_regular_hours, calculate_risk_adjusted_size, check_vix_roc_filter, get_dynamic_tier
@@ -278,13 +280,21 @@ class EnhancedExecutor:
 
         positions = self._get_positions()
 
-        # Dynamic max positions: cap by buying power capacity
-        bp_capacity = max(1, int(acct.buying_power / MIN_POSITION_DOLLARS))
+        # Dynamic max positions: derive from 95% of buying power / per-position size.
+        # This ensures the bot always utilizes ~95% of available BP regardless of account size,
+        # instead of being artificially capped at a static SMALL_ACCOUNT_MAX_POSITIONS.
+        _pos_size_pct = (
+            SMALL_ACCOUNT_POSITION_SIZE_PCT
+            if acct.equity < SMALL_ACCOUNT_EQUITY_THRESHOLD
+            else POSITION_SIZE_PCT
+        )
+        _pos_size_dollars = max(MIN_POSITION_DOLLARS, acct.equity * _pos_size_pct / 100.0)
+        bp_capacity = max(1, int(acct.buying_power * 0.95 / _pos_size_dollars))
         effective_max = min(MAX_POSITIONS, bp_capacity)
-
-        # Small account mode (e.g. $1k BP) uses stricter max positions to avoid overleverage
-        if acct.equity < SMALL_ACCOUNT_EQUITY_THRESHOLD:
-            effective_max = min(effective_max, SMALL_ACCOUNT_MAX_POSITIONS)
+        log.debug(
+            f"[DBG] effective_max={effective_max} bp={acct.buying_power:.0f} "
+            f"pos_size=${_pos_size_dollars:.0f} ({_pos_size_pct:.0f}%) bp_capacity={bp_capacity}"
+        )
 
         # ── Max positions gate (must come first) ────────────────────────────
         if positions.total_count >= effective_max:
@@ -413,13 +423,21 @@ class EnhancedExecutor:
 
         except Exception as e:
             err = str(e).lower()
-            if "cannot be sold short" in err or "40310000" in err or "account is not allowed to short" in err:
+            if order_type == OrderType.SHORT and ("cannot be sold short" in err or "40310000" in err or "account is not allowed to short" in err):
+                # Symbol-level HTB: block only this ticker for the session
                 self._htb_cache.add(signal.symbol)
-                self.shorting_blocked = True
-                log.warning(
-                    f"Short entry blocked for {signal.symbol} (broker permission). "
-                    "Disabling shorts for this session."
-                )
+                if "account is not allowed to short" in err:
+                    # Account-level: no short permission at all — disable all shorts
+                    self.shorting_blocked = True
+                    log.warning(
+                        f"Short entry blocked for {signal.symbol} (account permission). "
+                        "Disabling shorts for this session."
+                    )
+                else:
+                    log.warning(f"Short blocked {signal.symbol} (HTB/insufficient BP): {e}")
+            elif order_type != OrderType.SHORT and ("cannot be sold short" in err or "40310000" in err):
+                # Inverse ETF or other buy rejected by broker — do not poison short flag
+                log.warning(f"Buy rejected for {signal.symbol} (broker): {e}")
             elif "insufficient buying power" in err:
                 log.warning(f"Bracket skip {signal.symbol}: insufficient buying power")
             else:
@@ -427,24 +445,32 @@ class EnhancedExecutor:
             return False
 
         # ── Step 2: Trailing stop — best-effort; entry already filled ────────
-        # Inverse ETFs (SOXS, DUST, UVXY …) may reject a GTC SELL trailing stop
-        # with 40310000.  This must NOT cancel the entry or disable shorting for
-        # the session.  protect_positions() will re-place the stop next cycle.
-        try:
-            ts_req = TrailingStopOrderRequest(
-                symbol        = signal.symbol,
-                qty           = shares,
-                side          = stop_side,
-                type          = AlpacaOrderType.TRAILING_STOP,
-                time_in_force = TimeInForce.GTC,
-                trail_percent = trail_pct,
+        # On live accounts, skip the same-day trailing stop — PDT rules block GTC
+        # SELL legs on shares entered today.  protect_positions() re-places it next
+        # session when the position is no longer same-day restricted.
+        # Inverse ETFs (SOXS, DUST, UVXY …) may also reject a GTC trailing stop
+        # with 40310000.  This must NOT cancel the entry or disable shorting.
+        if LIVE:
+            log.info(
+                f"Trailing stop deferred {signal.symbol} (live same-day entry) — "
+                "protect_positions() will place it next session"
             )
-            self.client.submit_order(ts_req)
-        except Exception as e:
-            log.warning(
-                f"Trailing stop skipped {signal.symbol} (entry filled): {e} — "
-                "protect_positions() will re-place next cycle"
-            )
+        else:
+            try:
+                ts_req = TrailingStopOrderRequest(
+                    symbol        = signal.symbol,
+                    qty           = shares,
+                    side          = stop_side,
+                    type          = AlpacaOrderType.TRAILING_STOP,
+                    time_in_force = TimeInForce.GTC,
+                    trail_percent = trail_pct,
+                )
+                self.client.submit_order(ts_req)
+            except Exception as e:
+                log.warning(
+                    f"Trailing stop skipped {signal.symbol} (entry filled): {e} — "
+                    "protect_positions() will re-place next cycle"
+                )
 
         self._log_bracket(signal, shares, risk_info, trail_pct, None, order_type)
         return True
@@ -501,13 +527,21 @@ class EnhancedExecutor:
 
         except Exception as e:
             err = str(e).lower()
-            if "cannot be sold short" in err or "40310000" in err or "account is not allowed to short" in err:
+            if order_type == OrderType.SHORT and ("cannot be sold short" in err or "40310000" in err or "account is not allowed to short" in err):
+                # Symbol-level HTB: block only this ticker for the session
                 self._htb_cache.add(signal.symbol)
-                self.shorting_blocked = True
-                log.warning(
-                    f"Short entry blocked for {signal.symbol} (broker permission). "
-                    "Disabling shorts for this session."
-                )
+                if "account is not allowed to short" in err:
+                    # Account-level: no short permission at all — disable all shorts
+                    self.shorting_blocked = True
+                    log.warning(
+                        f"Short entry blocked for {signal.symbol} (account permission). "
+                        "Disabling shorts for this session."
+                    )
+                else:
+                    log.warning(f"Short blocked {signal.symbol} (HTB/insufficient BP): {e}")
+            elif order_type != OrderType.SHORT and ("cannot be sold short" in err or "40310000" in err):
+                # Inverse ETF or other buy rejected by broker — do not poison short flag
+                log.warning(f"Buy rejected for {signal.symbol} (broker): {e}")
             elif "insufficient buying power" in err:
                 log.warning(f"Skip {signal.symbol}: insufficient buying power")
             else:
