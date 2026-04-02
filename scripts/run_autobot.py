@@ -241,7 +241,17 @@ if __name__ == "__main__":
 
             _mode_switch_event.set()  # signal watcher to stop if still running
 
-            proc.wait()
+            # Wait up to 30 s for clean exit; force-kill on timeout so the watchdog
+            # loop can restart main.py rather than stalling here indefinitely.
+            try:
+                proc.wait(timeout=30)
+            except subprocess.TimeoutExpired:
+                write_log("main.py did not exit in 30 s — force-killing")
+                try:
+                    proc.kill()
+                except Exception:
+                    pass
+                proc.wait()
             write_log(f"main.py exited with {proc.returncode}")
 
             # If main.py died abnormally (crash/kill), atexit won't have run —

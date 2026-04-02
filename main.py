@@ -94,6 +94,9 @@ from engine.predictions import save_day_picks
 from engine.config import OPTIONS_ENABLED
 from engine.options_strategies import scan_options_universe
 from engine.options_executor import OptionsExecutor
+import engine.discovery as _discovery
+import engine.session   as _session
+import engine.kill_mode as _kill_mode
 
 # ── Initialise ────────────────────────────────────
 log      = setup_logging()
@@ -110,342 +113,42 @@ options_executor = OptionsExecutor(client) if OPTIONS_ENABLED else None
 if OPTIONS_ENABLED:
     log.info("Options trading ENABLED (Level 3, 15% allocation, 7-21 DTE)")
 
-# ── Kill Mode state ────────────────────────────────
-_kill_mode_active = False
-_kill_mode_date:  datetime.date = None
-
-daily_pnl          = 0.0
-daily_start_equity = 0.0
-daily_reset        = None
-trades             = 0
-
-# Quarterly tracking
-quarterly_start_equity: float = 0.0
-quarterly_reset               = None
-_quarterly_state_lock         = threading.Lock()
-
-_QUARTERLY_STATE_FILE = __import__('pathlib').Path(__file__).parent / ".quarterly_state.json"
-
-def _load_quarterly_state():
-    """Load persisted quarter-start equity from disk (survives restarts)."""
-    global quarterly_start_equity, quarterly_reset
-    try:
-        import json, datetime as _dt
-        if _QUARTERLY_STATE_FILE.exists():
-            state = json.loads(_QUARTERLY_STATE_FILE.read_text())
-            quarterly_reset        = _dt.date.fromisoformat(state["quarterly_reset"])
-            quarterly_start_equity = float(state["quarterly_start_equity"])
-            log.info(f"Loaded quarterly state: start equity ${quarterly_start_equity:,.2f} since {quarterly_reset}")
-    except Exception as e:
-        log.warning(f"Could not load quarterly state: {e}")
-
-def _save_quarterly_state():
-    """Persist current quarter-start equity to disk (thread-safe)."""
-    try:
-        import json
-        payload = json.dumps({
-            "quarterly_reset":        str(quarterly_reset),
-            "quarterly_start_equity": quarterly_start_equity,
-        })
-        with _quarterly_state_lock:
-            _QUARTERLY_STATE_FILE.write_text(payload)
-    except Exception as e:
-        log.warning(f"Could not save quarterly state: {e}")
-
-_load_quarterly_state()
-
-trending_stocks     = []
-last_trending_scan  = 0
-last_ti_scan        = 0
-_ti_future = None
-_ti_started_at = 0.0
-_ti_warned_running = False
-_ti_executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+# ── Session + discovery + kill-mode state (delegated to engine modules) ───
+_session.load_quarterly_state()
 _last_market_regime: str = "bull"  # retained across cycles; never resets to bull on error
 _short_fail_cooldown: dict = {}      # {symbol: monotonic_expiry_ts}
 
 
 # ── Trending Scan ───────────────────────────────────────────────
 def scan_trending_stocks():
-    global trending_stocks, last_trending_scan
-
-    if not USE_LIVE_TRENDING and not USE_FINNHUB_DISCOVERY:
-        return
-
-    current_time = time.time()
-    if current_time - last_trending_scan < (TRENDING_SCAN_INTERVAL * 60):
-        return
-
-    try:
-        log.info("Scanning for live trending stocks...")
-        all_tickers = []
-
-        if USE_LIVE_TRENDING:
-            tickers = get_trending_tickers(TRENDING_MAX_RESULTS)
-            if tickers:
-                all_tickers.extend(tickers)
-
-        if USE_FINNHUB_DISCOVERY:
-            tickers = get_finnhub_trending_tickers()
-            if tickers:
-                all_tickers.extend(tickers)
-
-        unique = list(set(all_tickers))
-
-        if not unique:
-            log.info("No trending tickers found - using existing universe")
-            trending_stocks    = [{"symbol": s, "momentum_pct": 0, "current_price": 0}
-                                   for s in PRIORITY_1_MOMENTUM[:TRENDING_MAX_RESULTS]]
-            last_trending_scan = current_time
-            return
-
-        momentum_stocks = filter_trending_momentum(unique, TRENDING_MIN_MOMENTUM)
-
-        if not momentum_stocks:
-            log.info(f"No trending stocks with >{TRENDING_MIN_MOMENTUM}% momentum - using universe")
-            trending_stocks    = [{"symbol": s, "momentum_pct": 0, "current_price": 0}
-                                   for s in PRIORITY_1_MOMENTUM[:TRENDING_MAX_RESULTS]]
-            last_trending_scan = current_time
-            return
-
-        if USE_SENTIMENT_GATE:
-            filtered = []
-            for stock in momentum_stocks:
-                allow, bullish_pct = check_sentiment_gate(stock["symbol"])
-                if allow:
-                    stock["sentiment"] = bullish_pct
-                    filtered.append(stock)
-            momentum_stocks = filtered
-            log.info(f"Sentiment filter: {len(filtered)} passed")
-
-        new_stocks = [s for s in momentum_stocks if s["symbol"] not in PRIORITY_1_MOMENTUM]
-        if new_stocks:
-            log.info(f"Found {len(new_stocks)} new trending stocks:")
-            for s in new_stocks[:5]:
-                log.info(f"  {s['symbol']}: +{s['momentum_pct']:.1f}% @ ${s['current_price']:.2f}")
-            for s in new_stocks:
-                PRIORITY_1_MOMENTUM.append(s["symbol"])
-            log.info(f"Priority 1 expanded to {len(PRIORITY_1_MOMENTUM)} stocks")
-
-        trending_stocks    = momentum_stocks
-        last_trending_scan = current_time
-
-    except Exception as e:
-        log.error(f"Trending scan failed: {e}")
-        trending_stocks = [{"symbol": s, "momentum_pct": 0, "current_price": 0}
-                           for s in PRIORITY_1_MOMENTUM[:TRENDING_MAX_RESULTS]]
+    _discovery.scan_trending_stocks(
+        use_live_trending=USE_LIVE_TRENDING,
+        use_finnhub=USE_FINNHUB_DISCOVERY,
+        use_sentiment_gate=USE_SENTIMENT_GATE,
+        trending_max=TRENDING_MAX_RESULTS,
+        trending_interval_min=TRENDING_SCAN_INTERVAL,
+        trending_min_momentum=TRENDING_MIN_MOMENTUM,
+        priority_1=PRIORITY_1_MOMENTUM,
+    )
 
 
 # ── Trade Ideas Universe Refresh ───────────────────────────────
 
-def _apply_tradeideas_results(results: dict, scans: dict) -> None:
-    # ── Step 1: collect validated tickers per destination, preserving source order ─
-    # Sources are visited in SCANS dict order (highshortfloat → marketscope360 →
-    # stockracecentral derived keys), so the primary scan always lands at index 0.
-    #   PRIORITY_1_MOMENTUM:   [0] marketscope360  (primary)
-    #                          [1] stockracecentral_leaders (secondary)
-    #   PRIORITY_2_ESTABLISHED:[0] highshortfloat  (primary)
-    #                          [1] stockracecentral_laggards (secondary)
-    by_dest: dict[str, list[tuple[str, list[str]]]] = {
-        "PRIORITY_1_MOMENTUM": [],
-        "PRIORITY_2_ESTABLISHED": [],
-    }
-
-    for scan_key, tickers in results.items():
-        if scan_key in scans:
-            target_list_name = scans[scan_key]["target"]
-            label = scans[scan_key]["label"]
-            if target_list_name == "BOTH":
-                continue
-        elif scan_key.endswith("_leaders"):
-            target_list_name = "PRIORITY_1_MOMENTUM"
-            label = "stock_race_central_leaders"
-        elif scan_key.endswith("_laggards"):
-            target_list_name = "PRIORITY_2_ESTABLISHED"
-            label = "stock_race_central_laggards"
-        else:
-            continue
-
-        valid = [t for t in tickers if _is_valid_ti_ticker(t)]
-        if not valid:
-            log.warning(
-                f"Trade Ideas {label}: scrape returned 0 valid tickers — "
-                f"skipping to preserve {target_list_name}"
-            )
-            continue
-        by_dest[target_list_name].append((label, valid))
-
-    # ── Step 2: merge per destination with primary-first ordering ────────────
-    # Within each source list, screenshot position = priority (rank 1 = slot 1).
-    # When two sources feed the same destination:
-    #   • Primary source (dedicated scan) owns the first PRIMARY_SLOTS slots.
-    #   • Secondary source (race leaders/laggards) fills the remaining slots.
-    # This preserves capture order within each source while giving the dedicated
-    # scan its earned priority — e.g. highshortfloat rank-1 = P2 slot-1.
-    PRIMARY_SLOTS = 35  # out of 50 total
-    SECONDARY_SLOTS = 50 - PRIMARY_SLOTS  # 15
-
-    for target_list_name, sources in by_dest.items():
-        if not sources:
-            continue
-
-        dest = PRIORITY_1_MOMENTUM if target_list_name == "PRIORITY_1_MOMENTUM" else PRIORITY_2_ESTABLISHED
-        existing_set = set(dest)
-
-        if len(sources) == 1:
-            merged = sources[0][1][:]
-        else:
-            # Primary source: fill first PRIMARY_SLOTS slots in screenshot rank order
-            seen: set[str] = set()
-            primary_part: list[str] = []
-            for t in sources[0][1]:
-                if len(primary_part) >= PRIMARY_SLOTS:
-                    break
-                if t not in seen:
-                    primary_part.append(t)
-                    seen.add(t)
-
-            # Secondary source(s): fill remaining SECONDARY_SLOTS in their rank order
-            secondary_part: list[str] = []
-            for _, src in sources[1:]:
-                for t in src:
-                    if len(secondary_part) >= SECONDARY_SLOTS:
-                        break
-                    if t not in seen:
-                        secondary_part.append(t)
-                        seen.add(t)
-
-            merged = primary_part + secondary_part
-
-        merged_set = set(merged)
-        new_tickers = [t for t in merged if t not in existing_set]
-        fresh       = [t for t in merged if t in existing_set]
-        demote      = [t for t in dest   if t not in merged_set]
-
-        dest.clear()
-        dest.extend(merged[:50])
-        for t in demote:
-            if t not in merged_set and t not in dest:
-                dest.append(t)
-
-        labels = " + ".join(
-            f"{s[0]}({len(s[1])})" for s in sources
-        )
-        if new_tickers:
-            log.info(
-                f"Trade Ideas [{target_list_name}] {labels}: "
-                f"+{len(new_tickers)} new, {len(fresh)} existing → top-10: {merged[:10]}"
-            )
-        else:
-            log.info(
-                f"Trade Ideas [{target_list_name}] {labels}: "
-                f"{len(fresh)} merged → top-10: {merged[:10]}"
-            )
-        log.info(
-            f"── TI top-20 [{target_list_name}] "
-            f"(primary={len(sources[0][1]) if sources else 0} "
-            f"secondary={sum(len(s[1]) for s in sources[1:]) if len(sources)>1 else 0}): "
-            + ", ".join(dest[:20])
-        )
-
-
 def scan_tradeideas_universe():
-    """Run TI scrape in background; never block the trading cycle."""
-    global last_ti_scan, _ti_future, _ti_started_at, _ti_warned_running
-
-    if not USE_TRADEIDEAS_DISCOVERY:
-        return
-
-    try:
-        import sys
-        _scripts = str(REPO_ROOT / "scripts")
-        if _scripts not in sys.path:
-            sys.path.insert(0, _scripts)
-        from capture_tradeideas import scrape_tradeideas, SCANS, _is_valid_ti_ticker
-    except ImportError as e:
-        log.warning(f"Trade Ideas scraper unavailable (selenium not installed?): {e}")
-        last_ti_scan = time.time()
-        return
-
-    now = time.time()
-
-    # 1) If background scrape finished, apply results now.
-    if _ti_future is not None and _ti_future.done():
-        try:
-            results = _ti_future.result()
-            _apply_tradeideas_results(results, SCANS)
-        except Exception as e:
-            log.error(f"Trade Ideas scan failed: {e}")
-        finally:
-            _ti_future = None
-            _ti_warned_running = False
-            last_ti_scan = now
-
-    # 2) If scrape still running, do not block this cycle.
-    if _ti_future is not None:
-        elapsed = now - _ti_started_at
-        # Hard-kill fallback: if the scraper thread is still stuck after 3 min
-        # (e.g. Chrome hung and the 90 s in-scraper watchdog also failed), kill
-        # Chrome processes here from the main thread and reset the future so the
-        # next interval can schedule a fresh scrape.
-        if elapsed > 180:
-            log.error(
-                f"Trade Ideas scrape hard-timeout ({elapsed:.0f}s) — "
-                "killing Chrome/chromedriver and resetting future"
-            )
-            import subprocess as _hk_sp
-            for _exe in ("chromedriver.exe", "chrome.exe"):
-                try:
-                    _hk_sp.run(
-                        ["taskkill", "/F", "/IM", _exe, "/T"],
-                        capture_output=True, timeout=5,
-                    )
-                except Exception:
-                    pass
-            _ti_future = None
-            _ti_warned_running = False
-            last_ti_scan = now
-            return
-        if elapsed > 90 and not _ti_warned_running:
-            log.warning(f"Trade Ideas scan still running ({elapsed:.0f}s) — trading loop continues")
-            _ti_warned_running = True
-        return
-
-    # 3) Launch new scrape only when interval is due.
-    if (now - last_ti_scan) < (TRADEIDEAS_SCAN_INTERVAL_MIN * 60):
-        return
-
-    # Use explicit profile only when provided; default to a clean no-profile
-    # session since it has been more reliable than locked desktop profiles.
-    ti_profile = (TRADEIDEAS_CHROME_PROFILE or "").strip() or None
-    # Force headless=True for background process — prevents Chrome crash when
-    # running as a hidden/background process with no display.
-    ti_headless = True
-
-    log.info(
-        f"Scanning Trade Ideas in background (profile={ti_profile or 'none'}, "
-        f"headless={'on' if ti_headless else 'off'}) …"
-    )
-    _ti_started_at = now
-    _ti_warned_running = False
-    _ti_future = _ti_executor.submit(
-        scrape_tradeideas,
+    _discovery.scan_tradeideas_universe(
+        enabled=USE_TRADEIDEAS_DISCOVERY,
+        scan_interval_min=TRADEIDEAS_SCAN_INTERVAL_MIN,
+        headless=TRADEIDEAS_HEADLESS,
+        chrome_profile=TRADEIDEAS_CHROME_PROFILE,
         update_config=TRADEIDEAS_UPDATE_CONFIG_FILE,
-        headless=ti_headless,
-        chrome_profile=ti_profile,
-        select_30min=True,
+        priority_1=PRIORITY_1_MOMENTUM,
+        priority_2=PRIORITY_2_ESTABLISHED,
     )
 
 
 
 
 # ── Main Scan & Trade ───────────────────────────────────────────
-def _get_quarter_start(d):
-    """Return the first date of the current calendar quarter."""
-    quarter_month = ((d.month - 1) // 3) * 3 + 1
-    return datetime.date(d.year, quarter_month, 1)
-
-
 def scan_top3_only():
     sentiment = get_market_sentiment()
     log.info(f"Market sentiment: {sentiment}")
@@ -477,123 +180,20 @@ def scan_top3_only():
 
 
 def check_kill_mode() -> bool:
-    """
-    Check for extreme bear market conditions every scan cycle.
-    Triggers on ANY of:
-      1. VIX absolute level >= KILL_MODE_VIX_LEVEL (default 40)
-      2. SPY intraday drop >= KILL_MODE_SPY_DROP_PCT (default 3%) from today's open
-      3. VIX spike >= KILL_MODE_VIX_ROC_PCT (default 50%) in last 5 hours
-
-    On trigger: calls executor.emergency_close_all() which:
-      - PDT-exempt accounts: cancels all stops, market-closes everything
-      - PDT-constrained accounts: market-closes prior-day positions (not day trades),
-        places hairpin 0.5% trailing stops on today's positions (auto-triggers safely)
-
-    Returns True while kill mode is active (blocks all new entries for the rest of the day).
-    """
-    global _kill_mode_active, _kill_mode_date
-
-    today = datetime.date.today()
-    if _kill_mode_date != today:
-        _kill_mode_active = False   # reset at new trading day
-        _kill_mode_date   = today
-
-    if _kill_mode_active:
-        log.warning("KILL MODE ACTIVE — all new entries blocked for today")
-        return True
-
-    trigger_reason = None
-
-    # 1. Absolute VIX level
-    try:
-        vix = get_vix()
-        if vix >= KILL_MODE_VIX_LEVEL:
-            trigger_reason = f"VIX={vix:.1f} >= threshold {KILL_MODE_VIX_LEVEL:.0f}"
-    except Exception:
-        pass
-
-    # 2 & 3. Batch fetch SPY and VIX bars
-    if trigger_reason is None:
-        try:
-            from engine.utils import get_bars_batch
-            bars_batch = get_bars_batch(["SPY", "^VIX"], "1d", "1m")
-            spy_bars = bars_batch.get("SPY", pd.DataFrame())
-            vix_bars_1m = bars_batch.get("^VIX", pd.DataFrame())
-            # SPY intraday drop
-            if not spy_bars.empty and len(spy_bars) >= 2:
-                spy_open = float(spy_bars["open"].iloc[0])
-                spy_now  = float(spy_bars["close"].iloc[-1])
-                drop_pct = ((spy_now - spy_open) / spy_open) * 100
-                if drop_pct <= -KILL_MODE_SPY_DROP_PCT:
-                    trigger_reason = (
-                        f"SPY intraday {drop_pct:.2f}% "
-                        f"(open ${spy_open:.2f} → now ${spy_now:.2f})"
-                    )
-            # VIX spike: up >50% in last 5 hours (need 1h bars)
-            if trigger_reason is None:
-                vix_bars_1h = get_bars("^VIX", "1d", "1h")
-                if not vix_bars_1h.empty and len(vix_bars_1h) >= 5:
-                    past_vix    = float(vix_bars_1h["close"].iloc[-5])
-                    current_vix = float(vix_bars_1h["close"].iloc[-1])
-                    if past_vix > 0:
-                        roc = ((current_vix - past_vix) / past_vix) * 100
-                        if roc >= KILL_MODE_VIX_ROC_PCT:
-                            trigger_reason = (
-                                f"VIX +{roc:.0f}% in 5h "
-                            f"({past_vix:.1f} -> {current_vix:.1f})"
-                        )
-        except Exception:
-            pass
-
-    if trigger_reason is None:
-        return False
-
-    log.warning("=" * 70)
-    log.warning(f"KILL MODE TRIGGERED: {trigger_reason}")
-    log.warning("EXTREME BEAR MARKET — CLOSING ALL POSITIONS TO PROTECT CAPITAL")
-    log.warning("=" * 70)
-    _kill_mode_active = True
-    _kill_mode_date   = today
-    try:
-        _acct = client.get_account()
-        executor.emergency_close_all(float(_acct.equity))
-        if options_executor is not None:
-            options_executor.close_all()
-    except Exception as e:
-        log.error(f"Kill mode close error: {e}")
-    return True
+    return _kill_mode.check(
+        client, executor, options_executor,
+        vix_level=KILL_MODE_VIX_LEVEL,
+        spy_drop_pct=KILL_MODE_SPY_DROP_PCT,
+        vix_roc_pct=KILL_MODE_VIX_ROC_PCT,
+    )
 
 
 def scan_and_trade():
-    global daily_pnl, daily_start_equity, daily_reset, trades
-    global quarterly_start_equity, quarterly_reset
     global _last_market_regime
 
-    today = datetime.date.today()
-    if daily_reset != today:
-        try:
-            _day_acct          = client.get_account()
-            daily_start_equity = float(_day_acct.equity)
-        except Exception as e:
-            log.warning(f"Could not read start-of-day equity: {e}")
-            daily_start_equity = 0.0
-        daily_pnl   = 0.0
-        trades      = 0
-        daily_reset = today
-        log.info("=" * 70)
-        log.info(f"NEW DAY: {today} | Start equity: ${daily_start_equity:,.2f}")
-        # Prune expired tickers from universe.json once per day
-        try:
-            from engine.universe import prune as _prune_universe
-            removed = _prune_universe()
-            if removed:
-                log.info(f"Universe pruned: removed {len(removed)} expired ticker(s): {removed[:10]}{'…' if len(removed)>10 else ''}")
-            else:
-                log.info("Universe pruned: no expired tickers")
-        except Exception as _prune_err:
-            log.warning(f"Universe prune failed: {_prune_err}")
-        log.info("=" * 70)
+    _session.reset_daily(client)
 
+    today = _session.daily_reset
     if not is_market_open():
         if not FORCE_SCAN:
             log.info("Market closed - skipping scan")
@@ -604,52 +204,25 @@ def scan_and_trade():
     if check_kill_mode():
         return
 
-    # Compute daily P&L live from equity delta (catches all closed trades + unrealized)
-    if daily_start_equity > 0:
-        try:
-            _cur_acct = client.get_account()
-            daily_pnl = float(_cur_acct.equity) - daily_start_equity
-        except Exception as e:
-            log.warning(f"Could not refresh daily P&L: {e}")
+    # Refresh daily P&L from broker equity delta
+    _session.refresh_daily_pnl(client)
 
     # Compute regime-aware daily loss limit
-    _loss_pct        = DAILY_LOSS_LIMIT_BEAR_PCT if _last_market_regime == "bear" else DAILY_LOSS_LIMIT_BULL_PCT
-    _daily_loss_limit = -(daily_start_equity * _loss_pct / 100) if daily_start_equity > 0 else -999_999
+    _loss_pct         = DAILY_LOSS_LIMIT_BEAR_PCT if _last_market_regime == "bear" else DAILY_LOSS_LIMIT_BULL_PCT
+    _daily_loss_limit = -(_session.daily_start_equity * _loss_pct / 100) if _session.daily_start_equity > 0 else -999_999
 
-    if daily_pnl <= _daily_loss_limit:
+    if _session.daily_pnl <= _daily_loss_limit:
         log.warning(
             f"Daily loss limit hit ({_loss_pct:.0f}% {_last_market_regime}): "
-            f"${daily_pnl:.2f} <= ${_daily_loss_limit:.2f} — halting trades"
+            f"${_session.daily_pnl:.2f} <= ${_daily_loss_limit:.2f} — halting trades"
         )
         return
 
-    if daily_pnl >= DAILY_PROFIT_TARGET:
-        log.info(f"Daily profit target reached: ${daily_pnl:.2f} (started at ${daily_start_equity:,.2f})")
+    if _session.daily_pnl >= DAILY_PROFIT_TARGET:
+        log.info(f"Daily profit target reached: ${_session.daily_pnl:.2f} (started at ${_session.daily_start_equity:,.2f})")
         return
 
-    # Quarterly profit target gate
-    if USE_QUARTERLY_TARGET:
-        try:
-            q_start = _get_quarter_start(today)
-            _acct   = client.get_account()
-            _equity = float(_acct.equity)
-
-            if quarterly_reset != q_start:
-                quarterly_start_equity = _equity
-                quarterly_reset        = q_start
-                _save_quarterly_state()
-                log.info(f"New quarter {q_start} | Starting equity: ${quarterly_start_equity:,.2f}")
-
-            if quarterly_start_equity > 0:
-                q_gain_pct = ((_equity - quarterly_start_equity) / quarterly_start_equity) * 100
-                log.info(f"Quarterly P&L: {q_gain_pct:+.1f}% (target >= {QUARTERLY_PROFIT_TARGET_PCT:.0f}%)")
-                if q_gain_pct >= QUARTERLY_PROFIT_TARGET_PCT:
-                    log.info(
-                        f"QUARTERLY TARGET HIT: +{q_gain_pct:.1f}% >= {QUARTERLY_PROFIT_TARGET_PCT:.0f}% | "
-                        f"${quarterly_start_equity:,.2f} -> ${_equity:,.2f} | Target reached (continuing)"
-                    )
-        except Exception as e:
-            log.warning(f"Quarterly target check error: {e}")
+    _session.check_quarterly(client, USE_QUARTERLY_TARGET, QUARTERLY_PROFIT_TARGET_PCT)
 
     sentiment = get_market_sentiment()
     log.info(f"Market sentiment: {sentiment}")
@@ -884,20 +457,16 @@ def scan_and_trade():
             # Execute cautious longs first — cascade through signals until one fills
             # (the first affordable inverse ETF will succeed; others will be skipped)
             for sig in long_sigs:
-                try:
-                    _cur_acct = client.get_account()
-                    daily_pnl = float(_cur_acct.equity) - daily_start_equity
-                except Exception:
-                    pass
-                if daily_pnl <= _daily_loss_limit:
+                _session.refresh_daily_pnl(client)
+                if _session.daily_pnl <= _daily_loss_limit:
                     log.warning(
                         f"Daily loss limit hit mid-cycle ({_loss_pct:.0f}% {market_regime}): "
-                        f"${daily_pnl:.2f} — halting remaining signals"
+                        f"${_session.daily_pnl:.2f} — halting remaining signals"
                     )
                     break
                 log.info(f"EXECUTE: {sig.action.upper()} {sig.symbol} @ ${sig.price:.2f} | {sig.strategy} | {sig.reason}")
                 if executor.execute(sig, swap_only=True):
-                    trades += 1
+                    _session.trades += 1
                     break   # one bear long per cycle is enough — stop after first fill
                 time.sleep(1)
 
@@ -906,20 +475,16 @@ def scan_and_trade():
             for sig in short_queue:
                 if short_target <= 0 or short_success >= short_target:
                     break
-                try:
-                    _cur_acct = client.get_account()
-                    daily_pnl = float(_cur_acct.equity) - daily_start_equity
-                except Exception:
-                    pass
-                if daily_pnl <= _daily_loss_limit:
+                _session.refresh_daily_pnl(client)
+                if _session.daily_pnl <= _daily_loss_limit:
                     log.warning(
                         f"Daily loss limit hit mid-cycle ({_loss_pct:.0f}% {market_regime}): "
-                        f"${daily_pnl:.2f} — halting remaining signals"
+                        f"${_session.daily_pnl:.2f} — halting remaining signals"
                     )
                     break
                 log.info(f"EXECUTE: {sig.action.upper()} {sig.symbol} @ ${sig.price:.2f} | {sig.strategy} | {sig.reason}")
                 if executor.execute(sig, swap_only=False):
-                    trades += 1
+                    _session.trades += 1
                     short_success += 1
                     _short_fail_cooldown.pop(sig.symbol, None)
                 else:
@@ -935,20 +500,16 @@ def scan_and_trade():
             for sig in top_signals:
                 is_short_signal = sig.action in ("sell", "short")
                 effective_swap_only = (market_regime == "bear") and not is_short_signal
-                try:
-                    _cur_acct = client.get_account()
-                    daily_pnl = float(_cur_acct.equity) - daily_start_equity
-                except Exception:
-                    pass
-                if daily_pnl <= _daily_loss_limit:
+                _session.refresh_daily_pnl(client)
+                if _session.daily_pnl <= _daily_loss_limit:
                     log.warning(
                         f"Daily loss limit hit mid-cycle ({_loss_pct:.0f}% {market_regime}): "
-                        f"${daily_pnl:.2f} — halting remaining signals"
+                        f"${_session.daily_pnl:.2f} — halting remaining signals"
                     )
                     break
                 log.info(f"EXECUTE: {sig.action.upper()} {sig.symbol} @ ${sig.price:.2f} | {sig.strategy} | {sig.reason}")
                 if executor.execute(sig, swap_only=effective_swap_only):
-                    trades += 1
+                    _session.trades += 1
                 time.sleep(1)
     else:
         log.info("No signals found this cycle")
@@ -1003,9 +564,9 @@ def log_status():
         log.info("=" * 70)
         log.info("STATUS")
         log.info(f"Equity:     ${float(account.equity):,.2f}")
-        log.info(f"Daily P&L:  ${daily_pnl:.2f}  |  Trades: {trades}")
-        if USE_QUARTERLY_TARGET and quarterly_start_equity > 0:
-            q_gain = ((float(account.equity) - quarterly_start_equity) / quarterly_start_equity) * 100
+        log.info(f"Daily P&L:  ${_session.daily_pnl:.2f}  |  Trades: {_session.trades}")
+        if USE_QUARTERLY_TARGET and _session.quarterly_start_equity > 0:
+            q_gain = ((float(account.equity) - _session.quarterly_start_equity) / _session.quarterly_start_equity) * 100
             log.info(f"Quarterly:  {q_gain:+.1f}% (target >= {QUARTERLY_PROFIT_TARGET_PCT:.0f}%)")
         log.info(f"Positions:  {len(positions)}")
 
@@ -1141,7 +702,7 @@ def start():
                         try:
                             account   = client.get_account()
                             positions = client.get_all_positions()
-                            notify_eod(eod_summary, account, positions, daily_pnl, trades, trending_stocks)
+                            notify_eod(eod_summary, account, positions, _session.daily_pnl, _session.trades, _discovery.trending_stocks)
                         except Exception as e:
                             log.error(f"EOD account fetch error: {e}", exc_info=True)
 
@@ -1154,7 +715,7 @@ def start():
                     log.info(f"Heartbeat: scan cycle completed at {datetime.datetime.now().isoformat()}")
 
                 schedule.run_pending()
-                time.sleep(30)
+                time.sleep(5)   # tight poll: scan interval checked every 5 s (was 30 s)
 
             except KeyboardInterrupt:
                 log.info("Stopped by user")

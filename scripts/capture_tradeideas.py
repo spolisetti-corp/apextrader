@@ -639,11 +639,31 @@ def scrape_tradeideas(
                 pass
 
     finally:
-        _scrape_done.set()   # signal the hard-kill watchdog: scrape finished normally
-        try:
-            driver.quit()
-        except Exception:
-            pass
+        # Quit the driver with a local 10 s hard guard BEFORE signaling the outer
+        # watchdog.  If driver.quit() hangs (Chrome frozen), a daemon thread force-kills
+        # Chrome so the scraper thread returns promptly.
+        import threading as _qt, subprocess as _qs, sys as _qsys
+
+        def _force_quit():
+            try:
+                driver.quit()
+            except Exception:
+                pass
+
+        _qt_th = _qt.Thread(target=_force_quit, daemon=True)
+        _qt_th.start()
+        _qt_th.join(timeout=10)
+        if _qt_th.is_alive():
+            print("[WARN ] driver.quit() hung — force-killing Chrome")
+            if _qsys.platform == "win32":
+                for _exe in ("chromedriver.exe", "chrome.exe"):
+                    try:
+                        _qs.run(["taskkill", "/F", "/IM", _exe, "/T"],
+                                capture_output=True, timeout=5)
+                    except Exception:
+                        pass
+
+        _scrape_done.set()  # signal the hard-kill watchdog: scrape finished
         print("[OK   ] Browser closed.")
 
     return results

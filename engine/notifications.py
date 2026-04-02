@@ -424,26 +424,40 @@ def send_email(subject: str, text: str, html: Optional[str] = None) -> bool:
     if html:
         msg.attach(MIMEText(html, 'html'))
 
-    print(f"[DEBUG] send_email called: subject={subject}")
-    print(f"[DEBUG] to={to_addresses}")
-    print(f"[DEBUG] from={from_address}")
-    print(f"[DEBUG] smtp_server={smtp_server} smtp_port={smtp_port} smtp_user={smtp_user}")
-    server = smtplib.SMTP(smtp_server, smtp_port, timeout=30)
-    try:
-        server.starttls()
-        print("[DEBUG] starttls successful")
-        server.login(smtp_user, smtp_pass)
-        print("[DEBUG] SMTP login successful")
-        server.sendmail(from_address, to_addresses, msg.as_string())
-        print("[DEBUG] sendmail successful")
-    except Exception as e:
-        print(f"[DEBUG] sendmail error: {type(e).__name__} {e}")
-        raise
-    finally:
-        server.quit()
-        print("[DEBUG] SMTP connection closed")
+    # Run the SMTP session on a daemon thread capped at 60 s total.
+    # This prevents the trading loop from blocking when the mail server
+    # is slow, unreachable, or stuck in a TLS handshake.
+    import threading as _t
+    _result: list = [None]
+    _exc:    list = [None]
 
-    return True
+    def _smtp_send():
+        try:
+            server = smtplib.SMTP(smtp_server, smtp_port, timeout=30)
+            try:
+                server.starttls()
+                server.login(smtp_user, smtp_pass)
+                server.sendmail(from_address, to_addresses, msg.as_string())
+            finally:
+                try:
+                    server.quit()
+                except Exception:
+                    pass
+            _result[0] = True
+        except Exception as e:
+            _exc[0] = e
+
+    _th = _t.Thread(target=_smtp_send, daemon=True)
+    _th.start()
+    _th.join(timeout=60)
+
+    if _th.is_alive():
+        # Thread still blocked after 60 s — log and return; trading loop continues.
+        print(f"[WARN ] send_email timed out (>60 s) for subject: {subject!r}")
+        return False
+    if _exc[0] is not None:
+        raise _exc[0]
+    return bool(_result[0])
 
 
 # ── High-level notification helpers ───────────────────────────────────────
