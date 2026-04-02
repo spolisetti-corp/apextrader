@@ -783,17 +783,29 @@ class EnhancedExecutor:
                 hit     = (is_long and current <= stop_price) or (not is_long and current >= stop_price)
                 if hit:
                     side = OrderSide.SELL if is_long else OrderSide.BUY
-                    self.client.submit_order(MarketOrderRequest(
-                        symbol        = sym,
-                        qty           = abs(qty),
-                        side          = side,
-                        time_in_force = TimeInForce.DAY,
-                    ))
-                    self._pdt_stop_blocked.pop(sym, None)
-                    log.warning(
-                        f"SOFTWARE SL HIT {sym}: price ${current:.2f} <= stop ${stop_price:.2f} — "
-                        f"market {'SELL' if is_long else 'BUY-TO-COVER'} submitted"
-                    )
+                    try:
+                        self.client.submit_order(MarketOrderRequest(
+                            symbol        = sym,
+                            qty           = abs(qty),
+                            side          = side,
+                            time_in_force = TimeInForce.DAY,
+                        ))
+                        self._pdt_stop_blocked.pop(sym, None)
+                        log.warning(
+                            f"SOFTWARE SL HIT {sym}: price ${current:.2f} crossed stop ${stop_price:.2f} — "
+                            f"market {'SELL' if is_long else 'BUY-TO-COVER'} submitted"
+                        )
+                    except Exception as close_err:
+                        if "40310100" in str(close_err):
+                            # Broker PDT also blocks same-day close — position is a forced
+                            # overnight hold.  Stop retrying; it will carry to next session.
+                            self._pdt_stop_blocked.pop(sym, None)
+                            log.warning(
+                                f"SOFTWARE SL {sym}: stop breached at ${current:.2f} but PDT blocks "
+                                f"same-day close — holding overnight (stop was ${stop_price:.2f})"
+                            )
+                        else:
+                            log.error(f"check_software_stops {sym}: {close_err}")
                 else:
                     log.debug(f"SOFTWARE SL {sym}: current ${current:.2f} | stop ${stop_price:.2f} | margin ${current - stop_price:+.2f}")
             except Exception as e:
