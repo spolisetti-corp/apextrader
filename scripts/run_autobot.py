@@ -24,8 +24,9 @@ try:
 except ImportError:
     pass  # python-dotenv not installed; rely on shell env
 
-LOG_FILE = BASE_DIR / "autobot.log"
-PID_FILE = BASE_DIR / "autobot.pid"
+LOG_FILE        = BASE_DIR / "autobot.log"
+PID_FILE        = BASE_DIR / "autobot.pid"
+CHILD_PID_FILE  = BASE_DIR / "mainbot_child.pid"   # main.py subprocess PID — killed on restart
 PYTHON = BASE_DIR / ".venv" / "Scripts" / "python.exe"
 MAIN_SCRIPT = BASE_DIR / "main.py"
 _ET = ZoneInfo("America/New_York") if ZoneInfo else None
@@ -150,6 +151,12 @@ if __name__ == "__main__":
                 stderr=subprocess.STDOUT,
                 universal_newlines=True,
             )
+            # Persist child PID so external restarts can kill it even if the
+            # watchdog is force-killed (orphaned child prevention).
+            try:
+                CHILD_PID_FILE.write_text(str(proc.pid), encoding="utf-8")
+            except Exception:
+                pass
 
             def _mode_watcher(proc_, launch_mode_, event_):
                 """Check mode every 30s regardless of subprocess output."""
@@ -253,6 +260,12 @@ if __name__ == "__main__":
                     pass
                 proc.wait()
             write_log(f"main.py exited with {proc.returncode}")
+
+            # Remove the child PID file now that the process has exited.
+            try:
+                CHILD_PID_FILE.unlink(missing_ok=True)
+            except Exception:
+                pass
 
             # If main.py died abnormally (crash/kill), atexit won't have run —
             # remove any stale lock file so the next restart isn't blocked.
