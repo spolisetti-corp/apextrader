@@ -14,6 +14,11 @@ OPTIONS_BROKER = "alpaca"                               # Only Alpaca supports o
 
 # ─────────────────────────────────────────────────────────────────
 # Options Trading Configuration (Level 3 account)
+#
+# MASTER KILL-SWITCH: set OPTIONS_ENABLED=false in .env to disable
+# all options trading system-wide (scanner, executor, main loop).
+# Default: true (enabled). Safe to flip live without restart via env.
+#
 # Allocation: 15% of portfolio. Strategies: momentum calls, bear puts,
 # covered calls on held positions. Expiry: 7–21 DTE (near-term).
 # ─────────────────────────────────────────────────────────────────
