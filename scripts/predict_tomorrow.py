@@ -20,11 +20,17 @@ Flags:
                   them into PRIORITY_FOLLOWING in engine/config.py so the
                   bot scans them with high priority at the next open.
   --top N         How many tickers to save (default 20).
+  --protect       Place GTC trailing stops on all open live equity positions
+                  that have no active sell/buy-to-cover order.  Uses the same
+                  ATR-tiered trail% as the bot's protect_positions() call.
+                  Safe to run after market close on any live session.
 
 Run:
   python scripts/predict_tomorrow.py
   python scripts/predict_tomorrow.py --save
   python scripts/predict_tomorrow.py --save --top 15
+  python scripts/predict_tomorrow.py --protect
+  python scripts/predict_tomorrow.py --save --protect
 """
 
 import sys
@@ -171,7 +177,14 @@ def main():
                         help="Save top picks to predictions/watchlist.json and inject into config.py")
     parser.add_argument("--top", type=int, default=20,
                         help="Number of tickers to save (default: 20)")
+    parser.add_argument("--protect", action="store_true",
+                        help="Place GTC trailing stops on all uncovered live equity positions")
     args = parser.parse_args()
+
+    # --protect-only: skip the scan, just place stops and exit
+    if args.protect and not args.save:
+        _place_trailing_stops()
+        return
 
     print(f"\nApexTrader — Tomorrow Prediction Scanner")
     print(f"Universe: {len(UNIVERSE)} tickers\n")
@@ -266,6 +279,10 @@ def main():
     if args.save:
         _save_and_inject(df, top_n=args.top)
 
+    # ── PROTECT POSITIONS ─────────────────────────────────────────────────────
+    if args.protect:
+        _place_trailing_stops()
+
 
 def _save_and_inject(df: pd.DataFrame, top_n: int = 20) -> None:
     """
@@ -317,6 +334,108 @@ def _save_and_inject(df: pd.DataFrame, top_n: int = 20) -> None:
     print(f"  Symbols: {', '.join(symbols)}")
     print()
     print("  These tickers load automatically into PRIORITY_FOLLOWING at next bot startup.")
+
+
+def _place_trailing_stops() -> None:
+    """
+    Connect to Alpaca (live or paper, per TRADE_MODE env var) and place a GTC
+    trailing stop on every open equity position that has no active sell/
+    buy-to-cover order outstanding.  Trail % is determined by get_dynamic_tier()
+    — the same ATR-tiered logic used by the bot's protect_positions() cycle.
+
+    Safe to run after market close.  Positions already protected (e.g. stops
+    placed live by an earlier bot cycle) are skipped automatically.
+    """
+    from engine.broker_factory import BrokerFactory
+    from engine.utils import get_dynamic_tier
+    from alpaca.trading.requests import TrailingStopOrderRequest
+    from alpaca.trading.enums import OrderSide, TimeInForce
+    from alpaca.trading.enums import OrderType as AlpacaOrderType
+
+    W = 72
+    print()
+    print("═" * W)
+    print("  PROTECT POSITIONS — GTC Trailing Stops")
+    print("═" * W)
+
+    try:
+        client = BrokerFactory.create_stock_client()
+    except Exception as e:
+        print(f"  [ERROR] Could not connect to broker: {e}")
+        return
+
+    try:
+        positions   = client.get_all_positions()
+        open_orders = client.get_orders()
+    except Exception as e:
+        print(f"  [ERROR] Could not fetch positions/orders: {e}")
+        return
+
+    covered = {o.symbol for o in open_orders}
+
+    if not positions:
+        print("  No open positions.")
+        print("═" * W)
+        return
+
+    print(f"  {'Symbol':<8}  {'Side':<5}  {'Qty':>5}  {'Price':>8}  {'Trail%':>7}  {'Tier':<8}  Status")
+    print("  " + "─" * (W - 2))
+
+    placed = 0
+    skipped = 0
+    errors = 0
+
+    for pos in positions:
+        sym = pos.symbol
+        try:
+            qty           = int(float(pos.qty))
+            qty_available = int(float(getattr(pos, "qty_available", qty)))
+            current       = float(pos.current_price)
+            is_long       = qty > 0
+            side_label    = "LONG" if is_long else "SHORT"
+            stop_side     = OrderSide.SELL if is_long else OrderSide.BUY
+        except (TypeError, ValueError) as e:
+            print(f"  {sym:<8}  —      parse error: {e}")
+            errors += 1
+            continue
+
+        if sym in covered:
+            print(f"  {sym:<8}  {side_label:<5}  {abs(qty):>5}  ${current:>7.2f}  {'—':>7}  {'—':<8}  already covered")
+            skipped += 1
+            continue
+
+        if qty_available <= 0:
+            print(f"  {sym:<8}  {side_label:<5}  {abs(qty):>5}  ${current:>7.2f}  {'—':>7}  {'—':<8}  qty_available=0 (bracket-locked)")
+            skipped += 1
+            continue
+
+        tier_info  = get_dynamic_tier(sym, current)
+        trail_pct  = tier_info["ts"]
+        tier_label = tier_info["tier"]
+
+        try:
+            client.submit_order(TrailingStopOrderRequest(
+                symbol        = sym,
+                qty           = abs(qty_available),
+                side          = stop_side,
+                type          = AlpacaOrderType.TRAILING_STOP,
+                time_in_force = TimeInForce.GTC,
+                trail_percent = trail_pct,
+            ))
+            print(f"  {sym:<8}  {side_label:<5}  {abs(qty_available):>5}  ${current:>7.2f}  {trail_pct:>6.1f}%  {tier_label:<8}  ✓ placed")
+            placed += 1
+        except Exception as e:
+            err = str(e)
+            if "40310100" in err:
+                print(f"  {sym:<8}  {side_label:<5}  {abs(qty_available):>5}  ${current:>7.2f}  {trail_pct:>6.1f}%  {tier_label:<8}  PDT-blocked (same-day entry)")
+            else:
+                print(f"  {sym:<8}  {side_label:<5}  {abs(qty_available):>5}  ${current:>7.2f}  {trail_pct:>6.1f}%  {tier_label:<8}  ERROR: {e}")
+            errors += 1
+
+    print("  " + "─" * (W - 2))
+    print(f"  Placed: {placed}  |  Already covered: {skipped}  |  Errors/blocked: {errors}")
+    print("═" * W)
+    print()
 
 
 if __name__ == "__main__":
