@@ -12,6 +12,15 @@ except Exception:  # pragma: no cover
     ZoneInfo = None
 
 BASE_DIR = Path(__file__).resolve().parent.parent
+
+# Load .env before anything reads credentials — must happen before os.environ is
+# copied in _mode_env() so key vars like PAPER_ALPACA_API_KEY are visible.
+try:
+    from dotenv import load_dotenv as _load_dotenv
+    _load_dotenv(BASE_DIR / ".env", override=False)
+except ImportError:
+    pass  # python-dotenv not installed; rely on shell env
+
 LOG_FILE = BASE_DIR / "autobot.log"
 PID_FILE = BASE_DIR / "autobot.pid"
 PYTHON = BASE_DIR / ".venv" / "Scripts" / "python.exe"
