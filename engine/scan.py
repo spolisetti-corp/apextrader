@@ -30,6 +30,10 @@ _ET  = pytz.timezone("America/New_York")
 _log = logging.getLogger("ApexTrader")
 from .strategies import get_strategy_instances, MomentumStrategy, TechnicalStrategy, SentimentStrategy, _is_bull_regime
 
+# Rotating scan offset — advances by SCAN_MAX_SYMBOLS each call so different
+# slices of the universe are covered across consecutive cycles.
+_scan_offset: int = 0
+
 
 def _passes_guardrails(symbol: str) -> bool:
     """Pre-scan gates: dollar-volume, RVOL, and gap-chase guard.
@@ -79,6 +83,8 @@ def _passes_guardrails(symbol: str) -> bool:
 
 
 def get_scan_targets(excluded: Set[str] = None) -> List[str]:
+    global _scan_offset
+
     if excluded is None:
         excluded = set()
 
@@ -91,6 +97,17 @@ def get_scan_targets(excluded: Set[str] = None) -> List[str]:
     # immediately without restarting the bot.
     p1, p2, _p3 = _cfg.get_dynamic_universe()
     delisted = set(_cfg.DELISTED_STOCKS)
+
+    # Rotate through the combined universe so every cycle scans a different slice.
+    # TI-promoted tickers sit at the front and always make it in regardless of offset.
+    combined_base = p2 + p1   # tier-2 first in bear, then tier-1
+    slice_size = max(SCAN_MAX_SYMBOLS * 2, len(combined_base))   # rotation window
+    if len(combined_base) > 0:
+        off = _scan_offset % len(combined_base)
+        rotated_base = combined_base[off:] + combined_base[:off]
+    else:
+        rotated_base = combined_base
+    _scan_offset = (_scan_offset + SCAN_MAX_SYMBOLS) % max(len(combined_base), 1)
 
     # Default slice: top 50% from each list (marketscope360 + highshortfloat)
     p1_slice = p1[:max(1, len(p1) // 2)]
@@ -118,23 +135,23 @@ def get_scan_targets(excluded: Set[str] = None) -> List[str]:
     if in_bear:
         # Always seed with inverse ETFs first — they are valid longs in bear regime
         _push(_INVERSE_ETFS)
-        # Bear mode: scan the freshest TI/live picks first (mostly tier-2),
-        # then only use static/core lists as fallback if live tiers are short.
+        # Bear mode: scan TI/live promoted picks first (front of live lists),
+        # then fill remaining slots from the rotating base universe.
         live_p2_cap = min(SCAN_MAX_SYMBOLS, max(1, int(SCAN_MAX_SYMBOLS * 0.55)))
-        _push(live_p2, limit=live_p2_cap)
-        _push(live_p1, limit=SCAN_MAX_SYMBOLS)
+        _push(live_p2[:SCAN_MAX_SYMBOLS // 3], limit=live_p2_cap)   # TI-promoted tier-2 front slice
+        _push(live_p1[:SCAN_MAX_SYMBOLS // 3], limit=SCAN_MAX_SYMBOLS)  # TI-promoted tier-1 front slice
+        # Fill remaining capacity from the rotating universe slice
+        _push(rotated_base, limit=SCAN_MAX_SYMBOLS)
 
-        # Fallback path: if TI/live tiers do not fill scan capacity, backfill
-        # with static bear short universe and then merged config universe.
+        # Final fallback: static bear short universe
         if len(targets) < SCAN_MAX_SYMBOLS:
             short_cap = min(max(0, BEAR_SHORT_TARGET_RESERVE), SCAN_MAX_SYMBOLS)
             _push(list(BEAR_SHORT_UNIVERSE), limit=short_cap)
-            p2_bear = p2[:max(1, int(len(p2) * 0.75))]
-            p1_bear = p1[:max(1, int(len(p1) * 0.40))]
-            _push(p2_bear + p1_bear, limit=SCAN_MAX_SYMBOLS)
     else:
         # Bull/neutral: prefer freshest TI/live momentum + established tiers first.
-        _push(live_p1 + live_p2, limit=SCAN_MAX_SYMBOLS)
+        _push(live_p1[:SCAN_MAX_SYMBOLS // 3] + live_p2[:SCAN_MAX_SYMBOLS // 3], limit=SCAN_MAX_SYMBOLS)
+        if len(targets) < SCAN_MAX_SYMBOLS:
+            _push(rotated_base, limit=SCAN_MAX_SYMBOLS)
         if len(targets) < SCAN_MAX_SYMBOLS:
             _push(p1_slice + p2_slice, limit=SCAN_MAX_SYMBOLS)
 

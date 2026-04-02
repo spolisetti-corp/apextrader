@@ -1032,6 +1032,9 @@ class BearBreakdownStrategy:
     def scan(self, symbol: str) -> Optional[Signal]:
         if LONG_ONLY_MODE or _is_bull_regime():
             return None
+        # Never short inverse ETFs — they're already bearish instruments
+        if symbol in _INVERSE_ETFS:
+            return None
 
         daily = get_bars(symbol, "60d", "1d")
         if daily.empty or len(daily) < 25:

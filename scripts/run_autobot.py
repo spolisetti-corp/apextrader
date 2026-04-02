@@ -3,6 +3,7 @@ import subprocess
 import time
 import sys
 import atexit
+import threading
 from datetime import datetime, time as dtime
 from pathlib import Path
 
@@ -139,6 +140,7 @@ if __name__ == "__main__":
             )
             started_at = time.time()
             saw_duplicate_main_lock = False
+            _mode_switch_event = threading.Event()
             proc = subprocess.Popen(
                 [str(PYTHON), str(MAIN_SCRIPT)],
                 cwd=str(BASE_DIR),
@@ -148,35 +150,48 @@ if __name__ == "__main__":
                 universal_newlines=True,
             )
 
-            last_mode_check = time.time()
-            for line in proc.stdout:
-                if "Another main.py instance is already running" in line:
-                    saw_duplicate_main_lock = True
-                write_log(line.rstrip())
-
-                # Auto-switch between LIVE and PAPER by ET windows.
-                if time.time() - last_mode_check >= 30:
-                    last_mode_check = time.time()
+            def _mode_watcher(proc_, launch_mode_, event_):
+                """Check mode every 30s regardless of subprocess output."""
+                while not event_.is_set():
+                    time.sleep(30)
+                    if event_.is_set():
+                        break
                     now_mode = _desired_mode()
-                    if now_mode != launch_mode:
+                    if now_mode != launch_mode_:
                         write_log(
-                            f"Mode window changed {launch_mode.upper()} -> {now_mode.upper()} "
+                            f"Mode window changed {launch_mode_.upper()} -> {now_mode.upper()} "
                             "(restarting main.py)"
                         )
                         try:
-                            proc.terminate()
-                            proc.wait(timeout=20)
+                            proc_.terminate()
+                            proc_.wait(timeout=20)
                         except Exception:
                             try:
-                                proc.kill()
+                                proc_.kill()
                             except Exception:
                                 pass
-                        # Windows TerminateProcess() skips atexit; clean the lock manually
                         try:
                             MAIN_LOCK_FILE.unlink(missing_ok=True)
                         except Exception:
                             pass
+                        event_.set()
                         break
+
+            watcher = threading.Thread(
+                target=_mode_watcher,
+                args=(proc, launch_mode, _mode_switch_event),
+                daemon=True,
+            )
+            watcher.start()
+
+            for line in proc.stdout:
+                if "Another main.py instance is already running" in line:
+                    saw_duplicate_main_lock = True
+                write_log(line.rstrip())
+                if _mode_switch_event.is_set():
+                    break
+
+            _mode_switch_event.set()  # signal watcher to stop if still running
 
             proc.wait()
             write_log(f"main.py exited with {proc.returncode}")
