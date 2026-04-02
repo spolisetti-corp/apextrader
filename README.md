@@ -1,8 +1,8 @@
-# ApexTrader 🚀
+# ApexTrader
 
-> Automated stock trading bot — multi-strategy signal generation, adaptive scanning, tiered risk management, and rich email reports.
+> Automated trading bot — multi-strategy equity signals, A+ options scanner, adaptive scan intervals, tiered risk management, and clean email reports.
 
-**Version:** v2.0 · **Python:** 3.10+ · **Broker:** Alpaca (paper & live) · **Platform:** Windows / Linux / macOS
+**Version:** v1.3.0 · **Python:** 3.10+ · **Broker:** Alpaca (paper & live) · **Platform:** Windows / Linux / macOS
 
 ---
 
@@ -12,28 +12,43 @@
 2. [Architecture](#architecture)
 3. [Quick Start](#quick-start)
 4. [Configuration Reference](#configuration-reference)
-5. [Strategies](#strategies)
-6. [CLI Modes](#cli-modes)
-7. [Task Scheduler (Windows)](#task-scheduler-windows)
-8. [Email Notifications](#email-notifications)
-9. [Risk Controls](#risk-controls)
-10. [Log Files](#log-files)
-11. [Contributing](#contributing)
-12. [Disclaimer](#disclaimer)
+5. [Equity Strategies](#equity-strategies)
+6. [Options Strategies](#options-strategies)
+7. [CLI Modes](#cli-modes)
+8. [Task Scheduler (Windows)](#task-scheduler-windows)
+9. [Email Notifications](#email-notifications)
+10. [Risk Controls](#risk-controls)
+11. [Log Files](#log-files)
+12. [Contributing](#contributing)
+13. [Disclaimer](#disclaimer)
 
 ---
 
 ## Features
 
-- **7 trading strategies** — momentum, breakout, VWAP reclaim, float rotation, Sweepea
-- **Adaptive scan intervals** — adjusts every cycle based on VIX, market hours, and open position count
-- **Confidence gate** — only executes signals ≥ 85% confidence (configurable)
-- **Position swap** — when at max positions, auto-closes weakest holding for a higher-conviction new signal
-- **Trade Ideas integration** — scrapes live momentum tickers via Selenium (headless Chrome)
-- **Flashy email reports** — dark-themed HTML with sentiment badge, medal cards, confidence bars
-- **Watchdog auto-restart** — `run_autobot.py` relaunches `main.py` if it crashes
-- **Windows Task Scheduler** ready — runs Mon–Fri 7 AM via `run_autobot_task.ps1`
-- **PDT-safe** — long-only mode, daily loss/profit caps, position size guardrails
+**Equity trading**
+- **7 strategies** — momentum/RVOL, breakout, VWAP reclaim, gap-up, float rotation, ORB, Sweepea
+- **Adaptive scan intervals** — adjusts every cycle based on VIX level, market hours, and open position count
+- **Bear regime detection** — SPY < 200-SMA flips to bear: long cap 1/cycle, inverse ETFs front-weighted, shorts unlocked
+- **Kill mode** — emergency close-all on VIX ≥ 40, SPY intraday drop ≥ 3%, or VIX +50% in 5 h
+- **Position swap** — when at max 12 positions, auto-closes weakest for a higher-confidence new signal (swap-only in bear)
+- **Confidence gate** — executes signals ≥ 80% (longs), higher threshold for shorts in bear regime
+
+**Options trading (Level 3, Alpaca)**
+- **A+ 9-filter scanner** — IV rank gate, EMA-20 trend, 3-day momentum, 5-day breakout/breakdown, chain chain liquidity, OI ≥ 500, spread ≤ 15%, R/R ≥ 1.5×, premium ≤ 3% of spot
+- **89% confidence gate** — only executes the highest-quality setups
+- **Watch list fallback** — when nothing clears the gate, shows the top-3 near-miss candidates (all structural gates passed) clearly labelled with their gate gap
+- **Master kill-switch** — `OPTIONS_ENABLED=false` in `.env` disables the entire options system without restart
+- **15% portfolio allocation**, max 3 concurrent contracts, 7–21 DTE, 50% profit target / 40% stop loss
+
+**Infrastructure**
+- **Trade Ideas integration** — headless Selenium scrape refreshes the universe every 30 min
+- **Dynamic universe** — `data/universe.json` with TTL-managed tiers; auto-pruned daily
+- **Clean email reports** — light-theme HTML with regime badge, confidence bars, per-pick metrics
+- **Watchdog auto-restart** — `run_autobot.py` relaunches `main.py` on crash
+- **Windows Task Scheduler** ready — Mon–Fri 7 AM auto-start
+- **Auto live/paper switching** — watchdog uses live keys during configured ET windows only
+- **PDT-safe** — long-only mode, daily loss/profit caps, position-size guardrails
 
 ---
 
@@ -41,24 +56,35 @@
 
 ```
 apextrader/
-├── main.py                     # Orchestrator: scan loop, execution, EOD close
+├── main.py                       # Orchestrator: scan loop, execution, EOD close
 ├── engine/
-│   ├── config.py               # All runtime constants (edit this to tune behavior)
-│   ├── scan.py                 # Reusable scan pipeline: get_scan_targets(), scan_universe(), filter_signals()
-│   ├── strategies.py           # 7 strategy classes — each returns a Signal or None
-│   ├── executor_enhanced.py    # Order placement, swap logic, bracket/stop orders
-│   ├── notifications.py        # Email templates: build_top3_report(), build_eod_report()
-│   ├── session.py              # Session state (daily P&L, trade count, resets)
-│   ├── utils.py                # Data services: get_bars(), get_vix(), sentiment, trending
-│   └── broker_factory.py       # Alpaca client factory
+│   ├── config.py                 # All runtime constants
+│   ├── scan.py                   # get_scan_targets(), scan_universe(), filter_signals()
+│   ├── strategies.py             # 7 equity strategy classes
+│   ├── options_strategies.py     # A+ options: MomentumCall, BearPut, CoveredCall + scan_options_universe()
+│   ├── options_executor.py       # Options order placement (buy-to-open, close)
+│   ├── executor_enhanced.py      # Equity order placement, swap logic, bracket/stop orders
+│   ├── notifications.py          # Email templates: build_top5_report(), build_eod_report()
+│   ├── universe.py               # TTL-managed ticker universe (JSON-backed)
+│   ├── predictions.py            # Day-picks persistence (predictions/day_picks.json)
+│   ├── utils.py                  # Data services: get_bars(), get_vix(), sentiment, trending
+│   └── broker_factory.py         # Alpaca client factory (paper / live)
 ├── scripts/
-│   ├── run_autobot.py          # Watchdog: keeps main.py running, writes autobot.log
-│   ├── run_autobot_task.ps1    # Task Scheduler launcher (uses absolute .venv path)
-│   ├── run_top3.py             # Standalone top-3 scan script
-│   ├── capture_tradeideas.py   # Trade Ideas Selenium scraper
-│   └── patch_ti_config.py      # Patches config.py with fresh TI tickers
+│   ├── _options_today.py         # Standalone A+ options scanner (run daily)
+│   ├── run_autobot.py            # Watchdog: keeps main.py running, auto live/paper switch
+│   ├── run_autobot_task.ps1      # Task Scheduler launcher
+│   ├── run_top3.py               # Standalone equity top-3 scan (dry-run)
+│   ├── capture_tradeideas.py     # Trade Ideas Selenium scraper
+│   ├── predict_tomorrow.py       # Next-day prediction generator
+│   ├── _validate_universe.py     # Validate universe.json integrity
+│   └── prune_universe.py         # Manual universe prune utility
+├── data/
+│   └── universe.json             # Dynamic ticker universe with TTL tiers
+├── predictions/
+│   ├── day_picks.json            # Today's top picks (persisted each cycle)
+│   └── watchlist.json            # Prediction watchlist
 ├── requirements.txt
-└── .env                        # Secrets (never commit)
+└── .env                          # Secrets — never commit
 ```
 
 ---
@@ -80,24 +106,22 @@ pip install -r requirements.txt
 
 ### 2. Configure secrets
 
-```powershell
-copy .env.example .env   # or create .env manually
-```
-
-Minimum required in `.env`:
+Create `.env` in the project root:
 
 ```env
-ALPACA_API_KEY=your_key
-ALPACA_API_SECRET=your_secret
-ALPACA_PAPER=true                  # true=paper, false=live (toggle to switch)
-ALPACA_BASE_URL=https://paper-api.alpaca.markets  # override for live: https://api.alpaca.markets
+# ── Trade mode ────────────────────────────────────────────────────
+TRADE_MODE=paper                    # paper | live
 
-# Optional: set smaller risk profile for sub-$5k equity
-MIN_POSITION_DOLLARS=500
-MIN_BUYING_POWER_PCT=10.0
-SMALL_ACCOUNT_EQUITY_THRESHOLD=5000
-SMALL_ACCOUNT_MAX_POSITIONS=4
+# ── Alpaca credentials ────────────────────────────────────────────
+PAPER_ALPACA_API_KEY=your_paper_key
+PAPER_ALPACA_API_SECRET=your_paper_secret
+LIVE_ALPACA_API_KEY=your_live_key
+LIVE_ALPACA_API_SECRET=your_live_secret
 
+# ── Options trading ───────────────────────────────────────────────
+OPTIONS_ENABLED=true                # false = kill-switch (no restart needed)
+
+# ── Email notifications ───────────────────────────────────────────
 USE_EMAIL_NOTIFICATIONS=true
 EMAIL_SMTP_SERVER=smtp.gmail.com
 EMAIL_SMTP_PORT=587
@@ -112,14 +136,17 @@ EMAIL_TO_ADDRESSES=you@gmail.com
 ### 3. Run
 
 ```powershell
-# Continuous scan loop (normal operation)
+# Full continuous scan loop (normal operation)
 python main.py
+
+# Or via watchdog (recommended — auto-restarts on crash)
+python scripts/run_autobot.py
 ```
 
-### Quick switch live/paper (recommended)
+### Quick live/paper switch
 
 ```powershell
-# Windows PowerShell (no .env edits required)
+# Windows PowerShell scripts
 .\run_local_ps.ps1 -Mode paper
 .\run_local_ps.ps1 -Mode live
 ```
@@ -130,65 +157,92 @@ python main.py
 ./run_local_sh.sh live
 ```
 
-### Legacy .env toggle (optional)
-
-```powershell
-# Switch to live in .env (then restart bot)
-(set-content .env (get-content .env) -replace 'ALPACA_PAPER=.*', 'ALPACA_PAPER=false')
-
-# Switch back to paper
-(set-content .env (get-content .env) -replace 'ALPACA_PAPER=.*', 'ALPACA_PAPER=true')
-```
-
-Then restart `run_autobot.py` or `main.py`.
-
-
-# Single scan cycle (CI / cron testing)
-python main.py --once
-
-# Force run outside market hours
-python main.py --force
-
-# Top-3 picks only — scan + email, no trades
-python main.py --top3-only
-```
-
 ---
 
 ## Configuration Reference
 
 All tunable constants live in [`engine/config.py`](engine/config.py). Key settings:
 
+### Equity trading
+
 | Setting | Default | Description |
 |---|---|---|
-| `MIN_SIGNAL_CONFIDENCE` | `0.85` | Minimum confidence to execute a signal |
-| `MAX_POSITIONS` | `15` | Max concurrent open positions |
-| `SWAP_ON_FULL` | `True` | Close weakest position to make room for better signal |
-| `SWAP_MIN_CONFIDENCE` | `0.85` | Signal must reach this to trigger a swap |
-| `DAILY_LOSS_LIMIT` | `-$250` | Stop trading for the day if daily P&L hits this |
+| `TRADE_MODE` | `paper` | `paper` or `live` — set via env var |
+| `MIN_SIGNAL_CONFIDENCE` | `0.80` | Minimum confidence to execute a long |
+| `MAX_POSITIONS` | `12` | Max concurrent equity positions (7.5% × 12 = 90%) |
+| `POSITION_SIZE_PCT` | `20.0` | Per-trade allocation (% of account) |
+| `SWAP_ON_FULL` | `True` | Close weakest position for a better signal when full |
+| `SWAP_MIN_CONFIDENCE` | `0.75` | Minimum confidence to trigger a swap |
+| `LONG_ONLY_MODE` | `True` | Disables short entries (PDT-safe) |
+| `MARKET_REGIME_SIGNALS_CAP` | `1` | Max long signals per cycle in bear regime |
+| `DAILY_LOSS_LIMIT_BULL_PCT` | configured | Halt trading if daily P&L drops by this % in bull |
+| `DAILY_LOSS_LIMIT_BEAR_PCT` | configured | Tighter limit for bear days |
 | `DAILY_PROFIT_TARGET` | configured | Lock in gains above this |
-| `LONG_ONLY_MODE` | `True` | No short entries (PDT-safe) |
-| `SCAN_MAX_SYMBOLS` | `50` | Max symbols scanned per cycle |
-| `SCAN_INTERVAL_MIN` | adaptive | Baseline scan interval (overridden by VIX/hours) |
-| `USE_TRADEIDEAS_DISCOVERY` | `True` | Scrape Trade Ideas for fresh momentum tickers |
+| `KILL_MODE_VIX_LEVEL` | `40.0` | Emergency close-all VIX threshold |
+| `KILL_MODE_SPY_DROP_PCT` | `3.0` | Emergency close-all SPY intraday drop % |
+| `USE_TRADEIDEAS_DISCOVERY` | `True` | Enable Trade Ideas selenium universe refresh |
+
+### Options trading
+
+| Setting | Default | Description |
+|---|---|---|
+| `OPTIONS_ENABLED` | `true` | Master kill-switch — set `false` to disable everything |
+| `OPTIONS_ALLOCATION_PCT` | `15.0` | % of equity for all options combined |
+| `OPTIONS_MAX_POSITIONS` | `3` | Max concurrent option contracts |
+| `OPTIONS_DTE_MIN` / `MAX` | `7` / `21` | Expiry window (near-term, higher-theta) |
+| `OPTIONS_DELTA_TARGET` | `0.40` | Target delta at entry (0.30–0.50 range) |
+| `OPTIONS_PROFIT_TARGET_PCT` | `50.0` | Close contract at +50% gain |
+| `OPTIONS_STOP_LOSS_PCT` | `40.0` | Close contract at -40% loss |
 
 ---
 
-## Strategies
+## Equity Strategies
 
-Each strategy in [`engine/strategies.py`](engine/strategies.py) receives OHLCV bars and returns a `Signal` with `confidence` (0–1):
+Each strategy in [`engine/strategies.py`](engine/strategies.py) receives OHLCV bars and returns a `Signal` with `confidence` (0–1). All 7 run in parallel via `ThreadPoolExecutor`:
 
 | Strategy | Edge |
 |---|---|
+| `MomentumStrategy` | Pure momentum — RVOL ≥ 1.5× + price velocity |
 | `SweepeaStrategy` | Daily pullback to 8-EMA with liquidity sweep setup |
 | `GapBreakoutStrategy` | Gap + consolidation range breakout |
-| `ORBStrategy` | Opening range breakout with follow-through confirmation |
+| `ORBStrategy` | Opening range breakout with follow-through |
 | `VWAPReclaimStrategy` | Price reclaims VWAP with volume surge |
 | `FloatRotationStrategy` | High short-float momentum rotation |
 | `TechnicalStrategy` | RSI / MACD / MA trend alignment |
-| `MomentumStrategy` | Pure momentum score — RVOL + price velocity |
 
-All 7 strategies run in parallel via `ThreadPoolExecutor` on every scan cycle.
+Bear regime note: inverse ETFs (SQQQ, SPXU, UVXY, TZA, FAZ, SOXS, LABD, DUST) are front-ranked in `PRIORITY_1_MOMENTUM` and treated as standard BUY signals.
+
+---
+
+## Options Strategies
+
+Implemented in [`engine/options_strategies.py`](engine/options_strategies.py). The standalone daily scanner is [`scripts/_options_today.py`](scripts/_options_today.py).
+
+### A+ Filter Pipeline (all 9 must pass)
+
+1. **Liquid options chain** — expiry must exist in 7–21 DTE window  
+2. **IV rank gate** — calls: IV rank < 35%, puts: IV rank < 55% (not over-priced)  
+3. **EMA-20 trend** — price above EMA for calls, below for puts  
+4. **3-day momentum** — 3-day return in correct direction  
+5. **5-day breakout / breakdown** — price must clear prior 5-day high (calls) or break below prior 5-day low (puts)  
+6. **ATM open interest** — ≥ 500 contracts (liquidity floor)  
+7. **Bid/ask spread** — ≤ 15% of mid (not wide)  
+8. **R/R ratio** — ≥ 1.5× (breakeven vs. underlying move required)  
+9. **Premium cap** — mid ≤ 3% of spot price (avoids paying inflated premium)
+
+**Confidence gate:** composite score ≥ 89% to execute (confidence × min(R/R, 3)).
+
+### Watch list fallback
+
+When zero signals clear the 89% gate, the scanner shows the **top-3 near-miss candidates** — tickers that passed all 9 structural filters but scored below the gate — with their confidence gap and full metrics. A `[WATCH]` email is sent instead of suppressing output entirely.
+
+### Strategies
+
+| Strategy | Regime | Entry | IV constraint |
+|---|---|---|---|
+| `MomentumCallStrategy` | Bull | +3% day, RVOL ≥ 1.5×, RSI 50–72, prior 5d high breakout | IV rank < 35% |
+| `BearPutStrategy` | Bear / any | −2% day (bear) or −4% (bull), RVOL ≥ 1.2×, prior 5d low breakdown | IV rank < 55% |
+| `CoveredCallStrategy` | Bull | Existing long ≥ 100 shares, sell OTM calls ~0.25 delta | IV rank ≥ 50% (sell when expensive) |
 
 ---
 
@@ -197,10 +251,11 @@ All 7 strategies run in parallel via `ThreadPoolExecutor` on every scan cycle.
 | Command | What it does |
 |---|---|
 | `python main.py` | Full loop: scan → signal → execute → EOD close |
-| `python main.py --once` | One scan cycle then exit (GitHub Actions / cron) |
-| `python main.py --force` | Bypass market-hours gate (testing) |
-| `python main.py --top3-only` | Scan + show top 3 + send email, no execution |
-| `python scripts/run_top3.py` | Standalone top-3 scan (no watchdog needed) |
+| `python scripts/run_autobot.py` | Watchdog: keeps main.py running, auto live/paper windows |
+| `python scripts/_options_today.py` | Standalone A+ options scan — no orders placed |
+| `python scripts/run_top3.py` | Standalone equity top-3 scan (dry-run, no orders) |
+| `python scripts/predict_tomorrow.py` | Generate next-day prediction picks |
+| `python scripts/test_notifications.py` | Send a test email to verify SMTP config |
 
 ---
 
@@ -209,45 +264,34 @@ All 7 strategies run in parallel via `ThreadPoolExecutor` on every scan cycle.
 The bot auto-starts Mon–Fri at 7:00 AM via Windows Task Scheduler.
 
 **Launcher:** [`scripts/run_autobot_task.ps1`](scripts/run_autobot_task.ps1)
-**Watchdog:** [`scripts/run_autobot.py`](scripts/run_autobot.py) — relaunches `main.py` on crash (10s delay)
+**Watchdog:** [`scripts/run_autobot.py`](scripts/run_autobot.py) — relaunches `main.py` on crash (10 s delay)
 
-### Auto LIVE/PAPER Mode Windows (ET)
+### Auto live/paper windows (ET)
 
-`run_autobot.py` now auto-selects mode by Eastern Time windows:
+`run_autobot.py` automatically selects `TRADE_MODE` based on Eastern Time:
 
-- LIVE: `09:30-11:00`, `15:00-16:00` (Mon-Fri)
-- PAPER: all other times
+- **LIVE**: `09:30–11:00` and `15:00–16:00` (Mon–Fri)
+- **PAPER**: all other times
 
-Override windows with env var:
+Override the windows:
 
 ```powershell
 $env:LIVE_TRADE_WINDOWS_ET = "09:30-11:00,15:00-16:00"
 ```
 
-Optional separate credentials (recommended):
+### Task Scheduler commands
 
-- `ALPACA_LIVE_API_KEY`, `ALPACA_LIVE_API_SECRET`
-- `ALPACA_PAPER_API_KEY`, `ALPACA_PAPER_API_SECRET`
-
-If not set, watchdog falls back to `ALPACA_API_KEY/SECRET` from `.env`.
-
-To manually trigger:
 ```powershell
+# Trigger manually
 schtasks /Run /TN "ApexTraderAutoRun"
-```
 
-To check status:
-```powershell
+# Check status
 schtasks /Query /TN "ApexTraderAutoRun" /FO LIST
-```
 
-To check for duplicate processes:
-```powershell
+# Check for duplicate processes
 Get-Process python | Format-Table Id, @{N='MB';E={[math]::Round($_.WorkingSet/1MB,1)}}, StartTime
-```
 
-To gracefully restart (watchdog picks it up):
-```powershell
+# Gracefully restart (watchdog auto-relaunches main.py)
 Stop-Process -Id <main_py_pid> -Force
 ```
 
@@ -255,21 +299,27 @@ Stop-Process -Id <main_py_pid> -Force
 
 ## Email Notifications
 
-Two email types are sent automatically:
+Two email types are sent automatically via Gmail SMTP (light-theme HTML).
 
-### Top 3 Scan Email
-Sent after every scan cycle. Dark-themed HTML with:
-- Market sentiment badge (🟢 BULLISH / 🔴 BEARISH / 🟡 NEUTRAL)
-- 🥇 🥈 🥉 signal cards with confidence progress bars
-- Price, strategy, and reason per pick
+### Options / Equity Scan Email
+Sent after each scan cycle with signals. Includes:
+- Market regime badge (BULL / BEAR) and sentiment
+- Top-3–5 signal cards with confidence bar, strike/expiry (options) or strategy (equity)
+- Per-pick: price, R/R, IV rank, breakeven, entry reason
+- `[WATCH]` prefix in subject when emailing near-miss candidates (no A+ signals today)
 
 ### EOD Report
 Sent at end of trading day. Includes:
 - Account equity / buying power snapshot
 - Daily P&L + trade count
-- Closed positions table with P&L per trade
+- Closed positions with P&L per trade
 - Open positions sorted by unrealized P&L
-- Discovery candidates from Trade Ideas / trending sources
+
+### Test the email
+
+```powershell
+python scripts/test_notifications.py
+```
 
 ---
 
@@ -277,14 +327,19 @@ Sent at end of trading day. Includes:
 
 | Control | Behavior |
 |---|---|
-| Daily loss limit | Stops all new trades for the day |
-| Daily profit target | Locks in gains, halts new entries |
-| Max positions cap | Hard limit on concurrent holdings |
-| Position swap | Auto-exits weakest long for a stronger signal |
-| Confidence gate | 85% minimum — filters noise signals |
-| Dollar volume guardrail | Skips illiquid symbols |
-| Long-only mode | No shorts — avoids margin, HTB, PDT complications |
-| Quarterly P&L target | Tracks 50% quarterly gain goal |
+| **Kill mode** | VIX ≥ 40, SPY drop ≥ 3%, or VIX +50% in 5 h → emergency close all, block entries all day |
+| **Daily loss limit** | Regime-aware % of start equity → stops all new trades for the day |
+| **Daily profit target** | Locks in gains, halts new entries |
+| **Max positions cap** | Hard 12-position limit (90% equity deployed, 10% BP reserve) |
+| **Position swap** | Auto-exits weakest long for a stronger signal; swap-only in bear regime |
+| **Equity confidence gate** | 80% minimum for longs; higher threshold for shorts in bear |
+| **Options confidence gate** | 89% composite score (confidence × R/R) |
+| **Options kill-switch** | `OPTIONS_ENABLED=false` disables entire options system without restart |
+| **Dollar volume guardrail** | Skips illiquid symbols below minimum dollar volume |
+| **Long-only mode** | No short entries — avoids margin, HTB, PDT complications |
+| **Quarterly P&L target** | Tracks and logs progress toward quarterly gain goal |
+| **Same-day swap protection** | Positions entered today cannot be swapped out within the same day |
+| **Cycle swap protection** | Each symbol can only be swapped once per scan cycle |
 
 ---
 
@@ -294,14 +349,13 @@ Sent at end of trading day. Includes:
 |---|---|
 | `apextrader.log` | Main trading log — signals, execution, regime, guardrails |
 | `autobot.log` | Watchdog log — restarts, main.py stdout relay |
-| `autobot_scheduler.log` | Task Scheduler trigger log |
 
-Watch live:
 ```powershell
+# Tail live
 Get-Content .\apextrader.log -Tail 30 -Wait
 
-# Filter for key events only
-Get-Content .\apextrader.log -Tail 50 | Select-String "ERROR|TOP 3|EXECUTE|SWAP|Confidence gate"
+# Key events only
+Get-Content .\apextrader.log -Tail 50 | Select-String "ERROR|TOP 5|EXECUTE|SWAP|KILL|gate"
 ```
 
 > Log files are git-ignored and stay local only.
@@ -311,17 +365,18 @@ Get-Content .\apextrader.log -Tail 50 | Select-String "ERROR|TOP 3|EXECUTE|SWAP|
 ## Contributing
 
 ```
-feature/refactor-top3-notify   ← active development branch
-main                           ← stable releases
+feature/options-trading   ← active development branch
+main                      ← stable releases (tagged vX.Y.Z)
 ```
 
-1. Branch off `feature/refactor-top3-notify` for new work
-2. Test with `python main.py --once --force` before pushing
-3. Merge to `main` when stable
+1. Branch off `main` for new work
+2. Test the options scanner: `python scripts/_options_today.py`
+3. Test equity scan: `python scripts/run_top3.py`
+4. Merge to `main` when stable, tag with `git tag vX.Y.Z`
 
 ---
 
 ## Disclaimer
 
-This software is for educational and research purposes only. Automated trading carries significant financial risk. Always test in **paper mode** (`ALPACA_PAPER=true`) before using real capital. Past performance does not guarantee future results.
+This software is for educational and research purposes only. Automated trading carries significant financial risk. Always test thoroughly in **paper mode** (`TRADE_MODE=paper`) before using real capital. Past performance does not guarantee future results.
 
