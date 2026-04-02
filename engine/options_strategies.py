@@ -58,7 +58,7 @@ _MIN_OI_ATM       = 500    # minimum OI within +/-10% of spot
 _MAX_PREMIUM_SPOT = 3.0    # max premium / spot * 100 (%)
 _MIN_RR           = 1.5    # minimum R/R ratio
 _IV_RANK_CALL_MAX = 35.0   # calls: buy only when IV is cheap
-_IV_RANK_PUT_MAX  = 55.0   # puts: slightly higher threshold OK in bear
+_IV_RANK_PUT_MAX  = 75.0   # puts: allow elevated fear on crash days (was 55)
 _IV_RANK_CC_MIN   = 50.0   # covered calls: sell when IV is elevated
 
 
@@ -488,8 +488,11 @@ class BearPutStrategy:
                 return None
 
             # A+ Filter 3: breakdown below prior 5-day low
+            # In bear regime with a crash-day drop >= 3%, the trend gates above are
+            # sufficient; waive the 5d-low requirement so we don't sit out the move.
             prior_5d_low = float(daily["low"].iloc[-7:-2].min())
-            if spot > prior_5d_low * 1.005:
+            crash_day    = chg <= -3.0
+            if spot > prior_5d_low * 1.005 and not (not bull and crash_day):
                 return None
 
             chain = _get_options_chain(symbol)

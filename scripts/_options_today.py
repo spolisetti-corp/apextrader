@@ -41,7 +41,7 @@ _MIN_OI_ATM       = 500    # ATM OI gate
 _MAX_PREMIUM_SPOT = 3.0    # max mid / spot * 100 (%)
 _MIN_RR           = 1.5    # minimum R/R ratio
 _IV_RANK_CALL_MAX = 35.0
-_IV_RANK_PUT_MAX  = 55.0
+_IV_RANK_PUT_MAX  = 75.0
 CONF_GATE         = 0.89   # minimum confidence to display
 DTE_MIN, DTE_MAX  = 7, 21
 
@@ -70,7 +70,7 @@ print(f"\n{'='*68}")
 print(f"  ApexTrader A+ Options Scan  |  {today}  |  Regime: {regime_label}")
 print(f"{'='*68}")
 print(f"  Universe: {len(symbols)} tickers ({len(today_tier1)} added today tier-1 + {len(OPTIONS_ELIGIBLE_UNIVERSE)} core)")
-print(f"  Filters:  IVrank<{'35 calls/<55 puts':20s}  Premium<=3%  R/R>=1.5x  OI>=500")
+print(f"  Filters:  IVrank<{'35 calls/<75 puts':20s}  Premium<=3%  R/R>=1.5x  OI>=500")
 print(f"  Gate:     Confidence >= {CONF_GATE:.0%}")
 print()
 
@@ -255,7 +255,7 @@ for sym in symbols:
     if is_call and spot < prior_5d_high * 0.995:
         skipped.append((sym, f"No breakout above 5d-high=${prior_5d_high:.2f} (spot={spot:.2f})"))
         continue
-    if is_put and spot > prior_5d_low * 1.005:
+    if is_put and spot > prior_5d_low * 1.005 and not (not bull and chg <= -3.0):
         skipped.append((sym, f"No breakdown below 5d-low=${prior_5d_low:.2f} (spot={spot:.2f})"))
         continue
 
