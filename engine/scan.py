@@ -132,15 +132,18 @@ def get_scan_targets(excluded: Set[str] = None) -> List[str]:
             seen.add(s)
             targets.append(s)
 
+    # TI-priority guaranteed window: keep the most recently discovered tickers
+    # always in the scan regardless of offset (these sit at the front of the
+    # in-memory lists after each TI scrape / trending update).
+    TI_FRONT = 5
+
     if in_bear:
         # Always seed with inverse ETFs first — they are valid longs in bear regime
         _push(_INVERSE_ETFS)
-        # Bear mode: scan TI/live promoted picks first (front of live lists),
-        # then fill remaining slots from the rotating base universe.
-        live_p2_cap = min(SCAN_MAX_SYMBOLS, max(1, int(SCAN_MAX_SYMBOLS * 0.55)))
-        _push(live_p2[:SCAN_MAX_SYMBOLS // 3], limit=live_p2_cap)   # TI-promoted tier-2 front slice
-        _push(live_p1[:SCAN_MAX_SYMBOLS // 3], limit=SCAN_MAX_SYMBOLS)  # TI-promoted tier-1 front slice
-        # Fill remaining capacity from the rotating universe slice
+        # Guarantee a small TI-priority slice from each list (most recently promoted)
+        _push(live_p2[:TI_FRONT])
+        _push(live_p1[:TI_FRONT])
+        # Fill the remaining capacity from the rotating universe (majority of scan)
         _push(rotated_base, limit=SCAN_MAX_SYMBOLS)
 
         # Final fallback: static bear short universe
@@ -148,10 +151,9 @@ def get_scan_targets(excluded: Set[str] = None) -> List[str]:
             short_cap = min(max(0, BEAR_SHORT_TARGET_RESERVE), SCAN_MAX_SYMBOLS)
             _push(list(BEAR_SHORT_UNIVERSE), limit=short_cap)
     else:
-        # Bull/neutral: prefer freshest TI/live momentum + established tiers first.
-        _push(live_p1[:SCAN_MAX_SYMBOLS // 3] + live_p2[:SCAN_MAX_SYMBOLS // 3], limit=SCAN_MAX_SYMBOLS)
-        if len(targets) < SCAN_MAX_SYMBOLS:
-            _push(rotated_base, limit=SCAN_MAX_SYMBOLS)
+        # Bull/neutral: TI-priority front slice + rotating universe fills the rest
+        _push(live_p1[:TI_FRONT] + live_p2[:TI_FRONT])
+        _push(rotated_base, limit=SCAN_MAX_SYMBOLS)
         if len(targets) < SCAN_MAX_SYMBOLS:
             _push(p1_slice + p2_slice, limit=SCAN_MAX_SYMBOLS)
 
