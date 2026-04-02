@@ -245,17 +245,6 @@ class EnhancedExecutor:
         if dt_left <= PDT_WARN_AT_REMAINING and acct.equity < PDT_ACCOUNT_MIN:
             log.warning(f"PDT WARNING: only {dt_left} day trade(s) remaining (equity ${acct.equity:,.0f})")
 
-        # With 0 day trades remaining (sub-$25k), any new long can't be stopped same-day — forced
-        # overnight hold with no broker protection.  Allow only inverse ETFs (bear-regime hedges)
-        # or very high conviction (≥85%) signals.  Skip all marginal entries.
-        if dt_left == 0 and acct.equity < PDT_ACCOUNT_MIN and order_type == OrderType.LONG:
-            _PDT_EXEMPT = {"SQQQ", "SPXU", "UVXY", "TZA", "FAZ", "SOXS", "LABD", "DUST"}
-            if signal.symbol not in _PDT_EXEMPT and signal.confidence < 0.85:
-                return False, (
-                    f"PDT=0 remaining: confidence {signal.confidence:.0%} < 85% required "
-                    f"(no same-day stop possible — overnight risk unacceptable)"
-                )
-
         # Skip hard-to-borrow shorts cached from previous failures this session
         if order_type == OrderType.SHORT and signal.symbol in self._htb_cache:
             return False, f"{signal.symbol} hard-to-borrow (cached)"
