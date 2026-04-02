@@ -459,7 +459,8 @@ def _scan_fingerprint(picks, sentiment: str, regime: str) -> str:
     return hashlib.sha1(payload.encode("utf-8")).hexdigest()
 
 
-def notify_scan_results(signals, report_date, sentiment: str, regime: str) -> bool:
+def notify_scan_results(signals, report_date, sentiment: str, regime: str,
+                        subject_prefix: str = "") -> bool:
     """Send top-5 scan picks email. Returns True if sent, False otherwise."""
     global _last_scan_sent_at, _last_scan_fingerprint
     picks = list(signals)[:5]
@@ -490,6 +491,8 @@ def notify_scan_results(signals, report_date, sentiment: str, regime: str) -> bo
 
     try:
         report = build_top5_report(picks, report_date, sentiment, regime)
+        if subject_prefix:
+            report["subject"] = subject_prefix + report["subject"]
         sent   = send_email(report["subject"], report["text"], report["html"])
         if sent:
             _last_scan_sent_at = now

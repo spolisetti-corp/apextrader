@@ -197,8 +197,9 @@ def _fetch_chain(sym: str):
 
 # -- Signal evaluation --------------------------------------------------------
 
-signals = []      # (composite_score, display_dict)
-skipped = []      # (sym, reason)
+signals   = []   # (composite_score, display_dict) — passed all gates including CONF_GATE
+near_miss = []   # passed every structural gate but scored below CONF_GATE
+skipped   = []   # (sym, reason) — failed a structural gate
 
 chg_thresh_call = 3.0
 chg_thresh_put  = -4.0 if bull else -2.0
@@ -359,17 +360,13 @@ for sym in symbols:
             conf += 0.03
     confidence = round(min(0.97, conf), 3)
 
-    if confidence < CONF_GATE:
-        skipped.append((sym, f"Confidence {confidence:.1%} < gate {CONF_GATE:.0%}"))
-        continue
-
     option_type = "CALL" if is_call else "PUT"
     breakeven   = round(strike + mid if is_call else strike - mid, 2)
     cost_cont   = round(mid * 100, 2)
     composite   = round(confidence * min(rr, 3.0), 3)
     ema_dir     = "^" if is_call else "v"
 
-    signals.append((composite, {
+    _entry = (composite, {
         "sym":        sym,
         "type":       option_type,
         "spot":       spot,
@@ -392,14 +389,22 @@ for sym in symbols:
         "ema_dir":    ema_dir,
         "confidence": confidence,
         "composite":  composite,
-    }))
+    })
+
+    if confidence < CONF_GATE:
+        near_miss.append(_entry)
+        continue
+    signals.append(_entry)
 
 # ── Report ────────────────────────────────────────────────────────────────────
 signals.sort(key=lambda x: x[0], reverse=True)
+near_miss.sort(key=lambda x: x[0], reverse=True)
 TOP_N = 3
 
-if not signals:
+if not signals and not near_miss:
     print("  No A+ signals today. All candidates filtered out.\n")
+elif not signals:
+    print("  No A+ signals crossed the confidence gate today.\n")
 else:
     print(f"  {len(signals)} A+ signal(s) found — showing top {min(TOP_N, len(signals))} (conf * R/R):\n")
     print(f"  {'#':>2}  {'Sym':<6}  {'Type':<4}  {'Spot':>7}  {'Strike':>6}  {'Mid':>5}  {'Cost/C':>7}  {'Expiry':>10}  {'DTE':>3}  {'IVrank':>6}  {'R/R':>4}  {'BEven':>7}  {'Conf':>5}  {'Chg%':>6}  {'VolR':>4}  {'Sprd':>5}")
@@ -415,7 +420,31 @@ else:
         print(f"       Regime: {regime_label}  EMA20=${s['ema20']:.2f}{s['ema_dir']}  RSI={s['rsi']:.0f}  ATM-OI={s['atm_oi']:,}  delta={s['delta']:.2f}  score={score:.3f}")
         print()
 
-# ── Near-miss summary (filtered but close) ────────────────────────────────────
+# ── Watch list: passed all structural gates but scored below CONF_GATE ────────
+if near_miss:
+    header = (
+        f"  ── WATCH LIST — Below {CONF_GATE:.0%} confidence gate "
+        f"({len(near_miss)} candidate{'s' if len(near_miss) != 1 else ''}) ──"
+    )
+    print(header)
+    print(f"  These passed ALL structural filters (EMA, momentum, breakout, chain,")
+    print(f"  IV rank, OI, spread, R/R) but scored under the {CONF_GATE:.0%} threshold.\n")
+    print(f"  {'#':>2}  {'Sym':<6}  {'Type':<4}  {'Spot':>7}  {'Strike':>6}  {'Mid':>5}  {'Expiry':>10}  {'DTE':>3}  {'IVrank':>6}  {'R/R':>4}  {'BEven':>7}  {'Conf':>5}  {'Chg%':>6}  {'VolR':>4}")
+    print("  " + "-"*115)
+    for i, (score, s) in enumerate(near_miss[:TOP_N], 1):
+        gap = CONF_GATE - s['confidence']
+        print(
+            f"  {i:>2}  {s['sym']:<6}  {s['type']:<4}  ${s['spot']:>6.2f}  ${s['strike']:>5.0f}"
+            f"  ${s['mid']:>4.2f}  {s['expiry']:>10}"
+            f"  {s['dte']:>3}d  {s['iv_rank']:>5.0f}%  {s['rr']:>4.1f}x"
+            f"  ${s['breakeven']:>6.2f}  {s['confidence']:>4.1%}"
+            f"  {s['chg']:>+5.1f}%  {s['vol_ratio']:>4.1f}x"
+        )
+        print(f"       !! {gap:.0%} below gate  score={score:.3f}  RSI={s['rsi']:.0f}  ATM-OI={s['atm_oi']:,}  delta={s['delta']:.2f}  spread={s['spread_pct']:.1f}%")
+        print()
+    print()
+
+# ── Filtered-out summary (structural gate fails) ──────────────────────────────
 if skipped:
     from collections import Counter
     reasons = Counter(r.split(" (")[0].split("=")[0].split(">")[0].split("<")[0].strip() for _, r in skipped)
@@ -448,7 +477,8 @@ if skipped:
 # ── Notification ──────────────────────────────────────────────────────────────
 # Build lightweight adapter objects compatible with notify_scan_results
 # (which expects .symbol .action .price .confidence .strategy .reason)
-if signals:
+_notify_source = signals if signals else near_miss  # fall back to watch list
+if _notify_source:
     from engine.notifications import notify_scan_results
     from dataclasses import dataclass as _dc
 
@@ -467,19 +497,23 @@ if signals:
             action     = "buy",          # buy_to_open simplified for email
             price      = s["spot"],
             confidence = s["confidence"],
-            strategy   = f"Options/{s['type']}",
+            strategy   = f"Options/{s['type']}" + ("" if signals else " [WATCH]"),
             reason     = (
                 f"${s['strike']:.0f}{s['type'][0]} {s['expiry']} {s['dte']}DTE "
                 f"mid=${s['mid']:.2f} BEven=${s['breakeven']:.2f} "
                 f"IVrank={s['iv_rank']:.0f} R/R={s['rr']:.1f}x "
                 f"chg={s['chg']:+.1f}% vol={s['vol_ratio']:.1f}x"
+                + ("" if signals else f"  !! conf {s['confidence']:.0%} < {CONF_GATE:.0%} gate")
             ),
         )
-        for _, s in signals[:TOP_N]
+        for _, s in _notify_source[:TOP_N]
     ]
 
     sentiment = "bearish" if not bull else "bullish"
-    print("  Sending notification...", end=" ", flush=True)
-    sent = notify_scan_results(notif_picks, today, sentiment=sentiment, regime=regime_label.lower())
+    label = "" if signals else " [WATCH LIST — below confidence gate]"
+    prefix = "" if signals else "[WATCH] "
+    print(f"  Sending notification{label}...", end=" ", flush=True)
+    sent = notify_scan_results(notif_picks, today, sentiment=sentiment, regime=regime_label.lower(),
+                               subject_prefix=prefix)
     print("sent ✓" if sent else "skipped (email disabled or throttled)")
     print()
