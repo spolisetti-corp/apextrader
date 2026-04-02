@@ -13,8 +13,11 @@ import sys
 from pathlib import Path
 import schedule
 import pytz
+import pandas as pd
 import yfinance as yf
 from dotenv import load_dotenv
+
+REPO_ROOT = Path(__file__).parent
 
 load_dotenv()
 
@@ -79,14 +82,14 @@ from engine.utils import (
     get_trending_tickers, filter_trending_momentum,
     get_finnhub_trending_tickers, check_sentiment_gate,
     get_vix_interval, get_market_hours_interval, get_position_tuning_interval,
-    get_bars, get_live_holdings,
+    get_bars, get_live_holdings, get_market_sentiment,
 )
 from engine.strategies import _is_bull_regime
 from engine.executor_enhanced import EnhancedExecutor
 from engine.notifications import notify_scan_results, notify_eod
 from engine.scan import get_scan_targets, scan_universe, filter_signals
 from engine.broker_factory import BrokerFactory
-from engine.universe import filter_universe_by_positions
+from engine.predictions import save_day_picks
 
 # ── Initialise ────────────────────────────────────
 log      = setup_logging()
@@ -153,34 +156,6 @@ _ti_warned_running = False
 _ti_executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
 _last_market_regime: str = "bull"  # retained across cycles; never resets to bull on error
 _short_fail_cooldown: dict = {}      # {symbol: monotonic_expiry_ts}
-
-
-# ── Market Sentiment ────────────────────────────────────────────
-_sentiment_cache: dict = {"ts": 0.0, "value": "neutral"}
-_SENTIMENT_TTL = 900  # 15 min — matches regime cache TTL
-
-def get_market_sentiment() -> str:
-    now = time.monotonic()
-    if now - _sentiment_cache["ts"] < _SENTIMENT_TTL:
-        return _sentiment_cache["value"]
-    try:
-        spy = yf.Ticker("SPY").history(period="5d", interval="1h")
-        vix = yf.Ticker("^VIX").history(period="5d", interval="1h")
-        if spy.empty:
-            result = "neutral"
-        else:
-            spy_mom = ((spy["Close"].iloc[-1] / spy["Close"].iloc[0]) - 1) * 100
-            vix_val = float(vix["Close"].iloc[-1]) if not vix.empty else 20
-            if spy_mom > 1 and vix_val < 20:
-                result = "bullish"
-            elif spy_mom < -1 or vix_val > 30:
-                result = "bearish"
-            else:
-                result = "neutral"
-    except Exception:
-        result = "neutral"
-    _sentiment_cache.update({"ts": now, "value": result})
-    return result
 
 
 # ── Trending Scan ───────────────────────────────────────────────
@@ -255,32 +230,6 @@ def scan_trending_stocks():
 
 
 # ── Trade Ideas Universe Refresh ───────────────────────────────
-# UI labels, column headers, and other non-ticker strings the TI scraper sometimes
-# picks up alongside real symbols.  Anything in this set is silently dropped before
-# it can pollute the priority lists.
-_TI_SCRAPE_GARBAGE = {
-    "TI", "NASD", "SWING", "SMART", "CBD", "LLC", "DJI", "SPY", "ARTL",  # known artifacts
-    "BUY", "SELL", "SHORT", "LONG", "ALL", "NEW", "TOP", "HOT",            # action words
-    "NYSE", "AMEX", "OTC", "ETF", "ADR",                                   # exchange/type labels
-    "HIGH", "LOW", "OPEN", "CLOSE", "VOL", "RVOL", "FLOAT",               # column headers
-    "BF", "NOTE",                                                          # consistently no data on all feeds
-}
-
-def _is_valid_ti_ticker(sym: str) -> bool:
-    """Return False for obvious scraper garbage: too short, too long, non-alpha, or block-listed."""
-    if not sym or not isinstance(sym, str):
-        return False
-    s = sym.strip().upper()
-    if not s:
-        return False
-    # Must be 1–5 uppercase letters (optionally ending in one digit for share classes)
-    import re as _re
-    if not _re.fullmatch(r"[A-Z]{1,5}[0-9]?", s):
-        return False
-    if s in _TI_SCRAPE_GARBAGE:
-        return False
-    return True
-
 
 def _apply_tradeideas_results(results: dict, scans: dict) -> None:
     for scan_key, tickers in results.items():
@@ -334,7 +283,7 @@ def scan_tradeideas_universe():
         _scripts = str(REPO_ROOT / "scripts")
         if _scripts not in sys.path:
             sys.path.insert(0, _scripts)
-        from capture_tradeideas import scrape_tradeideas, SCANS
+        from capture_tradeideas import scrape_tradeideas, SCANS, _is_valid_ti_ticker
     except ImportError as e:
         log.warning(f"Trade Ideas scraper unavailable (selenium not installed?): {e}")
         last_ti_scan = time.time()
@@ -388,7 +337,6 @@ def scan_tradeideas_universe():
     )
 
 
-REPO_ROOT = __import__('pathlib').Path(__file__).parent
 
 
 # ── Main Scan & Trade ───────────────────────────────────────────
@@ -771,31 +719,8 @@ def scan_and_trade():
             )
         log.info("——————————————————————————————")
 
-        # ── Persist day picks to predictions/day_picks.json ────────────────
-        try:
-            import json as _json
-            from pathlib import Path as _Path
-            _picks_path = _Path(__file__).parent / "predictions" / "day_picks.json"
-            _picks_path.parent.mkdir(parents=True, exist_ok=True)
-            _picks_data = {
-                "generated_at": datetime.datetime.now(_ET).isoformat(timespec="seconds"),
-                "date": str(datetime.date.today()),
-                "market_regime": market_regime,
-                "picks": [
-                    {
-                        "symbol":     s.symbol,
-                        "action":     s.action,
-                        "price":      round(s.price, 4),
-                        "confidence": round(s.confidence, 4),
-                        "strategy":   s.strategy,
-                        "reason":     s.reason,
-                    }
-                    for s in eligible[:5]
-                ],
-            }
-            _picks_path.write_text(_json.dumps(_picks_data, indent=2), encoding="utf-8")
-        except Exception as _e:
-            log.warning(f"day_picks.json write failed: {_e}")
+        # ── Persist day picks ───────────────────────────────────────────────
+        save_day_picks(eligible[:5], market_regime)
 
         # ── Email notification ────────────────────────────────────────────
         notify_scan_results(eligible[:5], datetime.date.today(), sentiment, market_regime)

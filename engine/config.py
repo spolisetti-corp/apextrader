@@ -89,17 +89,7 @@ PRIORITY_2_ESTABLISHED = [s for s in PRIORITY_2_ESTABLISHED if s not in DELISTED
 #
 # get_dynamic_universe() is called live each scan cycle so newly scraped TI
 # tickers are picked up without restarting the bot.
-from engine.universe import get_tier as _get_tier  # noqa: E402
-
-
-def _merge_live(dyn: list, core: list, exclude: set) -> list:
-    seen: set = set(exclude)
-    out = []
-    for s in list(dyn) + list(core):
-        if s not in seen:
-            seen.add(s)
-            out.append(s)
-    return out
+from engine.universe import get_tier as _get_tier, merge_live as _merge_live  # noqa: E402
 
 
 def get_dynamic_universe() -> tuple:
