@@ -1,4 +1,5 @@
 import os
+import queue
 import subprocess
 import time
 import sys
@@ -184,12 +185,59 @@ if __name__ == "__main__":
             )
             watcher.start()
 
-            for line in proc.stdout:
-                if "Another main.py instance is already running" in line:
-                    saw_duplicate_main_lock = True
-                write_log(line.rstrip())
+            # Read stdout in a daemon thread so we are never blocked by a
+            # grandchild process (e.g. Chrome) that holds the pipe's write
+            # handle open after main.py has already exited.  The main loop
+            # below can escape via proc.poll() regardless of pipe state.
+            _log_queue: queue.Queue = queue.Queue(maxsize=2000)
+
+            def _stdout_drain(proc_, q_):
+                try:
+                    for line in proc_.stdout:
+                        try:
+                            q_.put(line.rstrip(), block=False)
+                        except queue.Full:
+                            pass  # drop if queue full (shouldn't happen normally)
+                except Exception:
+                    pass
+
+            _reader = threading.Thread(
+                target=_stdout_drain, args=(proc, _log_queue), daemon=True
+            )
+            _reader.start()
+
+            # Main output loop: drain queue, check mode-switch event, and
+            # check whether the child process has actually exited.  Because
+            # we're polling proc.poll() instead of blocking on readline(),
+            # Chrome holding the pipe's write end can never wedge this loop.
+            while True:
+                # Drain up to 100 queued lines per iteration
+                for _ in range(100):
+                    try:
+                        line = _log_queue.get_nowait()
+                        if "Another main.py instance is already running" in line:
+                            saw_duplicate_main_lock = True
+                        write_log(line)
+                    except queue.Empty:
+                        break
+
                 if _mode_switch_event.is_set():
                     break
+
+                if proc.poll() is not None:
+                    # Process exited; give reader thread a moment to flush
+                    time.sleep(0.3)
+                    while True:
+                        try:
+                            line = _log_queue.get_nowait()
+                            if "Another main.py instance is already running" in line:
+                                saw_duplicate_main_lock = True
+                            write_log(line)
+                        except queue.Empty:
+                            break
+                    break
+
+                time.sleep(0.2)
 
             _mode_switch_event.set()  # signal watcher to stop if still running
 

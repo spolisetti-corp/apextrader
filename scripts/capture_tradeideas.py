@@ -189,6 +189,11 @@ def _build_driver(headless: bool = False, chrome_profile: Optional[str] = None) 
     opts.add_argument("--no-sandbox")
     opts.add_argument("--disable-dev-shm-usage")
     opts.add_argument("--disable-blink-features=AutomationControlled")
+    # Suppress Chrome's verbose stderr/stdout — prevents filling the parent pipe
+    # buffer when Chrome is launched as a grandchild of a piped subprocess.
+    opts.add_argument("--log-level=3")
+    opts.add_argument("--disable-logging")
+    opts.add_argument("--silent")
     opts.add_experimental_option("excludeSwitches", ["enable-automation"])
     opts.add_experimental_option("useAutomationExtension", False)
 
@@ -205,6 +210,15 @@ def _build_driver(headless: bool = False, chrome_profile: Optional[str] = None) 
         service = ChromeService(existing)
     else:
         service = ChromeService(ChromeDriverManager().install())
+
+    # Prevent ChromeDriver (and Chrome it spawns) from inheriting the parent
+    # process's stdout pipe handle on Windows.  Without this, Chrome's verbose
+    # debug output writes directly into the pipe buffer, filling the 64 KB
+    # buffer in seconds and deadlocking every log call in the parent.
+    import subprocess as _svc_sp, sys as _svc_sys
+    if _svc_sys.platform == "win32":
+        service.creation_flags = _svc_sp.CREATE_NO_WINDOW
+
     try:
         driver = webdriver.Chrome(service=service, options=opts)
     except SessionNotCreatedException as e:
@@ -531,6 +545,33 @@ def scrape_tradeideas(
     results: dict[str, list[str]] = {}
     driver = _build_driver(headless=headless, chrome_profile=chrome_profile)
 
+    # Hard watchdog: if the entire scrape hangs for > 90 s (e.g. Chrome page-load
+    # stuck, or driver.quit() blocking), force-quit Chrome via taskkill so the
+    # parent pipe is freed and the trading loop continues unimpaired.
+    import threading as _ti_thread, subprocess as _ti_sp, sys as _ti_sys
+    _scrape_done = _ti_thread.Event()
+
+    def _hard_kill():
+        if _scrape_done.wait(90):
+            return  # finished cleanly — nothing to do
+        print("[WARN ] TI scrape hard-timeout (90 s) — force-killing Chrome")
+        try:
+            driver.quit()
+        except Exception:
+            pass
+        if _ti_sys.platform == "win32":
+            for exe in ("chromedriver.exe", "chrome.exe"):
+                try:
+                    _ti_sp.run(
+                        ["taskkill", "/F", "/IM", exe, "/T"],
+                        capture_output=True, timeout=5,
+                    )
+                except Exception:
+                    pass
+
+    _killer = _ti_thread.Thread(target=_hard_kill, daemon=True)
+    _killer.start()
+
     try:
         for scan_key, scan in SCANS.items():
             url   = scan["url"]
@@ -598,6 +639,7 @@ def scrape_tradeideas(
                 pass
 
     finally:
+        _scrape_done.set()   # signal the hard-kill watchdog: scrape finished normally
         try:
             driver.quit()
         except Exception:

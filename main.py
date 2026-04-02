@@ -384,6 +384,28 @@ def scan_tradeideas_universe():
     # 2) If scrape still running, do not block this cycle.
     if _ti_future is not None:
         elapsed = now - _ti_started_at
+        # Hard-kill fallback: if the scraper thread is still stuck after 3 min
+        # (e.g. Chrome hung and the 90 s in-scraper watchdog also failed), kill
+        # Chrome processes here from the main thread and reset the future so the
+        # next interval can schedule a fresh scrape.
+        if elapsed > 180:
+            log.error(
+                f"Trade Ideas scrape hard-timeout ({elapsed:.0f}s) — "
+                "killing Chrome/chromedriver and resetting future"
+            )
+            import subprocess as _hk_sp
+            for _exe in ("chromedriver.exe", "chrome.exe"):
+                try:
+                    _hk_sp.run(
+                        ["taskkill", "/F", "/IM", _exe, "/T"],
+                        capture_output=True, timeout=5,
+                    )
+                except Exception:
+                    pass
+            _ti_future = None
+            _ti_warned_running = False
+            last_ti_scan = now
+            return
         if elapsed > 90 and not _ti_warned_running:
             log.warning(f"Trade Ideas scan still running ({elapsed:.0f}s) — trading loop continues")
             _ti_warned_running = True
