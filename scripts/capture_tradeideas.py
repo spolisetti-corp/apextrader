@@ -117,6 +117,32 @@ _IGNORE = {
 
 _TICKER_RE = re.compile(r'\b([A-Z]{2,5})\b')
 
+# ── Secondary blocklist used when applying scraped tickers to the live universe ──
+# Words that survive the broad regex above but are never real tradeable tickers.
+_TI_SCRAPE_GARBAGE: set[str] = {
+    "TI", "NASD", "SWING", "SMART", "CBD", "LLC", "DJI", "SPY", "ARTL",  # known artifacts
+    "BUY", "SELL", "SHORT", "LONG", "ALL", "NEW", "TOP", "HOT",            # action words
+    "NYSE", "AMEX", "OTC", "ETF", "ADR",                                   # exchange/type labels
+    "HIGH", "LOW", "OPEN", "CLOSE", "VOL", "RVOL", "FLOAT",               # column headers
+    "BF", "NOTE",                                                          # feeds with no data
+}
+
+
+def _is_valid_ti_ticker(sym: str) -> bool:
+    """Return False for obvious scraper garbage: too short, too long, non-alpha, or block-listed."""
+    if not sym or not isinstance(sym, str):
+        return False
+    s = sym.strip().upper()
+    if not s:
+        return False
+    # Must be 1–5 uppercase letters (optionally ending in one digit for share classes)
+    if not re.fullmatch(r"[A-Z]{1,5}[0-9]?", s):
+        return False
+    if s in _IGNORE or s in _TI_SCRAPE_GARBAGE:
+        return False
+    return True
+
+
 # How long to wait (seconds) for page to render
 TABLE_WAIT_SEC = 20
 PAGE_LOAD_SEC  = 15
