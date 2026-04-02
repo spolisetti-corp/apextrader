@@ -127,6 +127,7 @@ class EnhancedExecutor:
         self._swap_cycle_closed: set = set()     # positions already swapped this scan cycle
         self._tp_targets: Dict[str, float] = {} # {symbol: take-profit price} for ATR-based TP tracking
         self.shorting_blocked: bool = False  # set true when broker rejects all short attempts for account
+        self._pdt_stop_blocked: Dict[str, float] = {}  # {symbol: stop_price} — broker-rejected stops; monitored in software
 
     # -- Position Cache ----------------------------------------------------
     def _find_weakest_position(self) -> Optional[str]:
@@ -733,7 +734,70 @@ class EnhancedExecutor:
                 direction = "LONG" if is_long_pos else "SHORT"
                 log.info(f"PROTECT {direction} {sym} [{tier_label}]: trailing stop {trail_pct:.1f}% GTC")
             except Exception as e:
-                log.error(f"protect_positions {sym}: {e}")
+                err_str = str(e)
+                if "40310100" in err_str:
+                    # Broker PDT protection rejects the stop for today's entry.
+                    # Fall back to software stop monitoring via check_software_stops().
+                    if sym not in self._pdt_stop_blocked:
+                        try:
+                            entry_price = float(pos.avg_entry_price or pos.current_price)
+                            tier_info   = get_dynamic_tier(sym, float(pos.current_price))
+                            stop_pct    = tier_info["ts"]
+                            stop_price  = round(
+                                entry_price * (1 - stop_pct / 100) if qty > 0
+                                else entry_price * (1 + stop_pct / 100),
+                                2,
+                            )
+                            self._pdt_stop_blocked[sym] = stop_price
+                            log.warning(
+                                f"protect_positions {sym}: broker PDT stop rejected — "
+                                f"software SL set at ${stop_price:.2f} ({stop_pct:.1f}% from ${entry_price:.2f})"
+                            )
+                        except Exception:
+                            log.warning(f"protect_positions {sym}: PDT stop rejected (software SL unavailable)")
+                    else:
+                        log.debug(f"protect_positions {sym}: PDT stop still rejected (software SL active @ ${self._pdt_stop_blocked[sym]:.2f})")
+                else:
+                    log.error(f"protect_positions {sym}: {e}")
+
+    def check_software_stops(self) -> None:
+        """Market-close any position whose broker-rejected PDT stop has been breached.
+        Called every scan cycle for positions in _pdt_stop_blocked."""
+        if not self._pdt_stop_blocked:
+            return
+        try:
+            positions = {p.symbol: p for p in self.client.get_all_positions()}
+        except Exception as e:
+            log.warning(f"check_software_stops: fetch failed: {e}")
+            return
+        for sym, stop_price in list(self._pdt_stop_blocked.items()):
+            pos = positions.get(sym)
+            if pos is None:
+                # Position already closed (stop filled or manual)
+                self._pdt_stop_blocked.pop(sym, None)
+                continue
+            try:
+                current = float(pos.current_price)
+                qty     = int(float(pos.qty))
+                is_long = qty > 0
+                hit     = (is_long and current <= stop_price) or (not is_long and current >= stop_price)
+                if hit:
+                    side = OrderSide.SELL if is_long else OrderSide.BUY
+                    self.client.submit_order(MarketOrderRequest(
+                        symbol        = sym,
+                        qty           = abs(qty),
+                        side          = side,
+                        time_in_force = TimeInForce.DAY,
+                    ))
+                    self._pdt_stop_blocked.pop(sym, None)
+                    log.warning(
+                        f"SOFTWARE SL HIT {sym}: price ${current:.2f} <= stop ${stop_price:.2f} — "
+                        f"market {'SELL' if is_long else 'BUY-TO-COVER'} submitted"
+                    )
+                else:
+                    log.debug(f"SOFTWARE SL {sym}: current ${current:.2f} | stop ${stop_price:.2f} | margin ${current - stop_price:+.2f}")
+            except Exception as e:
+                log.error(f"check_software_stops {sym}: {e}")
 
     # ── EOD Close ─────────────────────────────────────────────────────────────
     def close_eod_positions(self) -> Optional[dict]:

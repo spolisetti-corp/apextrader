@@ -311,12 +311,12 @@ def scan_and_trade():
         # ── Gate: per-side confidence + held-symbol cross-ref ──
         short_min_conf = MIN_SHORT_CONFIDENCE_BEAR if market_regime == "bear" else MIN_SIGNAL_CONFIDENCE
         eligible = []
-        log.info(f"[DBG] LONG_ONLY_MODE={LONG_ONLY_MODE} shorting_blocked={executor.shorting_blocked} short_min={short_min_conf} regime={market_regime}")
+        log.debug(f"[DBG] LONG_ONLY_MODE={LONG_ONLY_MODE} shorting_blocked={executor.shorting_blocked} short_min={short_min_conf} regime={market_regime}")
         for s in signals:
             if s.symbol in _fresh_held:
                 continue
             conf = round(float(s.confidence), 2)
-            log.info(f"[DBG] signal {s.symbol} action={s.action} conf={conf:.2f} held={s.symbol in _fresh_held}")
+            log.debug(f"[DBG] signal {s.symbol} action={s.action} conf={conf:.2f} held={s.symbol in _fresh_held}")
             if s.action == "buy" and conf >= MIN_SIGNAL_CONFIDENCE:
                 eligible.append(s)
             elif (
@@ -691,6 +691,11 @@ def start():
                         executor.protect_positions()
                     except Exception as e:
                         log.error(f"protect_positions loop error: {e}", exc_info=True)
+
+                    try:
+                        executor.check_software_stops()
+                    except Exception as e:
+                        log.error(f"check_software_stops loop error: {e}", exc_info=True)
 
                     try:
                         eod_summary = executor.close_eod_positions()
