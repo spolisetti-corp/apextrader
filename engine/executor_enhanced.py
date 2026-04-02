@@ -128,6 +128,7 @@ class EnhancedExecutor:
         self._tp_targets: Dict[str, float] = {} # {symbol: take-profit price} for ATR-based TP tracking
         self.shorting_blocked: bool = False  # set true when broker rejects all short attempts for account
         self._pdt_stop_blocked: Dict[str, float] = {}  # {symbol: stop_price} — broker-rejected stops; monitored in software
+        self._pdt_overnight_forced: set = set()  # symbols where PDT also blocks close — forced overnight, no retries
 
     # -- Position Cache ----------------------------------------------------
     def _find_weakest_position(self) -> Optional[str]:
@@ -704,6 +705,10 @@ class EnhancedExecutor:
             if sym in covered:
                 continue
 
+            # Skip positions confirmed as forced overnight holds (PDT blocks close too)
+            if sym in self._pdt_overnight_forced:
+                continue
+
             # Secondary guard: skip if broker reports zero available qty
             try:
                 qty_available = int(float(pos.qty_available))
@@ -800,6 +805,7 @@ class EnhancedExecutor:
                             # Broker PDT also blocks same-day close — position is a forced
                             # overnight hold.  Stop retrying; it will carry to next session.
                             self._pdt_stop_blocked.pop(sym, None)
+                            self._pdt_overnight_forced.add(sym)
                             log.warning(
                                 f"SOFTWARE SL {sym}: stop breached at ${current:.2f} but PDT blocks "
                                 f"same-day close — holding overnight (stop was ${stop_price:.2f})"
