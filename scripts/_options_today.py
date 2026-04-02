@@ -26,6 +26,12 @@ sys.path.insert(0, str(ROOT))
 from dotenv import load_dotenv
 load_dotenv(ROOT / ".env")
 
+# ── Master kill-switch ────────────────────────────────────────────────────────
+import os as _os
+if _os.getenv("OPTIONS_ENABLED", "true").lower() in ("0", "false", "no"):
+    print("Options trading is disabled (OPTIONS_ENABLED=false). Exiting.")
+    sys.exit(0)
+
 import yfinance as yf
 import pandas as pd
 
@@ -411,12 +417,33 @@ else:
 
 # ── Near-miss summary (filtered but close) ────────────────────────────────────
 if skipped:
-    print(f"  ({len(skipped)} candidates filtered out — top reasons:)")
     from collections import Counter
     reasons = Counter(r.split(" (")[0].split("=")[0].split(">")[0].split("<")[0].strip() for _, r in skipped)
+    print(f"  ({len(skipped)} candidates filtered out — top reasons:)")
     for reason, count in reasons.most_common(8):
         print(f"    - {reason}: {count}x")
     print()
+
+    # ── IV rank detail ────────────────────────────────────────────────────────
+    iv_filtered = [(sym, r) for sym, r in skipped if r.startswith("IV rank")]
+    if iv_filtered:
+        import re as _re
+        print(f"  IV rank filtered ({len(iv_filtered)} tickers — sorted high→low):")
+        parsed = []
+        for sym, r in iv_filtered:
+            m = _re.search(r"IV rank=(\d+\.?\d*)", r)
+            m2 = _re.search(r"> (\d+\.?\d*)", r)
+            rank = float(m.group(1)) if m else 0.0
+            gate = float(m2.group(1)) if m2 else 0.0
+            parsed.append((sym, rank, gate))
+        parsed.sort(key=lambda x: x[1], reverse=True)
+        print(f"  {'Sym':<8}  {'IV rank':>7}  {'Gate':>5}  {'Over by':>7}")
+        print("  " + "-"*36)
+        for sym, rank, gate in parsed:
+            over = rank - gate
+            bar = "█" * min(int(rank / 5), 20)
+            print(f"  {sym:<8}  {rank:>6.0f}%  {gate:>5.0f}%  {over:>+6.0f}%  {bar}")
+        print()
 
 # ── Notification ──────────────────────────────────────────────────────────────
 # Build lightweight adapter objects compatible with notify_scan_results
