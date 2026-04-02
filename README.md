@@ -270,7 +270,7 @@ The bot auto-starts Mon–Fri at 7:00 AM via Windows Task Scheduler.
 
 `run_autobot.py` automatically selects `TRADE_MODE` based on Eastern Time:
 
-- **LIVE**: `09:30–11:00` and `15:00–16:00` (Mon–Fri)
+- **LIVE**: `09:50–10:25` and `15:35–16:00` (Mon–Fri)
 - **PAPER**: all other times
 
 Override the windows:

@@ -26,7 +26,7 @@ PID_FILE = BASE_DIR / "autobot.pid"
 PYTHON = BASE_DIR / ".venv" / "Scripts" / "python.exe"
 MAIN_SCRIPT = BASE_DIR / "main.py"
 _ET = ZoneInfo("America/New_York") if ZoneInfo else None
-_LIVE_WINDOWS_SPEC = os.getenv("LIVE_TRADE_WINDOWS_ET", "09:30-11:00,15:00-16:00")
+_LIVE_WINDOWS_SPEC = os.getenv("LIVE_TRADE_WINDOWS_ET", "09:50-10:25,15:35-16:00")
 
 
 def _parse_windows(spec: str):
