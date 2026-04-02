@@ -12,6 +12,37 @@ import os
 STOCKS_BROKER = os.getenv("STOCKS_BROKER", "alpaca")   # 'alpaca' or 'etrade'
 OPTIONS_BROKER = "alpaca"                               # Only Alpaca supports options
 
+# ─────────────────────────────────────────────────────────────────
+# Options Trading Configuration (Level 3 account)
+# Allocation: 15% of portfolio. Strategies: momentum calls, bear puts,
+# covered calls on held positions. Expiry: 7–21 DTE (near-term).
+# ─────────────────────────────────────────────────────────────────
+OPTIONS_ENABLED             = os.getenv("OPTIONS_ENABLED", "true").lower() in ("1", "true", "yes")
+OPTIONS_ALLOCATION_PCT      = float(os.getenv("OPTIONS_ALLOCATION_PCT", "15.0"))  # % of equity for all options
+OPTIONS_MAX_POSITIONS       = int(os.getenv("OPTIONS_MAX_POSITIONS", "3"))        # max open options contracts
+OPTIONS_DTE_MIN             = int(os.getenv("OPTIONS_DTE_MIN", "7"))              # min days-to-expiry at entry
+OPTIONS_DTE_MAX             = int(os.getenv("OPTIONS_DTE_MAX", "21"))             # max days-to-expiry at entry
+OPTIONS_DELTA_TARGET        = float(os.getenv("OPTIONS_DELTA_TARGET", "0.40"))    # target delta (0.30-0.50)
+OPTIONS_MIN_OPEN_INTEREST   = int(os.getenv("OPTIONS_MIN_OPEN_INTEREST", "100"))  # skip illiquid strikes
+OPTIONS_MAX_SPREAD_PCT      = float(os.getenv("OPTIONS_MAX_SPREAD_PCT", "10.0"))  # max bid/ask spread % of mid
+OPTIONS_MAX_IV_PCT          = float(os.getenv("OPTIONS_MAX_IV_PCT", "150.0"))     # skip when IV is extreme
+OPTIONS_MIN_IV_PCT          = float(os.getenv("OPTIONS_MIN_IV_PCT", "15.0"))      # skip when IV is too flat
+OPTIONS_PROFIT_TARGET_PCT   = float(os.getenv("OPTIONS_PROFIT_TARGET_PCT", "50.0"))  # close at +50% gain
+OPTIONS_STOP_LOSS_PCT       = float(os.getenv("OPTIONS_STOP_LOSS_PCT", "40.0"))      # close at -40% loss
+OPTIONS_COVERED_CALL_DELTA  = float(os.getenv("OPTIONS_COVERED_CALL_DELTA", "0.25")) # sell OTM calls ~0.25 delta
+OPTIONS_MIN_SIGNAL_CONFIDENCE = float(os.getenv("OPTIONS_MIN_SIGNAL_CONFIDENCE", "0.80"))  # higher bar for options
+# Tickers that actively trade liquid options (checked against universe)
+OPTIONS_ELIGIBLE_UNIVERSE   = [
+    # Mega-cap tech — always liquid options
+    "AAPL", "MSFT", "NVDA", "AMD", "GOOGL", "META", "TSLA", "AMZN", "NFLX",
+    # High-beta momentum favourites
+    "MARA", "COIN", "PLTR", "SMCI", "CRWD", "NET", "SNOW",
+    # ETFs with liquid options chains
+    "SPY", "QQQ", "IWM", "SQQQ", "SPXU", "UVXY",
+    # Biotech / speculative with options
+    "MRNA", "BCRX",
+]
+
 # ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
 # Alpaca API Configuration
 # ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
