@@ -489,6 +489,9 @@ def get_bars_batch(symbols, period="5d", interval="15m") -> Dict[str, pd.DataFra
     for s in symbols:
         if s in results:
             continue
+        if is_dead_ticker(s):
+            results[s] = pd.DataFrame()
+            continue
         try:
             data = yf.Ticker(s).history(period=period, interval=interval)
             if data.empty:
@@ -518,6 +521,9 @@ def get_bars(symbol: str, period: str = "5d", interval: str = "15m") -> pd.DataF
     """
     symbol = symbol.strip().upper().lstrip("$")
     log = logging.getLogger("ApexTrader")
+    # Early exit for session-suppressed dead tickers — avoids redundant fetches
+    if is_dead_ticker(symbol):
+        return pd.DataFrame()
     cache_key = (symbol, period, interval)
     with _bar_cache_lock:
         if cache_key in _bar_cache:
