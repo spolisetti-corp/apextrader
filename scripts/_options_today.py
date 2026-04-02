@@ -390,14 +390,15 @@ for sym in symbols:
 
 # ── Report ────────────────────────────────────────────────────────────────────
 signals.sort(key=lambda x: x[0], reverse=True)
+TOP_N = 3
 
 if not signals:
     print("  No A+ signals today. All candidates filtered out.\n")
 else:
-    print(f"  {len(signals)} A+ signal(s) found (ranked by composite score = conf * R/R):\n")
+    print(f"  {len(signals)} A+ signal(s) found — showing top {min(TOP_N, len(signals))} (conf * R/R):\n")
     print(f"  {'#':>2}  {'Sym':<6}  {'Type':<4}  {'Spot':>7}  {'Strike':>6}  {'Mid':>5}  {'Cost/C':>7}  {'Expiry':>10}  {'DTE':>3}  {'IVrank':>6}  {'R/R':>4}  {'BEven':>7}  {'Conf':>5}  {'Chg%':>6}  {'VolR':>4}  {'Sprd':>5}")
     print("  " + "-"*130)
-    for i, (score, s) in enumerate(signals[:8], 1):
+    for i, (score, s) in enumerate(signals[:TOP_N], 1):
         print(
             f"  {i:>2}  {s['sym']:<6}  {s['type']:<4}  ${s['spot']:>6.2f}  ${s['strike']:>5.0f}"
             f"  ${s['mid']:>4.2f}  ${s['cost']:>6.0f}  {s['expiry']:>10}"
@@ -410,10 +411,48 @@ else:
 
 # ── Near-miss summary (filtered but close) ────────────────────────────────────
 if skipped:
-    print(f"\n  ({len(skipped)} candidates filtered out — top reasons:)")
+    print(f"  ({len(skipped)} candidates filtered out — top reasons:)")
     from collections import Counter
     reasons = Counter(r.split(" (")[0].split("=")[0].split(">")[0].split("<")[0].strip() for _, r in skipped)
     for reason, count in reasons.most_common(8):
         print(f"    - {reason}: {count}x")
+    print()
 
-print()
+# ── Notification ──────────────────────────────────────────────────────────────
+# Build lightweight adapter objects compatible with notify_scan_results
+# (which expects .symbol .action .price .confidence .strategy .reason)
+if signals:
+    from engine.notifications import notify_scan_results
+    from dataclasses import dataclass as _dc
+
+    @_dc
+    class _NotifSignal:
+        symbol:     str
+        action:     str
+        price:      float
+        confidence: float
+        strategy:   str
+        reason:     str
+
+    notif_picks = [
+        _NotifSignal(
+            symbol     = s["sym"],
+            action     = "buy",          # buy_to_open simplified for email
+            price      = s["spot"],
+            confidence = s["confidence"],
+            strategy   = f"Options/{s['type']}",
+            reason     = (
+                f"${s['strike']:.0f}{s['type'][0]} {s['expiry']} {s['dte']}DTE "
+                f"mid=${s['mid']:.2f} BEven=${s['breakeven']:.2f} "
+                f"IVrank={s['iv_rank']:.0f} R/R={s['rr']:.1f}x "
+                f"chg={s['chg']:+.1f}% vol={s['vol_ratio']:.1f}x"
+            ),
+        )
+        for _, s in signals[:TOP_N]
+    ]
+
+    sentiment = "bearish" if not bull else "bullish"
+    print("  Sending notification...", end=" ", flush=True)
+    sent = notify_scan_results(notif_picks, today, sentiment=sentiment, regime=regime_label.lower())
+    print("sent ✓" if sent else "skipped (email disabled or throttled)")
+    print()
