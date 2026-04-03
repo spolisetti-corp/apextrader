@@ -18,9 +18,11 @@ Schema (data/universe.json)
 }
 
 TTL rules (configurable via config.py or env):
-  Tier 1 (momentum)   → 14 days  (fast-movers go stale quickly)
-  Tier 2 (established)→ 30 days
-  Tier 3 (following)  → 7 days   (daily watchlist / prediction picks)
+  Tier 1 (momentum)   → 30 minutes
+  Tier 2 (established)→ 30 minutes
+  Tier 3 (following)  → 30 minutes
+
+The 'added' field stores a full ISO-8601 datetime (UTC) so sub-day TTLs work.
 
 Core tickers hardcoded in config.py are NOT managed here and never expire.
 """
@@ -30,7 +32,7 @@ from __future__ import annotations
 import json
 import os
 import threading
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Literal
 
@@ -39,11 +41,11 @@ _REPO_ROOT   = Path(__file__).parent.parent
 DATA_DIR     = _REPO_ROOT / "data"
 UNIVERSE_FILE = DATA_DIR / "universe.json"
 
-# ── TTL per tier (days) ───────────────────────────────────────────────────────
+# ── TTL per tier (minutes) ────────────────────────────────────────────────────
 TIER_TTL: dict[int, int] = {
-    1: int(os.getenv("UNIVERSE_TTL_TIER1", "14")),
+    1: int(os.getenv("UNIVERSE_TTL_TIER1", "30")),
     2: int(os.getenv("UNIVERSE_TTL_TIER2", "30")),
-    3: int(os.getenv("UNIVERSE_TTL_TIER3", "7")),
+    3: int(os.getenv("UNIVERSE_TTL_TIER3", "30")),
 }
 
 _lock = threading.Lock()
@@ -74,12 +76,20 @@ def _save_raw(data: dict) -> None:
 
 def _is_expired(entry: dict) -> bool:
     tier = int(entry.get("tier", 1))
-    ttl  = TIER_TTL.get(tier, 14)
+    ttl_minutes = TIER_TTL.get(tier, 30)
     try:
-        added = date.fromisoformat(entry["added"])
+        added_str = entry["added"]
+        # Support both legacy date-only strings and new full datetimes
+        if len(added_str) <= 10:
+            # old format "YYYY-MM-DD" — treat as start-of-day UTC
+            added_dt = datetime.fromisoformat(added_str).replace(tzinfo=timezone.utc)
+        else:
+            added_dt = datetime.fromisoformat(added_str)
+            if added_dt.tzinfo is None:
+                added_dt = added_dt.replace(tzinfo=timezone.utc)
     except (KeyError, ValueError):
-        return False  # unknown date → keep
-    return (date.today() - added).days > ttl
+        return False  # unknown format → keep
+    return datetime.now(timezone.utc) - added_dt > timedelta(minutes=ttl_minutes)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -92,7 +102,9 @@ def add_tickers(
     today: str | None = None,
 ) -> int:
     """Add or refresh tickers.  Returns the number of *new* tickers inserted."""
-    added_date = today or str(date.today())
+    # Use full UTC datetime so minute-level TTL works correctly.
+    # The legacy `today` param (date string) is still accepted for back-compat.
+    added_ts = today or datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     with _lock:
         data = _load_raw()
         tickers = data.setdefault("tickers", {})
@@ -103,8 +115,8 @@ def add_tickers(
                 continue
             if sym not in tickers:
                 fresh += 1
-            # Refresh date whether new or existing — keeps active ones alive
-            tickers[sym] = {"tier": tier, "added": added_date}
+            # Refresh timestamp whether new or existing — keeps active ones alive
+            tickers[sym] = {"tier": tier, "added": added_ts}
         _save_raw(data)
     return fresh
 
