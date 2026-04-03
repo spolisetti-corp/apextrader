@@ -134,6 +134,58 @@ def get_tier(tier: int) -> list[str]:
     return [sym for sym, _ in items]
 
 
+def get_latest_batch(window_minutes: int = 5) -> list[str]:
+    """Return all non-expired tickers from the most recent scrape run.
+
+    The TI scraper writes 3 sub-batches in quick succession (each page gets its
+    own timestamp a few seconds apart).  This function collects every ticker
+    whose 'added' timestamp falls within *window_minutes* of the most recent
+    timestamp — i.e. the full output of the last scrape run.  Results are
+    sorted newest-first within the window.
+    """
+    data = _load_raw()
+    now_utc = datetime.now(timezone.utc)
+    entries: list[tuple[str, dict]] = []
+    for sym, entry in data.get("tickers", {}).items():
+        if not isinstance(entry, dict) or _is_expired(entry):
+            continue
+        entries.append((sym, entry))
+
+    if not entries:
+        return []
+
+    # Find the newest timestamp present
+    newest_str = max(e.get("added", "") for _, e in entries)
+    if not newest_str:
+        return []
+    try:
+        newest_dt = datetime.fromisoformat(newest_str)
+        if newest_dt.tzinfo is None:
+            newest_dt = newest_dt.replace(tzinfo=timezone.utc)
+    except ValueError:
+        return []
+
+    cutoff = newest_dt - timedelta(minutes=window_minutes)
+
+    batch: list[tuple[str, str]] = []  # (sym, added_ts)
+    for sym, entry in entries:
+        added_str = entry.get("added", "")
+        if not added_str:
+            continue
+        try:
+            added_dt = datetime.fromisoformat(added_str)
+            if added_dt.tzinfo is None:
+                added_dt = added_dt.replace(tzinfo=timezone.utc)
+        except ValueError:
+            continue
+        if added_dt >= cutoff:
+            batch.append((sym, added_str))
+
+    # newest first within batch (preserves sub-batch order)
+    batch.sort(key=lambda x: x[1], reverse=True)
+    return [sym for sym, _ in batch]
+
+
 def prune(dry_run: bool = False) -> list[str]:
     """Remove expired tickers.  Returns the list of removed symbols."""
     with _lock:

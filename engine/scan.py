@@ -25,7 +25,7 @@ from .config import (
     BEAR_SHORT_TARGET_RESERVE,
 )
 from .utils import clear_bar_cache, get_bars, is_market_open, is_dead_ticker
-from .universe import get_tier as _get_tier_live
+from .universe import get_tier as _get_tier_live, get_latest_batch as _get_latest_batch
 
 _ET  = pytz.timezone("America/New_York")
 _log = logging.getLogger("ApexTrader")
@@ -145,17 +145,22 @@ def get_scan_targets(excluded: Set[str] = None) -> List[str]:
             seen.add(s)
             targets.append(s)
 
-    # TI-priority guaranteed window: keep the most recently discovered tickers
-    # always in the scan regardless of offset (these sit at the front of the
-    # in-memory lists after each TI scrape / trending update).
-    TI_FRONT = 5
+    # TI-latest-batch guarantee: ALL tickers from the most recent TI scrape run
+    # (within a 5-min window that covers all 3 sub-batches) are pushed before
+    # rotation so they appear in every single cycle regardless of universe size.
+    # Falls back to a small front-slice if no recent batch data is available.
+    latest_batch = [s for s in _get_latest_batch(window_minutes=5)
+                    if s not in delisted]
+    if not latest_batch:
+        # Fallback: guarantee top-N newest from each tier
+        TI_FRONT = 10
+        latest_batch = list(dict.fromkeys(live_p1[:TI_FRONT] + live_p2[:TI_FRONT]))
 
     if in_bear:
         # Always seed with inverse ETFs first — they are valid longs in bear regime
         _push(_INVERSE_ETFS)
-        # Guarantee a small TI-priority slice from each list (most recently promoted)
-        _push(live_p2[:TI_FRONT])
-        _push(live_p1[:TI_FRONT])
+        # Guarantee every ticker from the latest TI scrape batch
+        _push(latest_batch)
         # Fill the remaining capacity from the rotating universe (majority of scan)
         _push(rotated_base, limit=SCAN_MAX_SYMBOLS)
 
@@ -164,8 +169,8 @@ def get_scan_targets(excluded: Set[str] = None) -> List[str]:
             short_cap = min(max(0, BEAR_SHORT_TARGET_RESERVE), SCAN_MAX_SYMBOLS)
             _push(list(BEAR_SHORT_UNIVERSE), limit=short_cap)
     else:
-        # Bull/neutral: TI-priority front slice + rotating universe fills the rest
-        _push(live_p1[:TI_FRONT] + live_p2[:TI_FRONT])
+        # Bull/neutral: latest batch guaranteed + rotating universe fills the rest
+        _push(latest_batch)
         _push(rotated_base, limit=SCAN_MAX_SYMBOLS)
         if len(targets) < SCAN_MAX_SYMBOLS:
             _push(p1_slice + p2_slice, limit=SCAN_MAX_SYMBOLS)
