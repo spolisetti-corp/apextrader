@@ -149,9 +149,10 @@ def _apply_tradeideas_results(results: dict, scans: dict, priority_1: list, prio
             continue
 
         valid = [t for t in tickers if _is_valid_ti_ticker(t)]
-        if not valid:
+        if len(valid) < 5:
             log.warning(
-                f"Trade Ideas {label}: scrape returned 0 valid tickers — "
+                f"Trade Ideas {label}: only {len(valid)} valid ticker(s) after filtering "
+                f"(need ≥5) — likely a login-page scrape or empty scan; "
                 f"skipping to preserve {target_list_name}"
             )
             continue
@@ -228,6 +229,8 @@ def scan_tradeideas_universe(
     update_config: bool,
     priority_1: list,
     priority_2: list,
+    browser: str = "edge",
+    remote_debug_port: int = 9222,
 ) -> None:
     """Submit or check a background TI scrape; never blocks the trading cycle."""
     global last_ti_scan, _ti_future, _ti_started_at, _ti_warned_running
@@ -289,18 +292,16 @@ def scan_tradeideas_universe(
         return
 
     ti_profile  = (chrome_profile or "").strip() or None
-    ti_headless = True   # always headless in background process
 
     log.info(
-        f"Scanning Trade Ideas in background (profile={ti_profile or 'none'}, "
-        f"headless={'on' if ti_headless else 'off'}) …"
+        f"Scanning Trade Ideas in background (browser=edge, profile={ti_profile or 'none'}) …"
     )
     _ti_started_at     = now
     _ti_warned_running = False
     _ti_future         = _ti_executor.submit(
         scrape_tradeideas,
         update_config=update_config,
-        headless=ti_headless,
         chrome_profile=ti_profile,
         select_30min=True,
+        remote_debug_port=remote_debug_port,
     )
