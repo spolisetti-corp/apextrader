@@ -128,6 +128,7 @@ _TI_SCRAPE_GARBAGE: set[str] = {
     "HIGH", "LOW", "OPEN", "CLOSE", "VOL", "RVOL", "FLOAT",               # column headers
     "BF", "NOTE",                                                          # feeds with no data
     "AI", "CA", "AZ", "CO",                                                # state/generic abbrevs
+    "SPDR", "SSGA", "IVV", "VOO", "VTI",                                  # ETF brand names / broad index ETFs
 }
 
 
