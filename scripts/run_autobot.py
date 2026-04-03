@@ -30,7 +30,7 @@ CHILD_PID_FILE  = BASE_DIR / "mainbot_child.pid"   # main.py subprocess PID — 
 PYTHON = BASE_DIR / ".venv" / "Scripts" / "python.exe"
 MAIN_SCRIPT = BASE_DIR / "main.py"
 _ET = ZoneInfo("America/New_York") if ZoneInfo else None
-_LIVE_WINDOWS_SPEC = os.getenv("LIVE_TRADE_WINDOWS_ET", "09:50-10:50,13:50-14:30,15:35-16:00")
+_LIVE_WINDOWS_SPEC = os.getenv("LIVE_TRADE_WINDOWS_ET", "07:30-08:30,09:50-10:50,13:50-14:30,15:35-16:00")
 
 
 def _parse_windows(spec: str):
