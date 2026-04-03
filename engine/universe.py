@@ -122,14 +122,16 @@ def add_tickers(
 
 
 def get_tier(tier: int) -> list[str]:
-    """Return all non-expired tickers for a given tier, sorted alphabetically."""
+    """Return all non-expired tickers for a given tier, newest-added first."""
     data = _load_raw()
-    today = date.today()
-    out = []
-    for sym, entry in data.get("tickers", {}).items():
-        if int(entry.get("tier", 1)) == tier and not _is_expired(entry):
-            out.append(sym)
-    return sorted(out)
+    items = [
+        (sym, entry)
+        for sym, entry in data.get("tickers", {}).items()
+        if int(entry.get("tier", 1)) == tier and not _is_expired(entry)
+    ]
+    # ISO timestamp strings sort lexicographically = chronologically; newest first
+    items.sort(key=lambda x: x[1].get("added", ""), reverse=True)
+    return [sym for sym, _ in items]
 
 
 def prune(dry_run: bool = False) -> list[str]:
