@@ -256,11 +256,15 @@ SENTIMENT_BULLISH_THRESHOLD = 0.6
 
 # Trade Ideas Discovery
 # Scrapes TIPro highshortfloat + marketscope360 with Selenium.
-# Requires: pip install selenium webdriver-manager pillow
-USE_TRADEIDEAS_DISCOVERY      = __import__('os').getenv('USE_TRADEIDEAS_DISCOVERY', 'true').lower() == 'true'
+# Requires a logged-in Chrome profile (TRADEIDEAS_CHROME_PROFILE) to get real data.
+# Disabled by default — without a profile the scraper only hits the TI login page.
+# To enable: set USE_TRADEIDEAS_DISCOVERY=true and TRADEIDEAS_CHROME_PROFILE=<profile>
+# TRADEIDEAS_BROWSER: "edge" (pre-installed on Windows) or "chrome"
+USE_TRADEIDEAS_DISCOVERY      = __import__('os').getenv('USE_TRADEIDEAS_DISCOVERY', 'false').lower() == 'true'
 TRADEIDEAS_SCAN_INTERVAL_MIN  = 15
 TRADEIDEAS_HEADLESS           = __import__('os').getenv('TRADEIDEAS_HEADLESS', 'false').lower() == 'true'
 TRADEIDEAS_CHROME_PROFILE     = __import__('os').getenv('TRADEIDEAS_CHROME_PROFILE', '')
+TRADEIDEAS_BROWSER            = __import__('os').getenv('TRADEIDEAS_BROWSER', 'edge')
 TRADEIDEAS_UPDATE_CONFIG_FILE = True
 
 # ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ

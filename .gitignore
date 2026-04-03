@@ -18,8 +18,10 @@ autobot.pid
 temp_*.py
 tmp_*.py
 tmp_*.txt
-tmp_*.log
-
+*.log
+*.pid
+*.lock
+*.cache
 # Local task scheduler export (machine-specific)
 apextrader_task.xml
 
