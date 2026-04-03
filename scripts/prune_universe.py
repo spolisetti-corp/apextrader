@@ -26,9 +26,9 @@ def main():
 
     s = stats()
     print(f"\nUniverse: {s['total_alive']} alive | {s['total_expired']} expired")
-    print(f"  Tier 1 (momentum, TTL {TIER_TTL[1]}d): {s['by_tier'].get(1, 0)}")
-    print(f"  Tier 2 (established, TTL {TIER_TTL[2]}d): {s['by_tier'].get(2, 0)}")
-    print(f"  Tier 3 (following, TTL {TIER_TTL[3]}d):  {s['by_tier'].get(3, 0)}")
+    print(f"  Tier 1 (momentum,    TTL {TIER_TTL[1]}min): {s['by_tier'].get(1, 0)}")
+    print(f"  Tier 2 (established, TTL {TIER_TTL[2]}min): {s['by_tier'].get(2, 0)}")
+    print(f"  Tier 3 (following,   TTL {TIER_TTL[3]}min): {s['by_tier'].get(3, 0)}")
     print(f"  File: {s['file']}\n")
 
     if args.stats:
