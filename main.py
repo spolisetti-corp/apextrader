@@ -668,6 +668,23 @@ def start():
     except Exception as e:
         log.error(f"protect_positions initial load error: {e}", exc_info=True)
 
+    # ── Startup TI capture (blocking) ────────────────────────────────────────
+    # Run a synchronous TI scrape BEFORE the first scan so universe.json is
+    # populated with the latest tickers.  The background async version in
+    # scan_tradeideas_universe() handles subsequent refreshes every 15 min.
+    if USE_TRADEIDEAS_DISCOVERY:
+        try:
+            log.info("Startup TI capture (blocking) — seeding universe before first scan …")
+            import sys as _sys
+            _scripts = str(REPO_ROOT / "scripts")
+            if _scripts not in _sys.path:
+                _sys.path.insert(0, _scripts)
+            from capture_tradeideas import scrape_tradeideas as _scrape_ti
+            _scrape_ti(update_config=True, remote_debug_port=9222)
+            log.info("Startup TI capture complete — universe.json seeded with latest tickers")
+        except Exception as _e:
+            log.warning(f"Startup TI capture failed ({_e}) — proceeding with existing universe")
+
     try:
         scan_and_trade()
     except Exception as e:
