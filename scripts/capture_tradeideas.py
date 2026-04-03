@@ -7,11 +7,10 @@ engine/config.py so the universe is kept current.
 
 Pages scraped
 -------------
-  HIGH_SHORT_FLOAT    https://www.trade-ideas.com/TIPro/highshortfloat/
-  MARKET_SCOPE_360    https://www.trade-ideas.com/TIPro/marketscope360/
-  STOCK_RACE_CENTRAL  https://www.trade-ideas.com/TIPro/stockracecentral/
-                      Race leaders  → tier 1 (long momentum candidates)
-                      Race laggards → tier 2 (short/breakdown candidates)
+  HIGH_SHORT_FLOAT      https://www.trade-ideas.com/TIPro/highshortfloat/
+  MARKET_SCOPE_360      https://www.trade-ideas.com/TIPro/marketscope360/
+  UNUSUAL_OPTIONS_VOL   https://www.trade-ideas.com/TIPro/unusualoptionsvolume/
+                        Unusual-options-volume tickers → tier 1 (directional conviction)
 
 Usage
 -----
@@ -53,13 +52,13 @@ except ImportError:
 # ── Selenium ─────────────────────────────────────────────────────
 try:
     from selenium import webdriver
-    from selenium.webdriver.chrome.options import Options as ChromeOptions
-    from selenium.webdriver.chrome.service import Service as ChromeService
+    from selenium.webdriver.edge.options import Options as EdgeOptions
+    from selenium.webdriver.edge.service import Service as EdgeService
     from selenium.webdriver.common.by import By
     from selenium.webdriver.support.ui import WebDriverWait
     from selenium.webdriver.support import expected_conditions as EC
     from selenium.common.exceptions import SessionNotCreatedException, TimeoutException
-    from webdriver_manager.chrome import ChromeDriverManager
+    from webdriver_manager.microsoft import EdgeChromiumDriverManager
     SELENIUM_OK = True
 except ImportError:
     SELENIUM_OK = False
@@ -82,10 +81,10 @@ SCANS: dict[str, dict] = {
         "label":  "market_scope_360",
         "target": "PRIORITY_1_MOMENTUM",      # momentum leaders
     },
-    "stockracecentral": {
-        "url":    "https://www.trade-ideas.com/TIPro/stockracecentral/",
-        "label":  "stock_race_central",
-        "target": "BOTH",   # leaders → tier 1 (longs), laggards → tier 2 (shorts)
+    "unusualoptionsvolume": {
+        "url":    "https://www.trade-ideas.com/TIPro/unusualoptionsvolume/",
+        "label":  "unusual_options_volume",
+        "target": "PRIORITY_1_MOMENTUM",   # directional-conviction tickers → tier 1
     },
 }
 
@@ -107,7 +106,10 @@ _IGNORE = {
     "COMPETITION", "WATCHLISTS", "SETTINGS", "DASHBOARDS", "CHANNELS",
     "MOMENTUM", "WAVES", "STOCK", "SCOPE", "BIGGEST", "GAINERS", "LOSERS",
     "DELAYED", "LIVE", "ALERT", "ALERTS", "FILTER", "FILTERS",
-    # stockracecentral UI words
+    # unusualoptionsvolume UI words
+    "CALL", "PUT", "CALLS", "PUTS", "SWEEP", "SWEEP", "FLOW", "FLOWS",
+    "STRIKE", "EXPIRY", "EXPIRATION", "PREMIUM", "CONTRACT", "CONTRACTS",
+    "OI", "BULLISH", "BEARISH", "NEUTRAL",
     "RACE", "CENTRAL", "LEADER", "LEADERS", "LAGGARD", "LAGGARDS",
     "WINNER", "WINNERS", "LOSER", "LOSERS", "RANK", "RANKED",
     # Index / non-tradeable symbols seen in TI page text
@@ -125,6 +127,7 @@ _TI_SCRAPE_GARBAGE: set[str] = {
     "NYSE", "AMEX", "OTC", "ETF", "ADR",                                   # exchange/type labels
     "HIGH", "LOW", "OPEN", "CLOSE", "VOL", "RVOL", "FLOAT",               # column headers
     "BF", "NOTE",                                                          # feeds with no data
+    "AI", "CA", "AZ", "CO",                                                # state/generic abbrevs
 }
 
 
@@ -150,93 +153,170 @@ RENDER_GRACE_SEC = 2
 DROPDOWN_REFRESH_SEC = 2
 
 
-# ── Selenium driver ───────────────────────────────────────────────
-def _find_existing_chromedriver() -> Optional[str]:
-    """Locate an already-downloaded chromedriver.exe under ~/.wdm to avoid
-    webdriver_manager rename/permission errors on Windows."""
+# ── Persistent Edge driver singleton ─────────────────────────────
+# The Edge window stays open across scrape cycles so the TI login session is
+# preserved. A new window is only created if the driver is dead/missing.
+_edge_driver: Optional["webdriver.Edge"] = None
+
+
+def _find_existing_edgedriver() -> Optional[str]:
+    """Locate msedgedriver.exe — checks repo .drivers/ first, then ~/.wdm cache."""
     import glob, os
-    wdm_root = os.path.expandvars(r"%USERPROFILE%\.wdm\drivers\chromedriver")
+
+    # 1) Repo-local driver (committed or manually placed) — highest priority
+    repo_driver = REPO_ROOT / ".drivers" / "msedgedriver.exe"
+    if repo_driver.is_file():
+        return str(repo_driver)
+
+    # 2) webdriver_manager cache
+    wdm_root = os.path.expandvars(r"%USERPROFILE%\.wdm\drivers\msedgedriver")
     patterns = [
-        os.path.join(wdm_root, "**", "chromedriver.exe"),
-        os.path.join(wdm_root, "**", "chromedriver-win32", "chromedriver.exe"),
-        os.path.join(wdm_root, "**", "chromedriver-win64", "chromedriver.exe"),
+        os.path.join(wdm_root, "**", "msedgedriver.exe"),
+        os.path.join(wdm_root, "**", "win64", "msedgedriver.exe"),
+        os.path.join(wdm_root, "**", "win32", "msedgedriver.exe"),
     ]
     candidates = []
     for pattern in patterns:
         candidates.extend(glob.glob(pattern, recursive=True))
-    # Prefer the most recently modified match
     candidates = [c for c in candidates if os.path.isfile(c)]
     if candidates:
         return max(candidates, key=lambda p: os.path.getmtime(p))
     return None
 
 
-def _build_driver(headless: bool = False, chrome_profile: Optional[str] = None) -> "webdriver.Chrome":
-    # Silence noisy webdriver_manager INFO logs in bot runtime logs.
-    import os
+def _is_driver_alive(driver: "webdriver.Edge") -> bool:
+    """Return True if the Edge WebDriver session is still responsive."""
+    try:
+        _ = driver.title   # any property access pings the driver
+        return True
+    except Exception:
+        return False
+
+
+# Default CDP remote debugging port — Edge will listen here so the next
+# script run can re-attach without needing a new login.
+_REMOTE_DEBUG_PORT = 9222
+
+
+def _try_attach_edge(port: int) -> Optional["webdriver.Edge"]:
+    """
+    Try to attach to an already-running Edge instance that was started with
+    --remote-debugging-port=<port>.  Returns the driver if successful, or
+    None if no Edge is listening on that port.
+    """
+    try:
+        opts = EdgeOptions()
+        opts.add_experimental_option("debuggerAddress", f"localhost:{port}")
+        existing = _find_existing_edgedriver()
+        if existing:
+            service = EdgeService(existing)
+        else:
+            service = EdgeService(EdgeChromiumDriverManager().install())
+        import subprocess as _sp2, sys as _sys2
+        if _sys2.platform == "win32":
+            service.creation_flags = _sp2.CREATE_NO_WINDOW
+        driver = webdriver.Edge(service=service, options=opts)
+        _ = driver.title   # verify connection is live
+        print(f"[INFO ] Re-attached to existing Edge session on port {port}.")
+        return driver
+    except Exception as _e:
+        print(f"[INFO ] No live Edge on port {port} ({type(_e).__name__}: {_e}) — will open a new window.")
+        return None
+
+
+def _create_edge_driver(chrome_profile: Optional[str] = None, remote_debug_port: int = 0) -> "webdriver.Edge":
+    """Spawn a new visible Edge window and return the driver (never headless)."""
+    import os, subprocess as _sp, sys as _sys
+
     os.environ.setdefault("WDM_LOG", "0")
     os.environ.setdefault("WDM_LOG_LEVEL", "0")
     logging.getLogger("WDM").setLevel(logging.ERROR)
     logging.getLogger("webdriver_manager").setLevel(logging.ERROR)
 
-    opts = ChromeOptions()
-    if headless:
-        opts.add_argument("--headless=new")
-        opts.add_argument("--window-size=1600,900")
-    else:
-        opts.add_argument("--start-maximized")
-
+    opts = EdgeOptions()
+    opts.add_argument("--start-maximized")
     opts.add_argument("--no-sandbox")
     opts.add_argument("--disable-dev-shm-usage")
     opts.add_argument("--disable-blink-features=AutomationControlled")
-    # Suppress Chrome's verbose stderr/stdout — prevents filling the parent pipe
-    # buffer when Chrome is launched as a grandchild of a piped subprocess.
     opts.add_argument("--log-level=3")
     opts.add_argument("--disable-logging")
     opts.add_argument("--silent")
     opts.add_experimental_option("excludeSwitches", ["enable-automation"])
     opts.add_experimental_option("useAutomationExtension", False)
+    # Keep the browser open after Python exits (prevents Selenium __del__ / quit()
+    # from closing Edge — essential for the re-attach-on-next-run feature).
+    opts.add_experimental_option("detach", True)
+
+    # Enable remote debugging so a subsequent script run can re-attach to this
+    # same window (preserving the Trade Ideas login session).
+    if remote_debug_port > 0:
+        opts.add_argument(f"--remote-debugging-port={remote_debug_port}")
 
     if chrome_profile:
-        import os
-        user_data = os.path.expandvars(r"%LOCALAPPDATA%\Google\Chrome\User Data")
+        user_data = os.path.expandvars(r"%LOCALAPPDATA%\Microsoft\Edge\User Data")
         opts.add_argument(f"--user-data-dir={user_data}")
         opts.add_argument(f"--profile-directory={chrome_profile}")
 
-    # Use already-downloaded driver if available (avoids WinError 5 rename failure)
-    existing = _find_existing_chromedriver()
+    existing = _find_existing_edgedriver()
     if existing:
-        print(f"[INFO ] Using cached chromedriver: {existing}")
-        service = ChromeService(existing)
+        print(f"[INFO ] Using cached msedgedriver: {existing}")
+        service = EdgeService(existing)
     else:
-        service = ChromeService(ChromeDriverManager().install())
+        service = EdgeService(EdgeChromiumDriverManager().install())
 
-    # Prevent ChromeDriver (and Chrome it spawns) from inheriting the parent
-    # process's stdout pipe handle on Windows.  Without this, Chrome's verbose
-    # debug output writes directly into the pipe buffer, filling the 64 KB
-    # buffer in seconds and deadlocking every log call in the parent.
-    import subprocess as _svc_sp, sys as _svc_sys
-    if _svc_sys.platform == "win32":
-        service.creation_flags = _svc_sp.CREATE_NO_WINDOW
+    if _sys.platform == "win32":
+        service.creation_flags = _sp.CREATE_NO_WINDOW
 
     try:
-        driver = webdriver.Chrome(service=service, options=opts)
+        driver = webdriver.Edge(service=service, options=opts)
     except SessionNotCreatedException as e:
-        # Common case on Windows: profile is locked because normal Chrome is open.
-        # Do NOT fall back to anonymous mode; that often returns stale/public data.
         if chrome_profile:
             raise RuntimeError(
-                f"Chrome profile '{chrome_profile}' is locked/busy. "
-                "Close Chrome (or use a dedicated TI profile) before scraping."
+                f"Edge profile '{chrome_profile}' is locked/busy — close Edge first."
             ) from e
         raise e
+
     driver.set_page_load_timeout(45)
     driver.execute_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
+    debug_hint = f" (remote-debug port {remote_debug_port})" if remote_debug_port > 0 else ""
+    print(f"[INFO ] Edge browser opened{debug_hint}. Stays open across scrape cycles; re-attachable on restart.")
     return driver
 
 
+def _get_driver(
+    chrome_profile: Optional[str] = None,
+    remote_debug_port: int = _REMOTE_DEBUG_PORT,
+) -> "webdriver.Edge":
+    """
+    Return the persistent Edge driver.
+    1. If already alive in-process → reuse it.
+    2. Else try to re-attach to an existing Edge on *remote_debug_port*.
+    3. Else spawn a new Edge window (with remote debugging enabled so it can
+       be re-attached on the next script run without a fresh login).
+    """
+    global _edge_driver
+    if _edge_driver is not None and _is_driver_alive(_edge_driver):
+        return _edge_driver
+
+    if _edge_driver is not None:
+        print("[WARN ] Edge session lost — attempting re-attach before reopening.")
+
+    # Step 2: try CDP re-attach
+    if remote_debug_port > 0:
+        _edge_driver = _try_attach_edge(remote_debug_port)
+
+    # Step 3: open a fresh Edge window
+    if _edge_driver is None:
+        _edge_driver = _create_edge_driver(
+            chrome_profile=chrome_profile,
+            remote_debug_port=remote_debug_port,
+        )
+
+    return _edge_driver
+
+
 # ── Ticker extraction ─────────────────────────────────────────────
-def _extract_tickers(driver: "webdriver.Chrome") -> list[str]:
+def _extract_tickers(driver: "webdriver.Edge") -> list[str]:
     """
     Extract ticker symbols from the loaded Trade Ideas heatmap page.
     Primary: body.innerText scan (works for React/JS-rendered heatmaps).
@@ -316,6 +396,12 @@ def _save_screenshot(driver: "webdriver.Chrome", label: str) -> Path:
 
 
 # ── Config patcher ────────────────────────────────────────────────
+# Minimum number of valid tickers a scrape must return before we trust it.
+# A login/redirect page produces very few tokens that pass validation; real
+# scan pages return dozens.  Set to 5 as a conservative floor.
+_MIN_SCRAPE_TICKERS = 5
+
+
 def _patch_config(list_name: str, new_tickers: list[str]) -> int:
     """
     Add *new_tickers* to data/universe.json (TTL-managed) instead of patching
@@ -323,15 +409,30 @@ def _patch_config(list_name: str, new_tickers: list[str]) -> int:
       PRIORITY_1_MOMENTUM   → tier 1 (TTL 14 days)
       PRIORITY_2_ESTABLISHED → tier 2 (TTL 30 days)
     Returns the number of *new* tickers inserted.
+
+    Applies the full _is_valid_ti_ticker filter + a minimum-count guard so
+    login-page scrapes (no TI session) don't pollute universe.json.
     """
     import sys as _sys
     _sys.path.insert(0, str(REPO_ROOT))
     from engine.universe import add_tickers  # noqa: E402
 
+    # Apply the same validation used in _apply_tradeideas_results so both write
+    # paths (in-memory list and universe.json) are consistent.
+    clean = [t for t in new_tickers if _is_valid_ti_ticker(t)]
+
+    if len(clean) < _MIN_SCRAPE_TICKERS:
+        print(
+            f"[WARN ] _patch_config({list_name}): only {len(clean)} valid ticker(s) "
+            f"after filtering (need ≥{_MIN_SCRAPE_TICKERS}) — skipping write to "
+            f"universe.json (possible login-page scrape or empty scan)"
+        )
+        return 0
+
     tier = 1 if "PRIORITY_1" in list_name else 2
-    added = add_tickers(new_tickers, tier=tier)
+    added = add_tickers(clean, tier=tier)
     if added:
-        print(f"[UNI  ] {added} new ticker(s) added to universe.json (tier {tier}): {new_tickers[:5]}{'…' if len(new_tickers)>5 else ''}")
+        print(f"[UNI  ] {added} new ticker(s) added to universe.json (tier {tier}): {clean[:5]}{'…' if len(clean)>5 else ''}")
     return added
 
 
@@ -530,9 +631,14 @@ def scrape_tradeideas(
     headless: bool = False,
     chrome_profile: Optional[str] = None,
     select_30min: bool = False,
+    browser: str = "edge",  # kept for signature compatibility; Edge is always used
+    remote_debug_port: int = _REMOTE_DEBUG_PORT,
 ) -> dict[str, list[str]]:
     """
-    Scrape both Trade Ideas scan pages.
+    Scrape Trade Ideas scan pages using a persistent Edge window.
+    The browser stays open across calls so the TI login session is preserved.
+    On the first run (or after a crash) the script tries to re-attach to an
+    already-running Edge on *remote_debug_port* before opening a new window.
     If select_30min=True, attempts to pick 'Change Last 30 Min (%)'
     from the heatmap dropdown before extracting tickers.
     Returns {scan_key: [tickers, …]}.
@@ -543,31 +649,21 @@ def scrape_tradeideas(
         sys.exit(1)
 
     results: dict[str, list[str]] = {}
-    driver = _build_driver(headless=headless, chrome_profile=chrome_profile)
+    # Reuse the persistent Edge window; re-attach if already running, else open new.
+    driver = _get_driver(chrome_profile=chrome_profile, remote_debug_port=remote_debug_port)
 
-    # Hard watchdog: if the entire scrape hangs for > 90 s (e.g. Chrome page-load
-    # stuck, or driver.quit() blocking), force-quit Chrome via taskkill so the
-    # parent pipe is freed and the trading loop continues unimpaired.
+    # Watchdog: if the scrape hangs for > 90 s, null out the driver singleton
+    # and let the next cycle start fresh.  We don't kill Edge — the user may
+    # have manually navigated away; just mark it dead so _get_driver re-opens.
     import threading as _ti_thread, subprocess as _ti_sp, sys as _ti_sys
     _scrape_done = _ti_thread.Event()
 
     def _hard_kill():
+        global _edge_driver
         if _scrape_done.wait(90):
             return  # finished cleanly — nothing to do
-        print("[WARN ] TI scrape hard-timeout (90 s) — force-killing Chrome")
-        try:
-            driver.quit()
-        except Exception:
-            pass
-        if _ti_sys.platform == "win32":
-            for exe in ("chromedriver.exe", "chrome.exe"):
-                try:
-                    _ti_sp.run(
-                        ["taskkill", "/F", "/IM", exe, "/T"],
-                        capture_output=True, timeout=5,
-                    )
-                except Exception:
-                    pass
+        print("[WARN ] TI scrape hard-timeout (90 s) — marking Edge session dead")
+        _edge_driver = None  # force re-open on next cycle
 
     _killer = _ti_thread.Thread(target=_hard_kill, daemon=True)
     _killer.start()
@@ -639,32 +735,8 @@ def scrape_tradeideas(
                 pass
 
     finally:
-        # Quit the driver with a local 10 s hard guard BEFORE signaling the outer
-        # watchdog.  If driver.quit() hangs (Chrome frozen), a daemon thread force-kills
-        # Chrome so the scraper thread returns promptly.
-        import threading as _qt, subprocess as _qs, sys as _qsys
-
-        def _force_quit():
-            try:
-                driver.quit()
-            except Exception:
-                pass
-
-        _qt_th = _qt.Thread(target=_force_quit, daemon=True)
-        _qt_th.start()
-        _qt_th.join(timeout=10)
-        if _qt_th.is_alive():
-            print("[WARN ] driver.quit() hung — force-killing Chrome")
-            if _qsys.platform == "win32":
-                for _exe in ("chromedriver.exe", "chrome.exe"):
-                    try:
-                        _qs.run(["taskkill", "/F", "/IM", _exe, "/T"],
-                                capture_output=True, timeout=5)
-                    except Exception:
-                        pass
-
-        _scrape_done.set()  # signal the hard-kill watchdog: scrape finished
-        print("[OK   ] Browser closed.")
+        _scrape_done.set()  # signal the watchdog: scrape finished normally
+        print("[OK   ] Scrape done. Edge window stays open.")
 
     return results
 
@@ -683,16 +755,23 @@ def main() -> None:
         help="Repeat every N seconds (0 = single shot, default)",
     )
     parser.add_argument(
-        "--headless", action="store_true",
-        help="Run Chrome in headless mode (no visible window)",
-    )
-    parser.add_argument(
         "--chrome-profile", metavar="PROFILE", default=None,
-        help='Use an existing Chrome profile, e.g. "Default" (keeps TI login session)',
+        help='Use an existing Edge profile, e.g. "Default" (keeps TI login session)',
     )
     parser.add_argument(
         "--30min", dest="select_30min", action="store_true",
         help="Select 'Change Last 30 Min (%%)' dropdown on each page before scraping",
+    )
+    parser.add_argument(
+        "--remote-debug-port", dest="remote_debug_port",
+        type=int, default=_REMOTE_DEBUG_PORT,
+        metavar="PORT",
+        help=(
+            f"CDP remote-debugging port (default {_REMOTE_DEBUG_PORT}).  "
+            "On the first run a new Edge window is opened on this port so that "
+            "subsequent runs can re-attach to the same session (preserving TI login). "
+            "Set to 0 to disable."
+        ),
     )
     args = parser.parse_args()
 
@@ -701,18 +780,18 @@ def main() -> None:
         while True:
             scrape_tradeideas(
                 update_config=args.update_config,
-                headless=args.headless,
                 chrome_profile=args.chrome_profile,
                 select_30min=args.select_30min,
+                remote_debug_port=args.remote_debug_port,
             )
             print(f"[INFO ] Sleeping {args.loop}s …")
             time.sleep(args.loop)
     else:
         scrape_tradeideas(
             update_config=args.update_config,
-            headless=args.headless,
             chrome_profile=args.chrome_profile,
             select_30min=args.select_30min,
+            remote_debug_port=args.remote_debug_port,
         )
 
 
