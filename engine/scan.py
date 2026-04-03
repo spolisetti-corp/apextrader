@@ -25,6 +25,7 @@ from .config import (
     BEAR_SHORT_TARGET_RESERVE,
 )
 from .utils import clear_bar_cache, get_bars, is_market_open, is_dead_ticker
+from .universe import get_tier as _get_tier_live
 
 _ET  = pytz.timezone("America/New_York")
 _log = logging.getLogger("ApexTrader")
@@ -88,15 +89,27 @@ def get_scan_targets(excluded: Set[str] = None) -> List[str]:
     if excluded is None:
         excluded = set()
 
-    # Latest TI promotions are applied to these in-memory lists in main.py via
-    # _apply_tradeideas_results(). Use them directly to preserve exact order.
-    live_p1 = list(_cfg.PRIORITY_1_MOMENTUM)
-    live_p2 = list(_cfg.PRIORITY_2_ESTABLISHED)
-
-    # Re-read universe.json live every cycle so TI-scraped tickers are reflected
-    # immediately without restarting the bot.
-    p1, p2, _p3 = _cfg.get_dynamic_universe()
     delisted = set(_cfg.DELISTED_STOCKS)
+
+    # PRIMARY: active (unexpired) TI tickers from universe.json only.
+    # These are refreshed every 30 min by the TI capture script.
+    ti_p1 = [s for s in _get_tier_live(1) if s not in delisted]
+    ti_p2 = [s for s in _get_tier_live(2) if s not in delisted]
+
+    # FALLBACK: static config lists — used only when TI universe is empty.
+    _MIN_TI = 5
+    if len(ti_p1) + len(ti_p2) < _MIN_TI:
+        _log.warning(
+            f"TI universe too small ({len(ti_p1)}+{len(ti_p2)}) "
+            f"— falling back to static config lists"
+        )
+        p1, p2, _ = _cfg.get_dynamic_universe()
+    else:
+        p1, p2 = ti_p1, ti_p2
+
+    # live_p1/p2 = same as p1/p2 (TI-primary); kept for TI_FRONT push below.
+    live_p1 = p1
+    live_p2 = p2
 
     # Rotate through the combined universe so every cycle scans a different slice.
     # TI-promoted tickers sit at the front and always make it in regardless of offset.
