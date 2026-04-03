@@ -466,6 +466,25 @@ _nlog = _logging.getLogger("ApexTrader")
 _last_scan_sent_at: float = 0.0
 _last_scan_fingerprint: str = ""
 
+# Per-ticker suppression: symbol -> timestamp of last time it was in a sent email.
+# Prevents repeat-notifying the same ticker within NOTIFIED_TICKER_SUPPRESS_SEC.
+_notified_tickers: dict[str, float] = {}
+NOTIFIED_TICKER_SUPPRESS_SEC = int(os.getenv("NOTIFIED_TICKER_SUPPRESS_SEC", str(3 * 3600)))  # 3 hrs
+
+
+def _has_fresh_ticker(picks, now: float) -> bool:
+    """Return True if at least one pick has NOT been notified within the suppress window."""
+    for s in picks[:5]:
+        last = _notified_tickers.get(s.symbol, 0.0)
+        if now - last >= NOTIFIED_TICKER_SUPPRESS_SEC:
+            return True
+    return False
+
+
+def _record_notified_tickers(picks, now: float) -> None:
+    for s in picks[:5]:
+        _notified_tickers[s.symbol] = now
+
 
 def _scan_fingerprint(picks, sentiment: str, regime: str) -> str:
     core = [(s.symbol, s.action, round(float(s.confidence), 2), s.strategy) for s in picks[:5]]
@@ -487,6 +506,12 @@ def notify_scan_results(signals, report_date, sentiment: str, regime: str,
 
     if fp == _last_scan_fingerprint and age < EMAIL_SCAN_MIN_INTERVAL_SEC:
         _nlog.info(f"Scan email throttled: unchanged picks ({age:.0f}s < {EMAIL_SCAN_MIN_INTERVAL_SEC}s)")
+        return False
+
+    # Suppress if every ticker was already notified within the 3-hr window.
+    if not _has_fresh_ticker(picks, now):
+        syms = [s.symbol for s in picks[:5]]
+        _nlog.info(f"Scan email suppressed: all top-5 tickers ({syms}) already notified within {NOTIFIED_TICKER_SUPPRESS_SEC//3600}h")
         return False
 
     # Hard minimum interval: never send more often than this, even if picks changed.
@@ -511,6 +536,7 @@ def notify_scan_results(signals, report_date, sentiment: str, regime: str,
         if sent:
             _last_scan_sent_at = now
             _last_scan_fingerprint = fp
+            _record_notified_tickers(picks, now)
         _nlog.info("Scan email sent" if sent else "Scan email skipped (disabled)")
         return bool(sent)
     except Exception as e:
