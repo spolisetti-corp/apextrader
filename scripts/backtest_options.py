@@ -37,8 +37,10 @@ load_dotenv(ROOT / ".env")
 import pandas as pd
 import yfinance as yf
 
+import json as _json
+import re as _re
+
 from engine.config import (
-    OPTIONS_ELIGIBLE_UNIVERSE,
     OPTIONS_ALLOCATION_PCT,
     OPTIONS_MAX_POSITIONS,
     OPTIONS_DTE_MIN,
@@ -47,6 +49,24 @@ from engine.config import (
     OPTIONS_STOP_LOSS_PCT,
     OPTIONS_MIN_SIGNAL_CONFIDENCE,
 )
+
+_VALID_TICKER = _re.compile(r'^[A-Z]{1,5}$')
+
+def _load_ti_universe() -> list:
+    """Always load tickers from data/ti_unusual_options.json. Raises if file is missing or empty."""
+    ti_file = ROOT / "data" / "ti_unusual_options.json"
+    try:
+        d = _json.loads(ti_file.read_text(encoding="utf-8"))
+        tickers = [
+            str(t).upper().strip()
+            for t in d.get("tickers", [])
+            if t and _VALID_TICKER.match(str(t).upper().strip())
+        ]
+        if tickers:
+            return tickers
+    except Exception as e:
+        raise SystemExit(f"Cannot load data/ti_unusual_options.json: {e}")
+    raise SystemExit("data/ti_unusual_options.json is empty — run capture_tradeideas.py first")
 
 # Inverse ETFs profit from market declines — their CALLS are the bear play.
 # Must match engine/strategies.py definition.
@@ -374,19 +394,19 @@ def backtest_symbol(
 
 def main():
     parser = argparse.ArgumentParser(description="Backtest options strategies")
-    parser.add_argument("--symbols",  nargs="*", default=None,    help="Tickers to test (default: OPTIONS_ELIGIBLE_UNIVERSE)")
+    parser.add_argument("--symbols",  nargs="*", default=None,    help="Tickers to test (default: data/ti_unusual_options.json)")
     parser.add_argument("--start",    default="2024-01-01",        help="Start date YYYY-MM-DD")
     parser.add_argument("--end",      default=str(datetime.date.today()), help="End date YYYY-MM-DD")
     parser.add_argument("--capital",  type=float, default=10000.0, help="Initial capital")
     parser.add_argument("--verbose",  "-v", action="store_true")
     args = parser.parse_args()
 
-    symbols = args.symbols or OPTIONS_ELIGIBLE_UNIVERSE
+    symbols = args.symbols or _load_ti_universe()
     start   = datetime.date.fromisoformat(args.start)
     end     = datetime.date.fromisoformat(args.end)
 
     print(f"\nOptions Backtest — {start} → {end}")
-    print(f"Symbols : {', '.join(symbols)}")
+    print(f"Symbols : {', '.join(symbols)} (from ti_unusual_options.json)")
     print(f"Capital : ${args.capital:,.0f} | Options budget: ${args.capital * OPTIONS_ALLOCATION_PCT / 100:,.0f} (15%)")
     print(f"Rules   : TP={OPTIONS_PROFIT_TARGET_PCT:.0f}%  SL=-{OPTIONS_STOP_LOSS_PCT:.0f}%  DTE={OPTIONS_DTE_MIN}–{OPTIONS_DTE_MAX}")
     print("=" * 80)
