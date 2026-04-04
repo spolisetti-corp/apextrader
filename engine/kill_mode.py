@@ -62,7 +62,7 @@ def check(
         try:
             import pandas as pd
             from engine.utils import get_bars_batch, get_bars
-            bars_batch  = get_bars_batch(["SPY", "^VIX"], "1d", "1m")
+            bars_batch  = get_bars_batch(["SPY", "^VIX"], "5d", "1m")
             spy_bars    = bars_batch.get("SPY", pd.DataFrame())
             if not spy_bars.empty and len(spy_bars) >= 2:
                 spy_open = float(spy_bars["open"].iloc[0])
@@ -75,7 +75,7 @@ def check(
                     )
 
             if trigger_reason is None:
-                vix_bars_1h = get_bars("^VIX", "1d", "1h")
+                vix_bars_1h = get_bars("^VIX", "5d", "1h")
                 if not vix_bars_1h.empty and len(vix_bars_1h) >= 5:
                     past_vix    = float(vix_bars_1h["close"].iloc[-5])
                     current_vix = float(vix_bars_1h["close"].iloc[-1])

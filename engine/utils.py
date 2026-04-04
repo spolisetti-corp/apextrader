@@ -302,7 +302,7 @@ def check_vix_roc_filter() -> tuple:
         return (True, 0.0)
 
     try:
-        vix_bars = get_bars("^VIX", "1d", "1h")
+        vix_bars = get_bars("^VIX", "5d", "1h")
         if vix_bars.empty or len(vix_bars) < VIX_ROC_PERIOD:
             return (True, 0.0)
 
@@ -523,8 +523,10 @@ def get_bars(symbol: str, period: str = "5d", interval: str = "15m") -> pd.DataF
     """
     symbol = symbol.strip().upper().lstrip("$")
     log = logging.getLogger("ApexTrader")
-    # Early exit for session-suppressed dead tickers — avoids redundant fetches
-    if is_dead_ticker(symbol):
+    # Early exit for session-suppressed dead tickers — avoids redundant fetches.
+    # ^VIX is exempt: it's a market index not a tradeable ticker and may return
+    # empty on period="1d" after hours — do not permanently suppress it.
+    if is_dead_ticker(symbol) and symbol != "^VIX":
         return pd.DataFrame()
     cache_key = (symbol, period, interval)
     with _bar_cache_lock:
