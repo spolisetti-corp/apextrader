@@ -96,6 +96,31 @@ class OptionsChainInfo:
     atr14:      float   # 14-day ATR in $
 
 
+# -- TI Universe (always loaded live from ti_unusual_options.json) -------------
+
+import json as _json
+import re as _re
+_VALID_TICKER_RE = _re.compile(r'^[A-Z]{1,5}$')
+
+def _load_ti_universe() -> list:
+    """Load tickers from data/ti_unusual_options.json at call time (no config cache)."""
+    import os as _os
+    ti_file = _os.path.join(_os.path.dirname(__file__), "..", "data", "ti_unusual_options.json")
+    try:
+        with open(ti_file, encoding="utf-8") as _f:
+            d = _json.load(_f)
+        tickers = [
+            str(t).upper().strip()
+            for t in d.get("tickers", [])
+            if t and _VALID_TICKER_RE.match(str(t).upper().strip())
+        ]
+        if tickers:
+            return tickers
+    except Exception as e:
+        log.warning(f"Cannot read ti_unusual_options.json: {e}")
+    return []
+
+
 # -- Chain Fetch & Quality Helpers ---------------------------------------------
 
 _chain_cache: Dict[str, tuple] = {}   # symbol -> (timestamp, OptionsChainInfo)
@@ -317,8 +342,6 @@ class MomentumCallStrategy:
 
     def scan(self, symbol: str) -> Optional[OptionSignal]:
         if not OPTIONS_ENABLED:
-            return None
-        if symbol not in OPTIONS_ELIGIBLE_UNIVERSE:
             return None
         # Inverse ETFs (SQQQ, SPXU, UVXY…) go UP in bear markets — allow calls on
         # them regardless of regime. All other symbols require bull regime.
@@ -606,8 +629,6 @@ class CoveredCallStrategy:
     ) -> Optional[OptionSignal]:
         if not OPTIONS_ENABLED:
             return None
-        if symbol not in OPTIONS_ELIGIBLE_UNIVERSE:
-            return None
         if qty_held < CONTRACT_SIZE:
             return None
         if not _is_bull_regime():
@@ -698,18 +719,17 @@ def scan_options_universe(
     if not OPTIONS_ENABLED:
         return []
 
+    ti_universe = _load_ti_universe()
+    if not ti_universe:
+        log.warning("Options scan: ti_unusual_options.json is empty — skipping")
+        return []
+
     signals: List[OptionSignal] = []
     momentum_strat = MomentumCallStrategy()
-    put_strat      = BearPutStrategy()
     covered_strat  = CoveredCallStrategy()
 
-    for symbol in OPTIONS_ELIGIBLE_UNIVERSE:
+    for symbol in ti_universe:
         sig = momentum_strat.scan(symbol)
-        if sig and sig.confidence >= OPTIONS_MIN_SIGNAL_CONFIDENCE:
-            signals.append(sig)
-            continue   # don't double-fire put + call on same symbol
-
-        sig = put_strat.scan(symbol)
         if sig and sig.confidence >= OPTIONS_MIN_SIGNAL_CONFIDENCE:
             signals.append(sig)
 
@@ -723,5 +743,5 @@ def scan_options_universe(
         return s.confidence * min(s.rr_ratio if s.rr_ratio > 0 else 1.0, 3.0)
 
     signals.sort(key=_score, reverse=True)
-    log.info(f"Options scan: {len(signals)} signal(s) | universe={len(OPTIONS_ELIGIBLE_UNIVERSE)}")
+    log.info(f"Options scan: {len(signals)} signal(s) | universe={len(ti_universe)} TI tickers (MomentumCall only)")
     return signals
