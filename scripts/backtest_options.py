@@ -315,9 +315,9 @@ def backtest_symbol(
 
         is_inverse = symbol in _INVERSE_ETFS
 
-        # Inverse ETFs (SQQQ, SPXU, UVXY…): buy CALLS in bear regime.
-        # Their price rises when the market falls — calls are the correct bear play.
-        # Regular stocks: buy calls only in bull regime.
+        # MomentumCall only (BearPut disabled — consistent losses in backtest).
+        # Inverse ETFs (SQQQ, SPXU, UVXY…): calls allowed in bear regime (they rise when market falls).
+        # Regular stocks: calls only in bull regime.
         call_signal = _momentum_call_signal(hist.iloc[:i + 1], i)
         fire_call   = call_signal and (is_inverse if is_bear else not is_bear)
 
@@ -339,27 +339,6 @@ def backtest_symbol(
                         "cost":        cost,
                         "date_in":     today,
                         "strategy":    "MomentumCall",
-                    })
-
-        # Puts: never buy on inverse ETFs (a SQQQ put = bullish on market — wrong in bear).
-        elif not is_inverse and _bear_put_signal(hist.iloc[:i + 1], i, is_bear):
-            strike = _pick_strike(spot, call=False, target_delta=0.35, iv=iv, dte=dte_entry)
-            price  = _bs_price(spot, strike, dte_entry, iv, call=False)
-            if price > 0.05:
-                per_pos_budget = capital / max(1, OPTIONS_MAX_POSITIONS - len(open_positions))
-                contracts      = max(1, int(per_pos_budget // (price * 100)))
-                cost           = price * 100 * contracts
-                if cost <= capital:
-                    capital -= cost
-                    open_positions.append({
-                        "type":        "put",
-                        "strike":      strike,
-                        "expiry":      today + datetime.timedelta(days=dte_entry),
-                        "entry_price": price,
-                        "contracts":   contracts,
-                        "cost":        cost,
-                        "date_in":     today,
-                        "strategy":    "BearPut",
                     })
 
     # Mark remaining positions as closed at end-date
