@@ -47,7 +47,7 @@ from .config import (
     OPTIONS_ELIGIBLE_UNIVERSE,
     ATR_STOP_MULTIPLIER,
 )
-from .strategies import _is_bull_regime, _calc_atr14
+from .strategies import _is_bull_regime, _calc_atr14, _INVERSE_ETFS
 
 ET  = pytz.timezone("America/New_York")
 log = logging.getLogger("ApexTrader.Options")
@@ -99,7 +99,8 @@ class OptionsChainInfo:
 # -- Chain Fetch & Quality Helpers ---------------------------------------------
 
 _chain_cache: Dict[str, tuple] = {}   # symbol -> (timestamp, OptionsChainInfo)
-_CHAIN_TTL = 300  # 5-minute cache
+_CHAIN_TTL   = 300  # 5-minute cache
+_CHAIN_MAX   = 300  # evict all when cache exceeds this size
 
 
 def _calc_hv30(closes: pd.Series) -> float:
@@ -134,6 +135,10 @@ def _get_options_chain(symbol: str) -> Optional[OptionsChainInfo]:
     cached = _chain_cache.get(symbol)
     if cached and (now - cached[0]) < _CHAIN_TTL:
         return cached[1]
+
+    # Evict whole cache when it grows too large (prevents unbounded memory growth)
+    if len(_chain_cache) >= _CHAIN_MAX:
+        _chain_cache.clear()
 
     try:
         ticker = yf.Ticker(symbol)
@@ -315,7 +320,10 @@ class MomentumCallStrategy:
             return None
         if symbol not in OPTIONS_ELIGIBLE_UNIVERSE:
             return None
-        if not _is_bull_regime():
+        # Inverse ETFs (SQQQ, SPXU, UVXY…) go UP in bear markets — allow calls on
+        # them regardless of regime. All other symbols require bull regime.
+        is_inverse = symbol in _INVERSE_ETFS
+        if not is_inverse and not _is_bull_regime():
             return None
 
         try:
@@ -453,6 +461,11 @@ class BearPutStrategy:
             return None
 
         bull = _is_bull_regime()
+
+        # Inverse ETFs (SQQQ, SPXU…) go UP when market falls.
+        # Buying puts on them in bear regime = betting market rallies — wrong direction.
+        if symbol in _INVERSE_ETFS and not bull:
+            return None
 
         try:
             daily = get_bars(symbol, "65d", "1d")

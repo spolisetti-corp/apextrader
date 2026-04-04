@@ -36,8 +36,11 @@ OPTIONS_PROFIT_TARGET_PCT   = float(os.getenv("OPTIONS_PROFIT_TARGET_PCT", "50.0
 OPTIONS_STOP_LOSS_PCT       = float(os.getenv("OPTIONS_STOP_LOSS_PCT", "40.0"))      # close at -40% loss
 OPTIONS_COVERED_CALL_DELTA  = float(os.getenv("OPTIONS_COVERED_CALL_DELTA", "0.25")) # sell OTM calls ~0.25 delta
 OPTIONS_MIN_SIGNAL_CONFIDENCE = float(os.getenv("OPTIONS_MIN_SIGNAL_CONFIDENCE", "0.80"))  # higher bar for options
-# Tickers that actively trade liquid options (checked against universe)
-OPTIONS_ELIGIBLE_UNIVERSE   = [
+# Tickers that actively trade liquid options.
+# Loaded dynamically from data/ti_unusual_options.json (written by capture_tradeideas.py
+# every time the TI unusualoptionsvolume scan is scraped).  Falls back to the
+# hardcoded list below if the file doesn't exist or is empty.
+_OPTIONS_FALLBACK_UNIVERSE = [
     # Mega-cap tech — always liquid options
     "AAPL", "MSFT", "NVDA", "AMD", "GOOGL", "META", "TSLA", "AMZN", "NFLX",
     # High-beta momentum favourites
@@ -47,6 +50,32 @@ OPTIONS_ELIGIBLE_UNIVERSE   = [
     # Biotech / speculative with options
     "MRNA", "BCRX",
 ]
+
+def _load_options_universe() -> list:
+    """Load live TI unusual-options-volume tickers; fall back to hardcoded list.
+
+    Validates each ticker: 1-5 uppercase letters only (no dots, numbers, spaces).
+    This guards against login-page scrapes that may return garbage strings.
+    """
+    import json as _json
+    import re as _re
+    _VALID_TICKER = _re.compile(r'^[A-Z]{1,5}$')
+    _ti_file = os.path.join(os.path.dirname(__file__), "..", "data", "ti_unusual_options.json")
+    try:
+        with open(_ti_file, encoding="utf-8") as _f:
+            _d = _json.load(_f)
+        _tickers = [
+            str(t).upper().strip()
+            for t in _d.get("tickers", [])
+            if t and _VALID_TICKER.match(str(t).upper().strip())
+        ]
+        if _tickers:
+            return _tickers
+    except Exception:
+        pass
+    return _OPTIONS_FALLBACK_UNIVERSE
+
+OPTIONS_ELIGIBLE_UNIVERSE = _load_options_universe()
 
 # ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
 # Alpaca API Configuration

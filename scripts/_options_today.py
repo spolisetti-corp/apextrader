@@ -42,8 +42,10 @@ _MAX_PREMIUM_SPOT = 3.0    # max mid / spot * 100 (%)
 _MIN_RR           = 1.5    # minimum R/R ratio
 _IV_RANK_CALL_MAX = 35.0
 _IV_RANK_PUT_MAX  = 75.0
-CONF_GATE         = 0.89   # minimum confidence to display
+CONF_GATE         = 0.80   # aligned with engine/options_strategies.py OPTIONS_MIN_SIGNAL_CONFIDENCE
 DTE_MIN, DTE_MAX  = 7, 21
+
+_INVERSE_ETFS = frozenset({"SQQQ", "SPXU", "UVXY", "TZA", "FAZ", "SOXS", "LABD", "DUST"})
 
 # ── Universe ──────────────────────────────────────────────────────────────────
 with open(ROOT / "data/universe.json") as f:
@@ -58,7 +60,21 @@ today_tier1 = [
 ]
 
 from engine.config import OPTIONS_ELIGIBLE_UNIVERSE
-symbols = list(dict.fromkeys(OPTIONS_ELIGIBLE_UNIVERSE + today_tier1))
+
+# TI unusual-options-volume tickers take priority; fallback to core universe
+_ti_file = ROOT / "data" / "ti_unusual_options.json"
+try:
+    import json as _json2
+    with open(_ti_file, encoding="utf-8") as _f2:
+        _ti_data = _json2.load(_f2)
+    _ti_tickers = [str(t).upper() for t in _ti_data.get("tickers", []) if t]
+    _ti_updated = _ti_data.get("updated", "unknown")
+except Exception:
+    _ti_tickers = []
+    _ti_updated = "not found"
+
+# Merge: TI first (unusual-volume conviction), then core OPTIONS_ELIGIBLE_UNIVERSE
+symbols = list(dict.fromkeys(_ti_tickers + OPTIONS_ELIGIBLE_UNIVERSE + today_tier1))
 
 # ── Regime ────────────────────────────────────────────────────────────────────
 from engine.strategies import _is_bull_regime
@@ -69,7 +85,8 @@ today        = datetime.date.today()
 print(f"\n{'='*68}")
 print(f"  ApexTrader A+ Options Scan  |  {today}  |  Regime: {regime_label}")
 print(f"{'='*68}")
-print(f"  Universe: {len(symbols)} tickers ({len(today_tier1)} added today tier-1 + {len(OPTIONS_ELIGIBLE_UNIVERSE)} core)")
+print(f"  TI unusual-options universe: {len(_ti_tickers)} tickers (updated {_ti_updated})")
+print(f"  Total scan universe: {len(symbols)} tickers ({len(today_tier1)} added today tier-1 + {len(OPTIONS_ELIGIBLE_UNIVERSE)} core)")
 print(f"  Filters:  IVrank<{'35 calls/<75 puts':20s}  Premium<=3%  R/R>=1.5x  OI>=500")
 print(f"  Gate:     Confidence >= {CONF_GATE:.0%}")
 print()
@@ -225,7 +242,11 @@ for sym in symbols:
     # ── Determine signal direction ─────────────────────────────────────────
     is_call = chg >= chg_thresh_call and vol_ratio >= 1.5 and 50 <= rsi <= 72
     is_put  = chg <= chg_thresh_put  and vol_ratio >= 1.2
-
+    # Inverse ETFs (SQQQ/SPXU/UVXY…) rise in bear markets — allow calls on them
+    # even in bear regime; use put threshold of -4% for them (they can also crash).
+    if sym in _INVERSE_ETFS:
+        is_call = chg >= chg_thresh_call and vol_ratio >= 1.5 and 50 <= rsi <= 72
+        is_put  = chg <= -4.0 and vol_ratio >= 1.2
     if not is_call and not is_put:
         continue
 
@@ -233,7 +254,7 @@ for sym in symbols:
 
     # A+ Filter 1: EMA-20 trend alignment
     trend_ok, ema20 = _ema_trend(closes, direction)
-    if is_call and not trend_ok:
+    if is_call and sym not in _INVERSE_ETFS and not trend_ok:
         skipped.append((sym, f"EMA trend not up (EMA20={ema20:.2f}, spot={spot:.2f})"))
         continue
     if is_put and bull and not trend_ok:
@@ -517,3 +538,86 @@ if _notify_source:
                                subject_prefix=prefix)
     print("sent ✓" if sent else "skipped (email disabled or throttled)")
     print()
+
+# ── DRY-RUN EXECUTION ────────────────────────────────────────────────────────
+# Simulates exactly what the live bot would do: size contracts, build OCC symbol,
+# log the limit order — NO real order is submitted.
+print(f"{'='*68}")
+print("  DRY-RUN EXECUTION  (no real orders placed)")
+print(f"{'='*68}")
+
+_execute_source = signals if signals else near_miss
+if not _execute_source:
+    print("  Nothing to execute — no signals or watch-list candidates.\n")
+else:
+    import os as _os2
+    from dotenv import load_dotenv as _ldenv
+    _ldenv(ROOT / ".env")
+
+    # Portfolio size: try to read from Alpaca paper account; fallback to env or $25k
+    _equity = 25_000.0
+    try:
+        from alpaca.trading.client import TradingClient as _TC
+        _trade_mode = _os2.getenv("TRADE_MODE", "paper").lower()
+        _mode_pfx   = "PAPER" if _trade_mode == "paper" else "LIVE"
+        _key        = _os2.getenv(f"{_mode_pfx}_ALPACA_API_KEY", "")
+        _secret     = _os2.getenv(f"{_mode_pfx}_ALPACA_API_SECRET", "")
+        if _key and _secret:
+            _tc   = _TC(_key, _secret, paper=(_trade_mode == "paper"))
+            _acct = _tc.get_account()
+            _equity = float(_acct.equity)
+            print(f"  Account equity : ${_equity:,.2f}  (mode={_trade_mode.upper()})")
+        else:
+            print(f"  Account equity : ${_equity:,.2f}  (fallback — no API keys in env)")
+    except Exception as _e:
+        print(f"  Account equity : ${_equity:,.2f}  (fallback — {_e})")
+
+    from engine.config import OPTIONS_ALLOCATION_PCT, OPTIONS_MAX_POSITIONS
+
+    _opt_budget   = _equity * OPTIONS_ALLOCATION_PCT / 100.0
+    _per_position = _opt_budget / OPTIONS_MAX_POSITIONS
+    print(f"  Options budget : ${_opt_budget:,.2f}  ({OPTIONS_ALLOCATION_PCT:.0f}% of equity)")
+    print(f"  Per position   : ${_per_position:,.2f}  (max {OPTIONS_MAX_POSITIONS} positions)")
+    print()
+    print(f"  {'#':<3} {'Symbol':<8} {'Type':<5} {'OCC Symbol':<22} {'Strike':>7} {'Mid':>6} {'Limit':>6} {'Contracts':>9} {'Notional':>10} {'Conf':>6}")
+    print("  " + "-"*90)
+
+    _placed = 0
+    for _rank, (_, _s) in enumerate(_execute_source[:OPTIONS_MAX_POSITIONS], 1):
+        _sym     = _s["sym"]
+        _otype   = _s["type"]        # "CALL" or "PUT"
+        _strike  = _s["strike"]
+        _expiry  = _s["expiry"]      # "2026-04-17"
+        _mid     = _s["mid"]
+        _conf    = _s["confidence"]
+
+        # Build OCC option symbol
+        try:
+            _exp_obj  = datetime.date.fromisoformat(_expiry)
+            _exp_str  = _exp_obj.strftime("%y%m%d")
+            _cp       = "C" if _otype == "CALL" else "P"
+            _stk_int  = int(round(_strike * 1000))
+            _occ      = f"{_sym}{_exp_str}{_cp}{_stk_int:08d}"
+        except Exception:
+            _occ = f"{_sym}???{_otype[0]}"
+
+        # Contracts: how many fit in per-position budget at 1.02x limit
+        _limit_px  = round(_mid * 1.02, 2)
+        _contracts = max(1, int(_per_position // (_limit_px * 100)))
+        _contracts = min(_contracts, 10)   # hard cap
+        _notional  = _limit_px * 100 * _contracts
+
+        print(
+            f"  {_rank:<3} {_sym:<8} {_otype:<5} {_occ:<22} ${_strike:>6.0f}"
+            f"  ${_mid:>5.2f}  ${_limit_px:>5.2f}  {_contracts:>9}  ${_notional:>9,.0f}  {_conf:>5.1%}"
+        )
+        print(
+            f"      → WOULD SUBMIT: LimitOrder BUY {_contracts}x {_occ} @ ${_limit_px:.2f} DAY"
+            f"  | expiry={_expiry} DTE={_s['dte']}d | {_s.get('chg',0):+.1f}% vol={_s.get('vol_ratio',1):.1f}x"
+            f"  IVrank={_s['iv_rank']:.0f} R/R={_s['rr']:.1f}x"
+        )
+        print()
+        _placed += 1
+
+    print(f"  Dry-run complete: {_placed} order(s) would be submitted on Monday open.")
+    print(f"  Set TRADE_MODE=live in .env and run the live bot to execute for real.\n")

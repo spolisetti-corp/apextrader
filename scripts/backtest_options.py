@@ -48,6 +48,12 @@ from engine.config import (
     OPTIONS_MIN_SIGNAL_CONFIDENCE,
 )
 
+# Inverse ETFs profit from market declines — their CALLS are the bear play.
+# Must match engine/strategies.py definition.
+_INVERSE_ETFS: frozenset = frozenset({
+    "SQQQ", "SPXU", "UVXY", "TZA", "FAZ", "SOXS", "LABD", "DUST",
+})
+
 
 # ── Black-Scholes Pricing ────────────────────────────────────────────────────
 
@@ -199,7 +205,8 @@ def backtest_symbol(
 
         hist = hist.reset_index()
         hist["Date"] = pd.to_datetime(hist["Date"]).dt.date
-        hist = hist[hist["Date"] >= start].reset_index(drop=True)
+        # Do NOT slice here — warmup rows are needed so the i<25 guard works
+        hist = hist.reset_index(drop=True)
 
     except Exception as e:
         if verbose:
@@ -279,11 +286,22 @@ def backtest_symbol(
         for pos in to_remove:
             open_positions.remove(pos)
 
+        # Only open new positions within the requested date window
+        if today < start:
+            continue
+
         if len(open_positions) >= OPTIONS_MAX_POSITIONS:
             continue
 
-        # Check call signal
-        if _momentum_call_signal(hist.iloc[:i + 1], i) and not is_bear:
+        is_inverse = symbol in _INVERSE_ETFS
+
+        # Inverse ETFs (SQQQ, SPXU, UVXY…): buy CALLS in bear regime.
+        # Their price rises when the market falls — calls are the correct bear play.
+        # Regular stocks: buy calls only in bull regime.
+        call_signal = _momentum_call_signal(hist.iloc[:i + 1], i)
+        fire_call   = call_signal and (is_inverse if is_bear else not is_bear)
+
+        if fire_call:
             strike = _pick_strike(spot, call=True, target_delta=0.40, iv=iv, dte=dte_entry)
             price  = _bs_price(spot, strike, dte_entry, iv, call=True)
             if price > 0.05:
@@ -303,8 +321,8 @@ def backtest_symbol(
                         "strategy":    "MomentumCall",
                     })
 
-        # Check put signal
-        elif _bear_put_signal(hist.iloc[:i + 1], i, is_bear):
+        # Puts: never buy on inverse ETFs (a SQQQ put = bullish on market — wrong in bear).
+        elif not is_inverse and _bear_put_signal(hist.iloc[:i + 1], i, is_bear):
             strike = _pick_strike(spot, call=False, target_delta=0.35, iv=iv, dte=dte_entry)
             price  = _bs_price(spot, strike, dte_entry, iv, call=False)
             if price > 0.05:
@@ -410,8 +428,11 @@ def main():
     print(f"  Total P&L    : ${total_pnl:+,.2f}")
     print(f"  Avg win      : ${avg_win:+,.2f}")
     print(f"  Avg loss     : ${avg_loss:+,.2f}")
-    if avg_loss != 0:
-        print(f"  Profit factor: {abs(avg_win * total_wins / (avg_loss * (total_trades - total_wins))):.2f}")
+    losses = total_trades - total_wins
+    if losses > 0 and avg_loss != 0:
+        print(f"  Profit factor: {abs(avg_win * total_wins / (avg_loss * losses)):.2f}")
+    elif total_wins > 0:
+        print("  Profit factor: ∞ (no losing trades)")
     print(f"\nBy strategy:\n{by_strategy.rename(columns={'sum':'P&L $','count':'Trades'}).to_string()}")
 
     out_csv = ROOT / "predictions" / "backtest_options.csv"

@@ -68,6 +68,7 @@ SCRIPT_DIR = Path(__file__).parent
 REPO_ROOT   = SCRIPT_DIR.parent
 OUTPUT_DIR  = REPO_ROOT / "screenshots"
 CONFIG_FILE = REPO_ROOT / "engine" / "config.py"
+TI_UNUSUAL_OPTIONS_FILE = REPO_ROOT / "data" / "ti_unusual_options.json"
 
 # ── Trade Ideas scan URLs ────────────────────────────────────────
 SCANS: dict[str, dict] = {
@@ -728,6 +729,23 @@ def scrape_tradeideas(
                 # HSF tickers are persisted in universe.json tier-2, NOT config.py
                 # (_patch_high_short_float rewrites config.py — disabled to prevent
                 # continuous source-file modifications during live trading)
+
+            # ── Persist unusual options volume tickers for the live options engine ──
+            if scan_key == "unusualoptionsvolume" and tickers:
+                clean_opts = [t for t in tickers if _is_valid_ti_ticker(t)]
+                if len(clean_opts) >= _MIN_SCRAPE_TICKERS:
+                    import json as _json, datetime as _dt
+                    _data = {
+                        "updated": _dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                        "tickers": clean_opts,
+                    }
+                    TI_UNUSUAL_OPTIONS_FILE.parent.mkdir(parents=True, exist_ok=True)
+                    TI_UNUSUAL_OPTIONS_FILE.write_text(
+                        _json.dumps(_data, indent=2), encoding="utf-8"
+                    )
+                    print(f"[OK   ] ti_unusual_options.json updated: {clean_opts[:10]}{'…' if len(clean_opts)>10 else ''}")
+                else:
+                    print(f"[WARN ] Unusual options scrape too sparse ({len(clean_opts)}) — ti_unusual_options.json not updated")
 
             # Navigate away so the tab goes blank
             try:
