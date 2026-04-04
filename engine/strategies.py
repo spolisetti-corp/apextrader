@@ -456,13 +456,24 @@ class TechnicalStrategy:
             except Exception:
                 pass
 
+        # ATR-14 for stop sizing (use daily bars; fall back to 15m if unavailable)
+        _atr14 = 0.0
+        try:
+            _daily_atr = get_bars(symbol, "20d", "1d")
+            if not _daily_atr.empty:
+                _atr14 = _calc_atr14(_daily_atr)
+        except Exception:
+            pass
+
         # Inverse ETFs: lower entry bar; guarantee confidence meets minimum
         buy_threshold = 0.38 if is_inverse else 0.50
         if score >= buy_threshold:
             conf = max(score, 0.73) if is_inverse else score
-            return Signal(symbol, "buy", price, conf, ", ".join(reasons), "Technical")
+            return Signal(symbol, "buy", price, conf, ", ".join(reasons), "Technical",
+                          atr_stop=_atr14 * ATR_STOP_MULTIPLIER if _atr14 > 0 else None)
         elif not LONG_ONLY_MODE and score <= -0.45:
-            return Signal(symbol, "short", price, abs(score), ", ".join(reasons), "Technical")
+            return Signal(symbol, "short", price, abs(score), ", ".join(reasons), "Technical",
+                          atr_stop=_atr14 * ATR_STOP_MULTIPLIER if _atr14 > 0 else None)
 
         return None
 

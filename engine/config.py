@@ -492,9 +492,9 @@ EARLY_SQUEEZE = {
 # Fires only in bear regime (SPY < 200SMA). Inverse of TrendBreaker.
 # ─────────────────────────────────────────────────────────────────
 BEAR_BREAKDOWN = {
-    "volume_multiplier":  1.2,   # Volume today vs 20-day avg (slightly looser in crashy tapes)
+    "volume_multiplier":  1.5,   # Volume today vs 20-day avg (raised from 1.2 — filters x1.3/x1.4 noise)
     "rsi_max":           65,    # Allow earlier distribution entries before full trend extension
-    "rsi_min":           20,    # Allow earlier continuation before deeply oversold washout
+    "rsi_min":           30,    # Raised from 20 — avoid shorting deeply oversold stocks (bounce risk)
     "above_sma_min_days": 1,    # Loosen freshness requirement in fast bear tapes
     "breakdown_buffer_pct": 0.30,  # Allow entry if within 0.30% above 10-day low
 }

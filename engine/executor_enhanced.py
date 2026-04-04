@@ -280,20 +280,23 @@ class EnhancedExecutor:
 
         positions = self._get_positions()
 
-        # Dynamic max positions: derive from 95% of buying power / per-position size.
-        # This ensures the bot always utilizes ~95% of available BP regardless of account size,
-        # instead of being artificially capped at a static SMALL_ACCOUNT_MAX_POSITIONS.
+        # Dynamic max positions: use equity-based strategic capacity (not raw buying_power).
+        # buying_power can be artificially depressed by leveraged/inverse ETF margin requirements,
+        # causing the bot to permanently block new entries even when capital is available.
+        # We compute effective_max from equity × position_size_pct, then separately gate each
+        # execution on whether buying_power is sufficient for one position.
         _pos_size_pct = (
             SMALL_ACCOUNT_POSITION_SIZE_PCT
             if acct.equity < SMALL_ACCOUNT_EQUITY_THRESHOLD
             else POSITION_SIZE_PCT
         )
         _pos_size_dollars = max(MIN_POSITION_DOLLARS, acct.equity * _pos_size_pct / 100.0)
-        bp_capacity = max(1, int(acct.buying_power * 0.95 / _pos_size_dollars))
-        effective_max = min(MAX_POSITIONS, bp_capacity)
+        # Strategic max: how many positions our equity allocation strategy supports
+        equity_capacity = max(1, int(acct.equity * 0.95 / _pos_size_dollars))
+        effective_max = min(MAX_POSITIONS, equity_capacity)
         log.debug(
-            f"[DBG] effective_max={effective_max} bp={acct.buying_power:.0f} "
-            f"pos_size=${_pos_size_dollars:.0f} ({_pos_size_pct:.0f}%) bp_capacity={bp_capacity}"
+            f"[DBG] effective_max={effective_max} equity={acct.equity:.0f} bp={acct.buying_power:.0f} "
+            f"pos_size=${_pos_size_dollars:.0f} ({_pos_size_pct:.0f}%) equity_cap={equity_capacity}"
         )
 
         # ── Max positions gate (must come first) ────────────────────────────
