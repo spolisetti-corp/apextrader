@@ -159,8 +159,10 @@ def is_regular_hours() -> bool:
 # VIX
 # ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
 def get_vix() -> float:
+    # period="1d" fails for ^VIX after-hours on yfinance; use "5d" so the last
+    # available daily close is always returned even outside regular session.
     try:
-        data = get_bars("^VIX", "1d", "1d")
+        data = get_bars("^VIX", "5d", "1d")
         return float(data["close"].iloc[-1]) if not data.empty else 15.0
     except Exception:
         return 15.0

@@ -503,6 +503,7 @@ BEAR_BREAKDOWN = {
 # Golden Ratio Scanner Guardrails
 # ─────────────────────────────────────────────────────────────────
 RVOL_MIN                 = 2.0         # Require relative volume ≥ 2x before entering
+MIN_STOCK_PRICE          = 3.0         # Skip penny stocks below $3 (poor fill quality, high spread)
 MIN_DOLLAR_VOLUME        = 20_000_000  # Skip illiquid setups: price × day_vol < $20M
 MAX_GAP_CHASE_PCT        = 15.0       # Skip if already up >15% without consolidation
 GAP_CHASE_CONSOL_BARS    = 5          # Number of 1-min bars to check for tight base

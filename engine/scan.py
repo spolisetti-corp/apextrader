@@ -15,6 +15,7 @@ from .config import (
     SCAN_WORKERS,
     SCAN_SYMBOL_TIMEOUT,
     MIN_DOLLAR_VOLUME,
+    MIN_STOCK_PRICE,
     LONG_ONLY_MODE,
     MIN_SIGNAL_CONFIDENCE,
     MAX_SIGNALS_PER_CYCLE,
@@ -46,6 +47,10 @@ def _passes_guardrails(symbol: str) -> bool:
 
         price   = float(intraday["close"].iloc[-1])
         day_vol = float(intraday["volume"].sum())
+
+        # Minimum price gate — skip penny stocks (poor fills, wide spreads)
+        if price < MIN_STOCK_PRICE:
+            return False
 
         # Dollar-volume gate
         if price * day_vol < MIN_DOLLAR_VOLUME:

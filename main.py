@@ -630,7 +630,8 @@ def get_adaptive_interval() -> int:
             pos_interval, pos_status = get_position_tuning_interval(pos_count, pos_config)
             if pos_interval is not None:
                 interval = max(interval, pos_interval)
-        except Exception:
+        except Exception as e:
+            log.debug(f"Position tuning check failed: {e}")
             pos_status = "POS CHECK ERROR"
 
     log.info(f"VIX: {vix:.2f} ({vol}) | {market_phase} | {pos_status} | Scan: {interval} min")
