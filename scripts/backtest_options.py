@@ -152,7 +152,7 @@ def _momentum_call_signal(daily: pd.DataFrame, idx: int) -> bool:
     # Volume surge
     avg_vol = float(window["Volume"].iloc[:-1].mean())
     cur_vol = float(window["Volume"].iloc[-1])
-    if avg_vol <= 0 or cur_vol < avg_vol * 2.0:
+    if avg_vol <= 0 or cur_vol < avg_vol * 3.0:
         return False
     # RSI
     closes = window["Close"]
@@ -240,7 +240,16 @@ def _breakout_retest_signal(daily: pd.DataFrame, idx: int) -> bool:
     # Volume >= 1.2x average (require above-average conviction)
     avg_vol = float(df["Volume"].iloc[-21:-1].mean())
     cur_vol = float(df["Volume"].iloc[-1])
-    return avg_vol > 0 and cur_vol >= avg_vol * 1.2
+    if not (avg_vol > 0 and cur_vol >= avg_vol * 1.2):
+        return False
+
+    # ATR filter: require >= 3% daily range for the option to move
+    highs = df["High"]; low_s = df["Low"]
+    atr14 = (highs - low_s).iloc[-14:].mean()
+    if atr14 / max(spot, 1) * 100 < 3.0:
+        return False
+
+    return True
 
 
 def _trend_pullback_signal(daily: pd.DataFrame, idx: int) -> bool:
@@ -258,9 +267,9 @@ def _trend_pullback_signal(daily: pd.DataFrame, idx: int) -> bool:
     if spot <= ema50:
         return False
 
-    # Spot within 1.5% of 20 EMA
+    # Spot within 2.5% of 20 EMA (widened from 1.5%)
     ema20 = float(closes.ewm(span=20, adjust=False).mean().iloc[-1])
-    if abs(spot - ema20) / max(ema20, 1) > 0.015:
+    if abs(spot - ema20) / max(ema20, 1) > 0.025:
         return False
 
     # RSI 35-52
@@ -294,9 +303,9 @@ def _mean_reversion_signal(daily: pd.DataFrame, idx: int) -> bool:
     if spot < 5.0:
         return False
 
-    # RSI < 32
+    # RSI < 35 (relaxed from 32 to catch more oversold bounces)
     rsi = _backtest_rsi(closes.iloc[-15:])
-    if rsi >= 32:
+    if rsi >= 35:
         return False
 
     # Lower Bollinger Band touch
@@ -474,6 +483,10 @@ def backtest_symbol(
                 pnl_pct   = (cur_long - entry_p) / max(entry_p, 0.01) * 100
                 profit_tgt = OPTIONS_PROFIT_TARGET_PCT
 
+            # Track peak P&L for trailing stop
+            if pnl_pct > pos.get("peak_pnl", 0.0):
+                pos["peak_pnl"] = pnl_pct
+
             close_reason = None
             if dte_now <= 1:
                 close_reason = "EXPIRY"
@@ -481,6 +494,8 @@ def backtest_symbol(
                 close_reason = "PROFIT"
             elif pnl_pct <= -OPTIONS_STOP_LOSS_PCT:
                 close_reason = "STOP"
+            elif pos.get("peak_pnl", 0.0) >= 20.0 and pnl_pct <= pos["peak_pnl"] - 20.0:
+                close_reason = "TRAIL"
 
             if close_reason:
                 pnl_dollar = entry_p * 100 * pos["contracts"] * pnl_pct / 100
@@ -527,9 +542,9 @@ def backtest_symbol(
 
         # ── Signal Priority: first match fires ────────────────────────────────
         # 1. MeanReversion  (rare but highest avg P&L per trade)
-        # 2. MomentumCall   (breakout day: +5%, RVOL 2x)
-        # 3. BreakoutRetest (tightened: 3% zone, RSI 48-62, vol 1.2x)
-        # 4. TrendPullbackSpread (EMA20 pullback in 50-EMA uptrend)
+        # 2. BreakoutRetest (tightened: 3% zone, RSI 48-62, vol 1.2x, ATR≥3%)
+        # 3. TrendPullbackSpread (EMA20 pullback in 50-EMA uptrend, widened to 2.5%)
+        # 4. MomentumCall   (RVOL 3x gate, demoted to last)
         #
         # Regime filter: non-inverse stocks require bull regime for calls
         bull_ok = not is_bear
@@ -544,17 +559,17 @@ def backtest_symbol(
             target_delta = 0.65   # ITM call
 
         if fire_strat is None and (bull_ok or is_inverse):
-            if _momentum_call_signal(hist.iloc[:i + 1], i):
-                fire_strat   = "MomentumCall"
-                target_delta = 0.40
-
-            elif _breakout_retest_signal(hist.iloc[:i + 1], i):
+            if _breakout_retest_signal(hist.iloc[:i + 1], i):
                 fire_strat   = "BreakoutRetest"
                 target_delta = 0.50
 
             elif _trend_pullback_signal(hist.iloc[:i + 1], i):
                 fire_strat   = "TrendPullbackSpread"
                 target_delta = 0.65   # ITM for spread long leg
+
+            elif _momentum_call_signal(hist.iloc[:i + 1], i):
+                fire_strat   = "MomentumCall"
+                target_delta = 0.40
 
         if fire_strat is None:
             continue
@@ -595,6 +610,7 @@ def backtest_symbol(
                 "cost":         cost,
                 "date_in":      today,
                 "strategy":     fire_strat,
+                "peak_pnl":     0.0,   # trailing stop tracker
             }
             if fire_strat == "TrendPullbackSpread":
                 pos_entry["short_strike"] = short_strike

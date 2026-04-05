@@ -3,5 +3,5 @@ date_in,date_out,symbol,type,strike,expiry,entry_px,exit_px,contracts,pnl_pct,pn
 2026-03-16,2026-03-17,ANRO,call,27.0,2026-04-07,1.555,0.94,6,-39.6,-369.1,STOP,MomentumCall
 2026-03-16,2026-03-17,TSAT,call,36.0,2026-04-07,2.782,7.953,3,185.9,1551.27,PROFIT,BreakoutRetest
 2026-03-17,2026-03-19,TSAT,call,47.0,2026-04-08,2.668,1.374,5,-48.5,-646.85,STOP,MomentumCall
-2026-03-19,2026-03-20,PL,call,29.0,2026-04-10,1.776,6.665,5,275.3,2444.51,PROFIT,MomentumCall
+2026-03-19,2026-03-20,PL,call,28.0,2026-04-10,2.142,7.332,4,242.3,2076.06,PROFIT,BreakoutRetest
 2026-03-16,2026-03-17,NBIG,call,15.0,2026-04-07,2.341,1.25,4,-46.6,-436.28,STOP,MomentumCall

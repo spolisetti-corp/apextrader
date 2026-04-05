@@ -815,13 +815,13 @@ def _ema50_above(closes: pd.Series) -> bool:
 
 
 def _at_ema20_pullback(closes: pd.Series) -> bool:
-    """True if price is within 1.5% of the 20 EMA after being above it."""
+    """True if price is within 2.5% of the 20 EMA after being above it."""
     if len(closes) < 22:
         return False
     ema20  = closes.ewm(span=20, adjust=False).mean()
     spot   = float(closes.iloc[-1])
     ema_v  = float(ema20.iloc[-1])
-    return abs(spot - ema_v) / max(ema_v, 1e-9) <= 0.015
+    return abs(spot - ema_v) / max(ema_v, 1e-9) <= 0.025
 
 
 def _resistance_breakout_retest(daily: pd.DataFrame) -> Tuple[bool, float]:
@@ -930,6 +930,11 @@ class BreakoutRetestCallStrategy:
             dte    = (chain.expiry - datetime.date.today()).days
 
             if mid <= 0 or mid / spot * 100 > _MAX_PREMIUM_SPOT:
+                return None
+
+            # ATR filter: require enough daily range for the option to move
+            atr_pct = chain.atr14 / max(spot, 1) * 100
+            if atr_pct < 3.0:
                 return None
 
             rr = _calc_rr(chain.atr14, dte, mid)
@@ -1114,7 +1119,7 @@ class MeanReversionCallStrategy:
     """Buy ITM calls on oversold bounces from the lower Bollinger Band.
 
     Entry requirements:
-    - RSI < 32 (oversold — tight filter to avoid falling knives)
+    - RSI < 35 (oversold — relaxed from 32 to catch more setups)
     - Last close at or below 20-day lower Bollinger Band (2σ)
     - Bullish reversal candle (hammer or engulfing)
     - Price not more than 15% below 200-day SMA (no structural collapse)
@@ -1140,7 +1145,7 @@ class MeanReversionCallStrategy:
                 return None
 
             rsi = calc_rsi(closes)
-            if rsi is None or rsi >= 32:
+            if rsi is None or rsi >= 35:
                 return None
 
             if not _lower_bollinger_touch(closes):
@@ -1188,7 +1193,7 @@ class MeanReversionCallStrategy:
             lower_bb   = sma20 - 2 * std20
 
             conf  = 0.70
-            conf += min(0.08, (32 - rsi) * 0.004)
+            conf += min(0.08, (35 - rsi) * 0.003)
             conf += min(0.04, (rr - _MIN_RR) * 0.02)
             confidence = round(min(0.94, conf), 3)
 
@@ -1264,9 +1269,8 @@ def scan_options_universe(
                 log.debug(f"Options scan: {symbol} in stop cooldown ({days_since}d / {OPTIONS_STOP_COOLDOWN_DAYS}d) — skipping")
                 continue
 
-        # MeanReversion-first: rare but highest avg P&L per trade;
-        # BreakoutRetest demoted after Feb+Mar results showed persistent losses.
-        for strat in (mean_rev_strat, momentum_strat, retest_strat, pullback_strat):
+        # MeanReversion-first; MomentumCall last (no edge, high churn).
+        for strat in (mean_rev_strat, retest_strat, pullback_strat, momentum_strat):
             sig = strat.scan(symbol)
             if sig and sig.confidence >= OPTIONS_MIN_SIGNAL_CONFIDENCE:
                 signals.append(sig)

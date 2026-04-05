@@ -66,6 +66,7 @@ class OptionsPosition:
     entry_price: float        # per-share premium paid/received (net debit for spreads)
     strategy:    str
     entered_at:  datetime.date = field(default_factory=datetime.date.today)
+    peak_pnl_pct: float = 0.0   # highest observed P&L % (for trailing stop)
     # Debit spread: short leg fields (None for single-leg positions)
     short_occ_symbol:  Optional[str]   = None
     short_strike:      Optional[float] = None
@@ -346,6 +347,10 @@ class OptionsExecutor:
                     else:
                         pnl_pct = (current_price - entry_price) / entry_price * 100
 
+                    # Track peak P&L for trailing stop
+                    if pnl_pct > pos.peak_pnl_pct:
+                        pos.peak_pnl_pct = pnl_pct
+
                     # Spread: profit target 50–70% of max gain; use 60% of entry as proxy
                     profit_target = OPTIONS_PROFIT_TARGET_PCT if not pos.short_occ_symbol else 60.0
                     if pnl_pct >= profit_target:
@@ -367,6 +372,18 @@ class OptionsExecutor:
                             log.warning(f"OPTIONS: {occ_sym} hit stop loss {pnl_pct:.1f}% — closing")
                             to_close.append(occ_sym)
                             stop_symbols.append(pos.symbol)
+                    elif pos.peak_pnl_pct >= 20.0 and pnl_pct <= pos.peak_pnl_pct - 20.0:
+                        # Trailing stop: if position reached +20%+ then gave back 20pp, close
+                        if pdt_block_today:
+                            log.info(
+                                f"OPTIONS: {occ_sym} trailing stop peak={pos.peak_pnl_pct:.1f}% now={pnl_pct:.1f}% — "
+                                f"holding overnight (PDT)"
+                            )
+                        else:
+                            log.info(
+                                f"OPTIONS: {occ_sym} trailing stop peak={pos.peak_pnl_pct:.1f}% now={pnl_pct:.1f}% — closing"
+                            )
+                            to_close.append(occ_sym)
                 else:
                     # sell_to_open (covered call) — monitor for buy-to-close
                     # Close when premium decays 75%+ (retain most income) or 3 DTE
