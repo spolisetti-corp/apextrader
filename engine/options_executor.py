@@ -32,6 +32,7 @@ from .config import (
     OPTIONS_PROFIT_TARGET_PCT,
     OPTIONS_STOP_LOSS_PCT,
     OPTIONS_DTE_MIN,
+    PDT_ACCOUNT_MIN, PDT_MAX_TRADES, PDT_OPTIONS_DAY_TRADE_RESERVE,
     API_KEY, API_SECRET, PAPER,
 )
 from .options_strategies import OptionSignal, CONTRACT_SIZE
@@ -127,9 +128,35 @@ class OptionsExecutor:
         if not OPTIONS_ENABLED:
             return False
 
-        if self._count_open_options() >= OPTIONS_MAX_POSITIONS:
-            log.info(f"Options: at max positions ({OPTIONS_MAX_POSITIONS}), skipping {signal.symbol}")
+        # ── PDT & small-account guard ──────────────────────────────────────────
+        try:
+            acct   = self.client.get_account()
+            equity = float(acct.equity)
+            dt_used = int(acct.daytrade_count)
+        except Exception as e:
+            log.warning(f"Options: could not check account for PDT: {e}")
             return False
+
+        is_small = equity < PDT_ACCOUNT_MIN
+        if is_small:
+            dt_left = max(0, PDT_MAX_TRADES - dt_used)
+            # Reserve at least PDT_OPTIONS_DAY_TRADE_RESERVE DTs for stock exits
+            if dt_left <= PDT_OPTIONS_DAY_TRADE_RESERVE:
+                log.info(
+                    f"Options: skipping {signal.symbol} — PDT day trades remaining={dt_left} "
+                    f"(reserving {PDT_OPTIONS_DAY_TRADE_RESERVE} for stock exits, equity=${equity:,.0f})"
+                )
+                return False
+            # Small account: cap to 1 open options position at a time
+            if self._count_open_options() >= 1:
+                log.info(
+                    f"Options: small account (${equity:,.0f}) already has 1 open position — skipping {signal.symbol}"
+                )
+                return False
+        else:
+            if self._count_open_options() >= OPTIONS_MAX_POSITIONS:
+                log.info(f"Options: at max positions ({OPTIONS_MAX_POSITIONS}), skipping {signal.symbol}")
+                return False
 
         _, remaining = self._get_options_budget()
         if remaining <= 0:
@@ -165,9 +192,10 @@ class OptionsExecutor:
                 limit_price=limit_price,
             )
             order = self.client.submit_order(order_req)
+            pdt_note = f" [PDT {dt_left}DT left]" if is_small else ""
             log.info(
                 f"OPTIONS ORDER: {signal.action.upper()} {contracts}x {occ_sym} "
-                f"@ ${limit_price:.2f} | {signal.reason} | conf={signal.confidence:.0%}"
+                f"@ ${limit_price:.2f} | {signal.reason} | conf={signal.confidence:.0%}{pdt_note}"
             )
 
             self._positions[occ_sym] = OptionsPosition(
@@ -211,12 +239,31 @@ class OptionsExecutor:
         to_close: List[str] = []
         today = datetime.date.today()
 
+        # Check if we're on a small account with limited PDT headroom
+        pdt_small_account = False
+        dt_left_today = 999
+        try:
+            acct = self.client.get_account()
+            if float(acct.equity) < PDT_ACCOUNT_MIN:
+                pdt_small_account = True
+                dt_left_today = max(0, PDT_MAX_TRADES - int(acct.daytrade_count))
+        except Exception:
+            pass
+
         for occ_sym, pos in list(self._positions.items()):
             dte = (pos.expiry - today).days
 
             # 1. Expiry risk: close day-before or day-of expiry
             if dte <= 1:
-                log.warning(f"OPTIONS: {occ_sym} expiring in {dte}d — closing to avoid expiry")
+                # On small account, closing same-day entry at expiry = day trade.
+                # If PDT headroom is tight, log a warning but still close (expiry loss is worse).
+                if pdt_small_account and pos.entered_at == today and dt_left_today <= PDT_OPTIONS_DAY_TRADE_RESERVE:
+                    log.warning(
+                        f"OPTIONS: {occ_sym} expiring DTE={dte} but entered today — "
+                        f"closing anyway (expiry risk > PDT risk, {dt_left_today} DT left)"
+                    )
+                else:
+                    log.warning(f"OPTIONS: {occ_sym} expiring in {dte}d — closing to avoid expiry")
                 to_close.append(occ_sym)
                 continue
 
@@ -234,14 +281,31 @@ class OptionsExecutor:
                 if entry_price <= 0:
                     continue
 
+                # PDT guard: never close a buy_to_open position on the same day it was entered
+                # when the account is small — that's a day trade. Let it ride overnight instead.
+                same_day_entry = (pos.entered_at == today)
+                pdt_block_today = pdt_small_account and same_day_entry and dt_left_today <= PDT_OPTIONS_DAY_TRADE_RESERVE
+
                 if pos.action == "buy_to_open":
                     pnl_pct = (current_price - entry_price) / entry_price * 100
                     if pnl_pct >= OPTIONS_PROFIT_TARGET_PCT:
-                        log.info(f"OPTIONS: {occ_sym} hit profit target +{pnl_pct:.1f}% — closing")
-                        to_close.append(occ_sym)
+                        if pdt_block_today:
+                            log.info(
+                                f"OPTIONS: {occ_sym} +{pnl_pct:.1f}% (profit) but entered today — "
+                                f"holding overnight to avoid PDT day trade ({dt_left_today} DT left)"
+                            )
+                        else:
+                            log.info(f"OPTIONS: {occ_sym} hit profit target +{pnl_pct:.1f}% — closing")
+                            to_close.append(occ_sym)
                     elif pnl_pct <= -OPTIONS_STOP_LOSS_PCT:
-                        log.warning(f"OPTIONS: {occ_sym} hit stop loss {pnl_pct:.1f}% — closing")
-                        to_close.append(occ_sym)
+                        if pdt_block_today:
+                            log.warning(
+                                f"OPTIONS: {occ_sym} {pnl_pct:.1f}% (stop) but entered today — "
+                                f"holding overnight to avoid PDT day trade ({dt_left_today} DT left)"
+                            )
+                        else:
+                            log.warning(f"OPTIONS: {occ_sym} hit stop loss {pnl_pct:.1f}% — closing")
+                            to_close.append(occ_sym)
                 else:
                     # sell_to_open (covered call) — monitor for buy-to-close
                     # Close when premium decays 75%+ (retain most income) or 3 DTE

@@ -25,8 +25,8 @@ OPTIONS_BROKER = "alpaca"                               # Only Alpaca supports o
 OPTIONS_ENABLED             = os.getenv("OPTIONS_ENABLED", "true").lower() in ("1", "true", "yes")
 OPTIONS_ALLOCATION_PCT      = float(os.getenv("OPTIONS_ALLOCATION_PCT", "15.0"))  # % of equity for all options
 OPTIONS_MAX_POSITIONS       = int(os.getenv("OPTIONS_MAX_POSITIONS", "3"))        # max open options contracts
-OPTIONS_DTE_MIN             = int(os.getenv("OPTIONS_DTE_MIN", "7"))              # min days-to-expiry at entry
-OPTIONS_DTE_MAX             = int(os.getenv("OPTIONS_DTE_MAX", "21"))             # max days-to-expiry at entry
+OPTIONS_DTE_MIN             = int(os.getenv("OPTIONS_DTE_MIN", "14"))             # min days-to-expiry at entry (14 avoids forced same-day close = PDT hit)
+OPTIONS_DTE_MAX             = int(os.getenv("OPTIONS_DTE_MAX", "30"))             # max days-to-expiry at entry
 OPTIONS_DELTA_TARGET        = float(os.getenv("OPTIONS_DELTA_TARGET", "0.40"))    # target delta (0.30-0.50)
 OPTIONS_MIN_OPEN_INTEREST   = int(os.getenv("OPTIONS_MIN_OPEN_INTEREST", "100"))  # skip illiquid strikes
 OPTIONS_MAX_SPREAD_PCT      = float(os.getenv("OPTIONS_MAX_SPREAD_PCT", "10.0"))  # max bid/ask spread % of mid
@@ -347,6 +347,7 @@ STALE_ORDER_MINUTES_INTRADAY =  30  # intraday strategies (ORB, surge, etc.) —
 # ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
 PDT_ACCOUNT_MIN = 25000.0
 PDT_MAX_TRADES  = 3
+PDT_OPTIONS_DAY_TRADE_RESERVE = int(os.getenv("PDT_OPTIONS_DAY_TRADE_RESERVE", "1"))  # keep at least N day trades free for stock exits
 
 # ─────────────────────────────────────────────────────────────────
 # Email Notifications
