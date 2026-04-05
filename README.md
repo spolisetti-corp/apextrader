@@ -200,6 +200,16 @@ All tunable constants live in [`engine/config.py`](engine/config.py). Key settin
 
 Each strategy in [`engine/strategies.py`](engine/strategies.py) receives OHLCV bars and returns a `Signal` with `confidence` (0–1). All 7 run in parallel via `ThreadPoolExecutor`:
 
+
+### Alpaca API Integration (Equity)
+
+All equity strategies now use the Alpaca API for historical price and volume data, mirroring the options pipeline. This ensures consistent, reliable data for both equities and options, and enables seamless live trading and backtesting. The yfinance fallback is retained for redundancy only.
+
+**Current Focus:**
+- Refactoring and enhancing equity strategies to leverage Alpaca data for all scans and signals
+- Unified data access layer for both equities and options
+- Improved reliability and speed for live and backtest modes
+
 | Strategy | Edge |
 |---|---|
 | `MomentumStrategy` | Pure momentum — RVOL ≥ 1.5× + price velocity |

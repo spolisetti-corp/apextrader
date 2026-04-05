@@ -17,7 +17,7 @@ import pandas as pd
 from dataclasses import dataclass
 from typing import Optional
 
-import yfinance as yf
+
 
 from .utils import get_bars, calc_rsi, calc_macd, get_premarket_bars
 from .config import (
@@ -65,7 +65,7 @@ _REGIME_TTL   = 900  # seconds — refresh every 15 min
 
 def _is_bull_regime() -> bool:
     """True when SPY is above its 200-day SMA (bullish regime).
-    Cached for 15 min to avoid excessive yfinance calls.
+    Cached for 15 min to avoid excessive API calls.
     Defaults to True on any fetch failure so strategies remain live.
     """
     now = time.monotonic()
@@ -311,7 +311,9 @@ class TrendBreakerStrategy:
         _mcap = _mcap_cache.get(symbol)
         if _mcap is None:
             try:
-                _mcap = getattr(yf.Ticker(symbol).fast_info, "market_cap", None)
+                # TODO: Replace with Alpaca or other API for market cap
+                _mcap = None
+                # _mcap = get_market_cap(symbol)  # Implement in utils.py if needed
                 _mcap_cache[symbol] = float(_mcap) if _mcap else 0.0
                 _mcap = _mcap_cache[symbol]
             except Exception:
@@ -740,7 +742,7 @@ class FloatRotationStrategy:
     """Low-float stock with volume > X% of float = stock is 'in play'.
 
     Logic:
-      - Fetch float shares from yfinance .info (cached per session)
+    - Fetch float shares from Alpaca or fallback (cached per session)
       - If float < FLOAT_ROTATION['max_float_shares']
         and today's volume already > float * FLOAT_ROTATION['volume_float_ratio']
         and price is up > FLOAT_ROTATION['min_price_up_pct'] on the day
@@ -751,8 +753,9 @@ class FloatRotationStrategy:
         if symbol in _float_info_cache:
             return _float_info_cache[symbol]
         try:
-            info = yf.Ticker(symbol).fast_info
-            shares_float = getattr(info, "shares_float", None)
+            # TODO: Replace with Alpaca or other API for float shares
+            shares_float = None
+            # shares_float = get_float_shares(symbol)  # Implement in utils.py if needed
             if shares_float and shares_float > 0:
                 _float_info_cache[symbol] = float(shares_float)
                 return float(shares_float)
@@ -983,8 +986,9 @@ class EarlySqueezeDetector:
         if symbol in _float_info_cache:
             return _float_info_cache[symbol]
         try:
-            info = yf.Ticker(symbol).fast_info
-            sf   = getattr(info, "shares_float", None)
+            # TODO: Replace with Alpaca or other API for float shares
+            sf = None
+            # sf = get_float_shares(symbol)  # Implement in utils.py if needed
             if sf and sf > 0:
                 _float_info_cache[symbol] = float(sf)
                 return float(sf)
