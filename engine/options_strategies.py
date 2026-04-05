@@ -849,7 +849,7 @@ def _resistance_breakout_retest(daily: pd.DataFrame) -> Tuple[bool, float]:
         return False, resistance
 
     # Retest: any low since breakout came close to the resistance level
-    retest_zone = resistance * 1.05  # within 5% above = retest zone
+    retest_zone = resistance * 1.03  # within 3% above = retest zone
     retest_occurred = any(float(lw) <= retest_zone for lw in lows.iloc[-10:-1])
 
     spot = float(closes.iloc[-1])
@@ -898,13 +898,13 @@ class BreakoutRetestCallStrategy:
                 return None
 
             rsi = calc_rsi(closes)
-            if rsi is None or not (45 <= rsi <= 65):
+            if rsi is None or not (48 <= rsi <= 62):
                 return None
 
             avg_vol20 = float(daily["volume"].iloc[-21:-1].mean())
             cur_vol   = float(daily["volume"].iloc[-1])
             vol_ratio = cur_vol / max(avg_vol20, 1.0)
-            if vol_ratio < 1.0:
+            if vol_ratio < 1.2:
                 return None
 
             if not _no_earnings_soon(symbol, OPTIONS_EARNINGS_AVOID_DAYS):
@@ -936,8 +936,8 @@ class BreakoutRetestCallStrategy:
             if rr < _MIN_RR:
                 return None
 
-            conf  = 0.70
-            conf += min(0.08, (vol_ratio - 1.0) * 0.04)
+            conf  = 0.75
+            conf += min(0.06, (vol_ratio - 1.2) * 0.04)
             conf += min(0.04, (_IV_RANK_CALL_MAX - chain.iv_rank) * 0.001)
             conf += min(0.04, (rr - _MIN_RR) * 0.02)
             confidence = round(min(0.95, conf), 3)
@@ -1264,9 +1264,9 @@ def scan_options_universe(
                 log.debug(f"Options scan: {symbol} in stop cooldown ({days_since}d / {OPTIONS_STOP_COOLDOWN_DAYS}d) — skipping")
                 continue
 
-        # BreakoutRetest-first priority to bias entries toward the strongest
-        # observed performer in recent validation.
-        for strat in (retest_strat, momentum_strat, pullback_strat, mean_rev_strat):
+        # MeanReversion-first: rare but highest avg P&L per trade;
+        # BreakoutRetest demoted after Feb+Mar results showed persistent losses.
+        for strat in (mean_rev_strat, momentum_strat, retest_strat, pullback_strat):
             sig = strat.scan(symbol)
             if sig and sig.confidence >= OPTIONS_MIN_SIGNAL_CONFIDENCE:
                 signals.append(sig)

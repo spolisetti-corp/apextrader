@@ -223,8 +223,8 @@ def _breakout_retest_signal(daily: pd.DataFrame, idx: int) -> bool:
     if not breakout:
         return False
 
-    # Retest: a low since breakout touched within 5% above resistance
-    retest = any(float(lw) <= resistance * 1.05 for lw in lows.iloc[-10:-1])
+    # Retest: a low since breakout touched within 3% above resistance
+    retest = any(float(lw) <= resistance * 1.03 for lw in lows.iloc[-10:-1])
     if not retest:
         return False
 
@@ -232,15 +232,15 @@ def _breakout_retest_signal(daily: pd.DataFrame, idx: int) -> bool:
     if spot < resistance * 0.98:
         return False
 
-    # RSI 45-65
+    # RSI 48-62 (tighter window for higher-quality setups)
     rsi = _backtest_rsi(closes.iloc[-15:])
-    if not (45 <= rsi <= 65):
+    if not (48 <= rsi <= 62):
         return False
 
-    # Volume >= average
+    # Volume >= 1.2x average (require above-average conviction)
     avg_vol = float(df["Volume"].iloc[-21:-1].mean())
     cur_vol = float(df["Volume"].iloc[-1])
-    return avg_vol > 0 and cur_vol >= avg_vol
+    return avg_vol > 0 and cur_vol >= avg_vol * 1.2
 
 
 def _trend_pullback_signal(daily: pd.DataFrame, idx: int) -> bool:
@@ -526,10 +526,10 @@ def backtest_symbol(
             continue
 
         # ── Signal Priority: first match fires ────────────────────────────────
-        # 1. BreakoutRetest (post-breakout retest bounce)
-        # 2. MomentumCall (breakout day: +5%, RVOL 2x)
-        # 3. TrendPullbackSpread (EMA20 pullback in 50-EMA uptrend) — debit spread
-        # 4. MeanReversion (RSI<32 + lower BB touch)
+        # 1. MeanReversion  (rare but highest avg P&L per trade)
+        # 2. MomentumCall   (breakout day: +5%, RVOL 2x)
+        # 3. BreakoutRetest (tightened: 3% zone, RSI 48-62, vol 1.2x)
+        # 4. TrendPullbackSpread (EMA20 pullback in 50-EMA uptrend)
         #
         # Regime filter: non-inverse stocks require bull regime for calls
         bull_ok = not is_bear
@@ -538,24 +538,23 @@ def backtest_symbol(
         fire_strat  = None
         target_delta = 0.40    # default ATM call
 
-        if bull_ok or is_inverse:
-            if _breakout_retest_signal(hist.iloc[:i + 1], i):
-                fire_strat   = "BreakoutRetest"
-                target_delta = 0.50
+        # Mean reversion works in any regime — check first
+        if _mean_reversion_signal(hist.iloc[:i + 1], i):
+            fire_strat   = "MeanReversion"
+            target_delta = 0.65   # ITM call
 
-            elif _momentum_call_signal(hist.iloc[:i + 1], i):
+        if fire_strat is None and (bull_ok or is_inverse):
+            if _momentum_call_signal(hist.iloc[:i + 1], i):
                 fire_strat   = "MomentumCall"
                 target_delta = 0.40
+
+            elif _breakout_retest_signal(hist.iloc[:i + 1], i):
+                fire_strat   = "BreakoutRetest"
+                target_delta = 0.50
 
             elif _trend_pullback_signal(hist.iloc[:i + 1], i):
                 fire_strat   = "TrendPullbackSpread"
                 target_delta = 0.65   # ITM for spread long leg
-
-        if fire_strat is None:
-            # Mean reversion works in any regime
-            if _mean_reversion_signal(hist.iloc[:i + 1], i):
-                fire_strat   = "MeanReversion"
-                target_delta = 0.65   # ITM call
 
         if fire_strat is None:
             continue
