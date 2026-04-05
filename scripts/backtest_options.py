@@ -152,7 +152,7 @@ def _momentum_call_signal(daily: pd.DataFrame, idx: int) -> bool:
     # Volume surge
     avg_vol = float(window["Volume"].iloc[:-1].mean())
     cur_vol = float(window["Volume"].iloc[-1])
-    if avg_vol <= 0 or cur_vol < avg_vol * 3.0:
+    if avg_vol <= 0 or cur_vol < avg_vol * 2.0:
         return False
     # RSI
     closes = window["Close"]
@@ -240,16 +240,7 @@ def _breakout_retest_signal(daily: pd.DataFrame, idx: int) -> bool:
     # Volume >= 1.2x average (require above-average conviction)
     avg_vol = float(df["Volume"].iloc[-21:-1].mean())
     cur_vol = float(df["Volume"].iloc[-1])
-    if not (avg_vol > 0 and cur_vol >= avg_vol * 1.2):
-        return False
-
-    # ATR filter: require >= 3% daily range for the option to move
-    highs = df["High"]; low_s = df["Low"]
-    atr14 = (highs - low_s).iloc[-14:].mean()
-    if atr14 / max(spot, 1) * 100 < 3.0:
-        return False
-
-    return True
+    return avg_vol > 0 and cur_vol >= avg_vol * 1.2
 
 
 def _trend_pullback_signal(daily: pd.DataFrame, idx: int) -> bool:
@@ -267,9 +258,9 @@ def _trend_pullback_signal(daily: pd.DataFrame, idx: int) -> bool:
     if spot <= ema50:
         return False
 
-    # Spot within 2.5% of 20 EMA (widened from 1.5%)
+    # Spot within 1.5% of 20 EMA
     ema20 = float(closes.ewm(span=20, adjust=False).mean().iloc[-1])
-    if abs(spot - ema20) / max(ema20, 1) > 0.025:
+    if abs(spot - ema20) / max(ema20, 1) > 0.015:
         return False
 
     # RSI 35-52
@@ -541,10 +532,10 @@ def backtest_symbol(
             continue
 
         # ── Signal Priority: first match fires ────────────────────────────────
-        # 1. MeanReversion  (rare but highest avg P&L per trade)
-        # 2. BreakoutRetest (tightened: 3% zone, RSI 48-62, vol 1.2x, ATR≥3%)
-        # 3. TrendPullbackSpread (EMA20 pullback in 50-EMA uptrend, widened to 2.5%)
-        # 4. MomentumCall   (RVOL 3x gate, demoted to last)
+        # 1. MeanReversion  (rare but highest avg P&L per trade, RSI<35)
+        # 2. MomentumCall   (breakout day: +5%, RVOL 2x)
+        # 3. BreakoutRetest (3% zone, RSI 48-62, vol 1.2x)
+        # 4. TrendPullbackSpread (EMA20 pullback in 50-EMA uptrend)
         #
         # Regime filter: non-inverse stocks require bull regime for calls
         bull_ok = not is_bear
@@ -559,17 +550,17 @@ def backtest_symbol(
             target_delta = 0.65   # ITM call
 
         if fire_strat is None and (bull_ok or is_inverse):
-            if _breakout_retest_signal(hist.iloc[:i + 1], i):
+            if _momentum_call_signal(hist.iloc[:i + 1], i):
+                fire_strat   = "MomentumCall"
+                target_delta = 0.40
+
+            elif _breakout_retest_signal(hist.iloc[:i + 1], i):
                 fire_strat   = "BreakoutRetest"
                 target_delta = 0.50
 
             elif _trend_pullback_signal(hist.iloc[:i + 1], i):
                 fire_strat   = "TrendPullbackSpread"
                 target_delta = 0.65   # ITM for spread long leg
-
-            elif _momentum_call_signal(hist.iloc[:i + 1], i):
-                fire_strat   = "MomentumCall"
-                target_delta = 0.40
 
         if fire_strat is None:
             continue

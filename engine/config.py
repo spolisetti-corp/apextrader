@@ -38,7 +38,7 @@ OPTIONS_COVERED_CALL_DELTA  = float(os.getenv("OPTIONS_COVERED_CALL_DELTA", "0.2
 OPTIONS_MIN_SIGNAL_CONFIDENCE = float(os.getenv("OPTIONS_MIN_SIGNAL_CONFIDENCE", "0.80"))  # higher bar for options
 OPTIONS_MIN_STOCK_PRICE     = float(os.getenv("OPTIONS_MIN_STOCK_PRICE", "5.0"))  # options on sub-$5 stocks are illiquid; skip
 OPTIONS_MIN_MOVE_PCT        = float(os.getenv("OPTIONS_MIN_MOVE_PCT", "5.0"))     # min % daily move to qualify (was 3.0; 5.0 filters weak signals)
-OPTIONS_MIN_RVOL            = float(os.getenv("OPTIONS_MIN_RVOL", "3.0"))         # min relative volume for call entry (was 2.0)
+OPTIONS_MIN_RVOL            = float(os.getenv("OPTIONS_MIN_RVOL", "2.0"))         # min relative volume for call entry
 OPTIONS_STOP_COOLDOWN_DAYS  = int(os.getenv("OPTIONS_STOP_COOLDOWN_DAYS", "5"))   # no re-entry within N days after a stop on same symbol
 OPTIONS_EARNINGS_AVOID_DAYS = int(os.getenv("OPTIONS_EARNINGS_AVOID_DAYS", "15")) # skip entries if earnings within N calendar days
 # Tickers that actively trade liquid options.

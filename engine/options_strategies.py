@@ -815,13 +815,13 @@ def _ema50_above(closes: pd.Series) -> bool:
 
 
 def _at_ema20_pullback(closes: pd.Series) -> bool:
-    """True if price is within 2.5% of the 20 EMA after being above it."""
+    """True if price is within 1.5% of the 20 EMA after being above it."""
     if len(closes) < 22:
         return False
     ema20  = closes.ewm(span=20, adjust=False).mean()
     spot   = float(closes.iloc[-1])
     ema_v  = float(ema20.iloc[-1])
-    return abs(spot - ema_v) / max(ema_v, 1e-9) <= 0.025
+    return abs(spot - ema_v) / max(ema_v, 1e-9) <= 0.015
 
 
 def _resistance_breakout_retest(daily: pd.DataFrame) -> Tuple[bool, float]:
@@ -930,11 +930,6 @@ class BreakoutRetestCallStrategy:
             dte    = (chain.expiry - datetime.date.today()).days
 
             if mid <= 0 or mid / spot * 100 > _MAX_PREMIUM_SPOT:
-                return None
-
-            # ATR filter: require enough daily range for the option to move
-            atr_pct = chain.atr14 / max(spot, 1) * 100
-            if atr_pct < 3.0:
                 return None
 
             rr = _calc_rr(chain.atr14, dte, mid)
@@ -1269,8 +1264,8 @@ def scan_options_universe(
                 log.debug(f"Options scan: {symbol} in stop cooldown ({days_since}d / {OPTIONS_STOP_COOLDOWN_DAYS}d) — skipping")
                 continue
 
-        # MeanReversion-first; MomentumCall last (no edge, high churn).
-        for strat in (mean_rev_strat, retest_strat, pullback_strat, momentum_strat):
+        # MeanReversion-first; v2 priority order restored.
+        for strat in (mean_rev_strat, momentum_strat, retest_strat, pullback_strat):
             sig = strat.scan(symbol)
             if sig and sig.confidence >= OPTIONS_MIN_SIGNAL_CONFIDENCE:
                 signals.append(sig)
