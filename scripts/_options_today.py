@@ -34,6 +34,14 @@ if _os.getenv("OPTIONS_ENABLED", "true").lower() in ("0", "false", "no"):
 
 import yfinance as yf
 import pandas as pd
+import psutil
+from engine.config import MEMORY_WARN_MB
+
+def _check_memory():
+    process = psutil.Process()
+    mem_mb = process.memory_info().rss / 1024 / 1024
+    if mem_mb > MEMORY_WARN_MB:
+        print(f"[OOM WARNING] Memory usage high: {mem_mb:.0f} MB (limit {MEMORY_WARN_MB} MB)")
 
 # ── Config constants (mirrors engine/options_strategies.py) ──────────────────
 _MAX_SPREAD_PCT   = 15.0   # b/a spread cap

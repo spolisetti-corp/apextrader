@@ -41,9 +41,8 @@ import warnings
 import logging
 import datetime
 from concurrent.futures import ThreadPoolExecutor, as_completed
-
-import pandas as pd
-import yfinance as yf
+import psutil
+from engine.config import MEMORY_WARN_MB
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 

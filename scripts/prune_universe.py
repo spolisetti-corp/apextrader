@@ -17,12 +17,21 @@ import sys, os, argparse
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from engine.universe import prune, stats, TIER_TTL
+from engine.config import MEMORY_WARN_MB
+
+def _check_memory():
+    process = psutil.Process()
+    mem_mb = process.memory_info().rss / 1024 / 1024
+    if mem_mb > MEMORY_WARN_MB:
+        print(f"[OOM WARNING] Memory usage high: {mem_mb:.0f} MB (limit {MEMORY_WARN_MB} MB)")
 
 def main():
     p = argparse.ArgumentParser()
     p.add_argument("--apply", action="store_true", help="Actually remove expired tickers")
     p.add_argument("--stats", action="store_true", help="Show full stats and exit")
     args = p.parse_args()
+
+    _check_memory()
 
     s = stats()
     print(f"\nUniverse: {s['total_alive']} alive | {s['total_expired']} expired")

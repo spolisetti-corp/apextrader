@@ -48,6 +48,7 @@ from engine.config import (
     OPTIONS_PROFIT_TARGET_PCT,
     OPTIONS_STOP_LOSS_PCT,
     OPTIONS_MIN_SIGNAL_CONFIDENCE,
+    MEMORY_WARN_MB,
 )
 
 _VALID_TICKER = _re.compile(r'^[A-Z]{1,5}$')

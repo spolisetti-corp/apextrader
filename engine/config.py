@@ -4,7 +4,16 @@ Professional Automated Trading System
 Modular architecture with multiple strategies and PDT compliance
 """
 
+
 import os
+# --- .env support: load user/environment profile if present ---
+try:
+    from dotenv import load_dotenv
+    _env_path = os.path.join(os.path.dirname(__file__), '..', '.env')
+    if os.path.exists(_env_path):
+        load_dotenv(_env_path, override=True)
+except ImportError:
+    pass  # python-dotenv not installed; skip .env loading
 
 # ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
 # Broker Selection
@@ -115,7 +124,7 @@ ETRADE_SANDBOX         = os.getenv("ETRADE_SANDBOX", "false").lower() == "true"
 # Priority 1: Momentum stocks (scanned FIRST, highest allocation)
 # Priority 2: Established tech and high short-float stocks
 # Priority 3: Market ETFs for context
-# ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
+# ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
 PRIORITY_1_MOMENTUM = [
     # ── Permanent core (never expire, always scanned) ──────────────
     # Crypto-leveraged / popular momentum plays
@@ -629,3 +638,9 @@ def is_high_short_float(symbol: str) -> bool:
             _hsf_tier2_cache["symbols"] = frozenset()
         _hsf_tier2_cache["ts"] = now
     return symbol in _hsf_tier2_cache["symbols"]
+
+# OOM and cache management
+OPTIONS_CHAIN_CACHE_MAX = int(os.getenv("OPTIONS_CHAIN_CACHE_MAX", "300"))  # max symbols in options chain cache
+
+# Global memory warning threshold (in MB)
+MEMORY_WARN_MB = int(os.getenv("MEMORY_WARN_MB", "1500"))

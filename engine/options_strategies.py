@@ -52,6 +52,8 @@ from .config import (
     OPTIONS_STOP_COOLDOWN_DAYS,
     OPTIONS_EARNINGS_AVOID_DAYS,
     ATR_STOP_MULTIPLIER,
+    OPTIONS_CHAIN_CACHE_MAX,
+    MEMORY_WARN_MB,
 )
 from .strategies import _is_bull_regime, _calc_atr14, _INVERSE_ETFS
 
@@ -138,34 +140,14 @@ def _load_ti_universe() -> list:
 
 _chain_cache: Dict[str, tuple] = {}   # symbol -> (timestamp, OptionsChainInfo)
 _CHAIN_TTL   = 300  # 5-minute cache
-_CHAIN_MAX   = 300  # evict all when cache exceeds this size
+_CHAIN_MAX   = OPTIONS_CHAIN_CACHE_MAX  # configurable cache size
 
-
-def _calc_hv30(closes: pd.Series) -> float:
-    """30-day historical volatility, annualised."""
-    if len(closes) < 32:
-        return 30.0
-    rets = closes.pct_change().dropna()
-    return float(rets.iloc[-30:].std()) * math.sqrt(252) * 100
-
-
-def _calc_iv_rank(cur_iv_pct: float, closes: pd.Series) -> float:
-    """IV rank: where does current IV sit vs the 52-week realized-vol range?
-    Returns 0-100 (0 = cheapest premium, 100 = most expensive).
-    """
-    if len(closes) < 60:
-        return 50.0
-    rets   = closes.pct_change().dropna()
-    rolled = rets.rolling(30).std().dropna() * math.sqrt(252) * 100
-    if rolled.empty:
-        return 50.0
-    hv_min = float(rolled.min())
-    hv_max = float(rolled.max())
-    if hv_max <= hv_min:
-        return 50.0
-    rank = (cur_iv_pct - hv_min) / (hv_max - hv_min) * 100
-    return round(min(100.0, max(0.0, rank)), 1)
-
+# Memory usage monitor
+def _check_memory():
+    process = psutil.Process()
+    mem_mb = process.memory_info().rss / 1024 / 1024
+    if mem_mb > MEMORY_WARN_MB:
+        log.warning(f"[OOM WARNING] Memory usage high: {mem_mb:.0f} MB (limit {MEMORY_WARN_MB} MB)")
 
 def _get_options_chain(symbol: str) -> Optional[OptionsChainInfo]:
     """Fetch the best near-term options chain (14-30 DTE) with full quality metadata.
@@ -176,7 +158,7 @@ def _get_options_chain(symbol: str) -> Optional[OptionsChainInfo]:
     if cached and (now - cached[0]) < _CHAIN_TTL:
         return cached[1]
 
-    # Evict whole cache when it grows too large (prevents unbounded memory growth)
+    _check_memory()
     if len(_chain_cache) >= _CHAIN_MAX:
         _chain_cache.clear()
 
