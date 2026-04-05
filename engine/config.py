@@ -36,6 +36,11 @@ OPTIONS_PROFIT_TARGET_PCT   = float(os.getenv("OPTIONS_PROFIT_TARGET_PCT", "50.0
 OPTIONS_STOP_LOSS_PCT       = float(os.getenv("OPTIONS_STOP_LOSS_PCT", "40.0"))      # close at -40% loss
 OPTIONS_COVERED_CALL_DELTA  = float(os.getenv("OPTIONS_COVERED_CALL_DELTA", "0.25")) # sell OTM calls ~0.25 delta
 OPTIONS_MIN_SIGNAL_CONFIDENCE = float(os.getenv("OPTIONS_MIN_SIGNAL_CONFIDENCE", "0.80"))  # higher bar for options
+OPTIONS_MIN_STOCK_PRICE     = float(os.getenv("OPTIONS_MIN_STOCK_PRICE", "5.0"))  # options on sub-$5 stocks are illiquid; skip
+OPTIONS_MIN_MOVE_PCT        = float(os.getenv("OPTIONS_MIN_MOVE_PCT", "5.0"))     # min % daily move to qualify (was 3.0; 5.0 filters weak signals)
+OPTIONS_MIN_RVOL            = float(os.getenv("OPTIONS_MIN_RVOL", "2.0"))         # min relative volume for call entry (was 1.5)
+OPTIONS_STOP_COOLDOWN_DAYS  = int(os.getenv("OPTIONS_STOP_COOLDOWN_DAYS", "5"))   # no re-entry within N days after a stop on same symbol
+OPTIONS_EARNINGS_AVOID_DAYS = int(os.getenv("OPTIONS_EARNINGS_AVOID_DAYS", "15")) # skip entries if earnings within N calendar days
 # Tickers that actively trade liquid options.
 # Loaded dynamically from data/ti_unusual_options.json (written by capture_tradeideas.py
 # every time the TI unusualoptionsvolume scan is scraped).  Falls back to the

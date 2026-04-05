@@ -145,12 +145,14 @@ def _momentum_call_signal(daily: pd.DataFrame, idx: int) -> bool:
     spot   = float(window["Close"].iloc[-1])
     prev   = float(window["Close"].iloc[-2])
     chg    = (spot - prev) / prev * 100
-    if chg < 3.0:
+    if spot < 5.0:
+        return False  # sub-$5 options illiquid
+    if chg < 5.0:
         return False
     # Volume surge
     avg_vol = float(window["Volume"].iloc[:-1].mean())
     cur_vol = float(window["Volume"].iloc[-1])
-    if avg_vol <= 0 or cur_vol < avg_vol * 1.5:
+    if avg_vol <= 0 or cur_vol < avg_vol * 2.0:
         return False
     # RSI
     closes = window["Close"]
@@ -180,6 +182,191 @@ def _bear_put_signal(daily: pd.DataFrame, idx: int, is_bear: bool) -> bool:
         return False
     thresh = -2.0 if is_bear else -4.0
     return chg <= thresh
+
+
+def _backtest_rsi(closes: pd.Series) -> float:
+    """RSI-14 helper for backtest signal functions."""
+    if len(closes) < 15:
+        return 50.0
+    deltas = closes.diff()
+    gains  = deltas.clip(lower=0).rolling(14).mean()
+    losses = (-deltas).clip(lower=0).rolling(14).mean()
+    avg_l  = float(losses.iloc[-1])
+    if avg_l <= 0:
+        return 100.0
+    rs = float(gains.iloc[-1]) / avg_l
+    return 100 - (100 / (1 + rs))
+
+
+def _breakout_retest_signal(daily: pd.DataFrame, idx: int) -> bool:
+    """True if breakout-retest pattern is confirmed at index `idx`.
+    Uses the sub-DataFrame up to idx.
+    """
+    if idx < 38:
+        return False
+    df = daily.iloc[:idx + 1]
+    if len(df) < 38:
+        return False
+    closes = df["Close"]
+    lows   = df["Low"]
+    spot   = float(closes.iloc[-1])
+    if spot < 5.0:
+        return False
+
+    # Resistance: max close from 20-35 sessions ago
+    resistance = float(closes.iloc[-35:-20].max())
+    if resistance <= 0:
+        return False
+
+    # Breakout occurred in past 5-15 sessions
+    breakout = any(float(c) > resistance * 0.98 for c in closes.iloc[-15:-2])
+    if not breakout:
+        return False
+
+    # Retest: a low since breakout touched within 5% above resistance
+    retest = any(float(lw) <= resistance * 1.05 for lw in lows.iloc[-10:-1])
+    if not retest:
+        return False
+
+    # Currently above resistance
+    if spot < resistance * 0.98:
+        return False
+
+    # RSI 45-65
+    rsi = _backtest_rsi(closes.iloc[-15:])
+    if not (45 <= rsi <= 65):
+        return False
+
+    # Volume >= average
+    avg_vol = float(df["Volume"].iloc[-21:-1].mean())
+    cur_vol = float(df["Volume"].iloc[-1])
+    return avg_vol > 0 and cur_vol >= avg_vol
+
+
+def _trend_pullback_signal(daily: pd.DataFrame, idx: int) -> bool:
+    """True if EMA-20 pullback in a 50-EMA uptrend with bullish reversal candle."""
+    if idx < 55:
+        return False
+    df     = daily.iloc[:idx + 1]
+    closes = df["Close"]
+    spot   = float(closes.iloc[-1])
+    if spot < 5.0:
+        return False
+
+    # 50 EMA uptrend
+    ema50 = float(closes.ewm(span=50, adjust=False).mean().iloc[-1])
+    if spot <= ema50:
+        return False
+
+    # Spot within 1.5% of 20 EMA
+    ema20 = float(closes.ewm(span=20, adjust=False).mean().iloc[-1])
+    if abs(spot - ema20) / max(ema20, 1) > 0.015:
+        return False
+
+    # RSI 35-52
+    rsi = _backtest_rsi(closes.iloc[-15:])
+    if not (35 <= rsi <= 52):
+        return False
+
+    # Bullish reversal candle (hammer or engulfing)
+    if len(df) < 2:
+        return False
+    o = float(df["Open"].iloc[-1]); h = float(df["High"].iloc[-1])
+    l = float(df["Low"].iloc[-1]);  c = float(df["Close"].iloc[-1])
+    full_range = h - l
+    if full_range < 1e-6:
+        return False
+    body = abs(c - o)
+    lower_wick = min(o, c) - l
+    hammer = lower_wick >= 2 * max(body, 1e-9) and c > l + full_range * 0.40
+    prev_o = float(df["Open"].iloc[-2]); prev_c = float(df["Close"].iloc[-2])
+    engulf = c > o and prev_c < prev_o and o <= prev_c and c >= prev_o
+    return hammer or engulf
+
+
+def _mean_reversion_signal(daily: pd.DataFrame, idx: int) -> bool:
+    """True if RSI <32, lower Bollinger Band touched, bullish reversal candle."""
+    if idx < 25:
+        return False
+    df     = daily.iloc[:idx + 1]
+    closes = df["Close"]
+    spot   = float(closes.iloc[-1])
+    if spot < 5.0:
+        return False
+
+    # RSI < 32
+    rsi = _backtest_rsi(closes.iloc[-15:])
+    if rsi >= 32:
+        return False
+
+    # Lower Bollinger Band touch
+    if len(closes) >= 22:
+        sma20 = float(closes.rolling(20).mean().iloc[-1])
+        std20 = float(closes.rolling(20).std().iloc[-1])
+        lower_bb = sma20 - 2 * std20
+        if spot > lower_bb * 1.005:
+            return False
+
+    # Bullish reversal candle
+    if len(df) < 2:
+        return False
+    o = float(df["Open"].iloc[-1]); h = float(df["High"].iloc[-1])
+    l = float(df["Low"].iloc[-1]);  c = float(df["Close"].iloc[-1])
+    full_range = h - l
+    if full_range < 1e-6:
+        return False
+    body = abs(c - o)
+    lower_wick = min(o, c) - l
+    hammer = lower_wick >= 2 * max(body, 1e-9) and c > l + full_range * 0.40
+    prev_o = float(df["Open"].iloc[-2]); prev_c = float(df["Close"].iloc[-2])
+    engulf = c > o and prev_c < prev_o and o <= prev_c and c >= prev_o
+    return hammer or engulf
+
+
+_earnings_cache: dict = {}   # symbol -> (fetch_date, bool: has_earnings_soon)
+
+def _no_earnings_soon_bt(symbol: str, today: datetime.date, days: int = 15) -> bool:
+    """Earnings avoidance check for backtest.
+    Caches per symbol (refresh once per backtest run, not per bar).
+    Fails-safe to True if calendar is unavailable.
+    """
+    cached = _earnings_cache.get(symbol)
+    if cached is not None:
+        return cached
+
+    result = True
+    try:
+        import yfinance as yf
+        ticker = yf.Ticker(symbol)
+        cal = ticker.calendar
+        if cal is not None:
+            cutoff = today + datetime.timedelta(days=days)
+            dates: list = []
+            if isinstance(cal, pd.DataFrame):
+                for col in cal.columns:
+                    for val in cal[col]:
+                        dates.append(val)
+            elif isinstance(cal, dict):
+                for v in cal.values():
+                    dates.extend(v if isinstance(v, (list, tuple)) else [v])
+            for d in dates:
+                try:
+                    if hasattr(d, "date"):
+                        ed = d.date()
+                    elif isinstance(d, datetime.date):
+                        ed = d
+                    else:
+                        continue
+                    if today <= ed <= cutoff:
+                        result = False
+                        break
+                except Exception:
+                    pass
+    except Exception:
+        result = True
+
+    _earnings_cache[symbol] = result
+    return result
 
 
 # ── Backtest Engine ───────────────────────────────────────────────────────────
@@ -246,6 +433,7 @@ def backtest_symbol(
     trades = []
     capital = initial_capital * OPTIONS_ALLOCATION_PCT / 100.0   # options budget
     open_positions: List[dict] = []
+    stop_cooldown: dict = {}  # symbol -> date of last stop exit; prevents re-entry within 5 days
 
     for i, row in hist.iterrows():
         if i < 25:
@@ -270,21 +458,32 @@ def backtest_symbol(
         to_remove = []
         for pos in open_positions:
             dte_now = (pos["expiry"] - today).days
-            # Re-price
-            cur_price = _bs_price(spot, pos["strike"], dte_now, iv, call=(pos["type"] == "call"))
+
+            # Re-price long leg
+            cur_long  = _bs_price(spot, pos["strike"], dte_now, iv, call=True)
             entry_p   = pos["entry_price"]
-            pnl_pct   = (cur_price - entry_p) / max(entry_p, 0.01) * 100
+
+            # For spreads: net value = long - short
+            if pos.get("short_strike") and pos.get("short_entry_price") is not None:
+                cur_short = _bs_price(spot, pos["short_strike"], dte_now, iv, call=True)
+                net_cur   = cur_long - cur_short
+                pnl_pct   = (net_cur - entry_p) / max(entry_p, 0.01) * 100
+                # Spread profit target: 60% of max gain (max_gain = spread_width - net_debit ≈ entry_p for fair spreads)
+                profit_tgt = 60.0
+            else:
+                pnl_pct   = (cur_long - entry_p) / max(entry_p, 0.01) * 100
+                profit_tgt = OPTIONS_PROFIT_TARGET_PCT
 
             close_reason = None
             if dte_now <= 1:
                 close_reason = "EXPIRY"
-            elif pnl_pct >= OPTIONS_PROFIT_TARGET_PCT:
+            elif pnl_pct >= profit_tgt:
                 close_reason = "PROFIT"
             elif pnl_pct <= -OPTIONS_STOP_LOSS_PCT:
                 close_reason = "STOP"
 
             if close_reason:
-                pnl_dollar = (cur_price - entry_p) * 100 * pos["contracts"]
+                pnl_dollar = entry_p * 100 * pos["contracts"] * pnl_pct / 100
                 capital   += pos["cost"] + pnl_dollar
                 trades.append({
                     "date_in":    pos["date_in"],
@@ -294,7 +493,7 @@ def backtest_symbol(
                     "strike":     pos["strike"],
                     "expiry":     pos["expiry"],
                     "entry_px":   round(entry_p, 3),
-                    "exit_px":    round(cur_price, 3),
+                    "exit_px":    round(cur_long, 3),
                     "contracts":  pos["contracts"],
                     "pnl_pct":    round(pnl_pct, 1),
                     "pnl_$":      round(pnl_dollar, 2),
@@ -302,6 +501,8 @@ def backtest_symbol(
                     "strategy":   pos["strategy"],
                 })
                 to_remove.append(pos)
+                if close_reason == "STOP":
+                    stop_cooldown[symbol] = today  # block re-entry for 5 days
 
         for pos in to_remove:
             open_positions.remove(pos)
@@ -315,31 +516,91 @@ def backtest_symbol(
 
         is_inverse = symbol in _INVERSE_ETFS
 
-        # MomentumCall only (BearPut disabled — consistent losses in backtest).
-        # Inverse ETFs (SQQQ, SPXU, UVXY…): calls allowed in bear regime (they rise when market falls).
-        # Regular stocks: calls only in bull regime.
-        call_signal = _momentum_call_signal(hist.iloc[:i + 1], i)
-        fire_call   = call_signal and (is_inverse if is_bear else not is_bear)
+        # Stop cooldown: skip this symbol if it hit a stop within the last 5 days
+        if symbol in stop_cooldown and (today - stop_cooldown[symbol]).days < 5:
+            continue
 
-        if fire_call:
-            strike = _pick_strike(spot, call=True, target_delta=0.40, iv=iv, dte=dte_entry)
-            price  = _bs_price(spot, strike, dte_entry, iv, call=True)
-            if price > 0.05:
-                per_pos_budget = capital / max(1, OPTIONS_MAX_POSITIONS - len(open_positions))
-                contracts      = max(1, int(per_pos_budget // (price * 100)))
-                cost           = price * 100 * contracts
-                if cost <= capital:
-                    capital -= cost
-                    open_positions.append({
-                        "type":        "call",
-                        "strike":      strike,
-                        "expiry":      today + datetime.timedelta(days=dte_entry),
-                        "entry_price": price,
-                        "contracts":   contracts,
-                        "cost":        cost,
-                        "date_in":     today,
-                        "strategy":    "MomentumCall",
-                    })
+        # Earnings avoidance: skip if earnings within 15 days
+        # (use cached result — fetched once per symbol at backtest start)
+        if not _no_earnings_soon_bt(symbol, today):
+            continue
+
+        # ── Signal Priority: first match fires ────────────────────────────────
+        # 1. MomentumCall (breakout day: +5%, RVOL 2x)
+        # 2. BreakoutRetest (post-breakout retest bounce)
+        # 3. TrendPullbackSpread (EMA20 pullback in 50-EMA uptrend) — debit spread
+        # 4. MeanReversion (RSI<32 + lower BB touch)
+        #
+        # Regime filter: non-inverse stocks require bull regime for calls
+        bull_ok = not is_bear
+
+        fire_signal = None
+        fire_strat  = None
+        target_delta = 0.40    # default ATM call
+
+        if bull_ok or is_inverse:
+            if _momentum_call_signal(hist.iloc[:i + 1], i):
+                fire_strat   = "MomentumCall"
+                target_delta = 0.40
+
+            elif _breakout_retest_signal(hist.iloc[:i + 1], i):
+                fire_strat   = "BreakoutRetest"
+                target_delta = 0.50
+
+            elif _trend_pullback_signal(hist.iloc[:i + 1], i):
+                fire_strat   = "TrendPullbackSpread"
+                target_delta = 0.65   # ITM for spread long leg
+
+        if fire_strat is None:
+            # Mean reversion works in any regime
+            if _mean_reversion_signal(hist.iloc[:i + 1], i):
+                fire_strat   = "MeanReversion"
+                target_delta = 0.65   # ITM call
+
+        if fire_strat is None:
+            continue
+
+        # Size and enter the position
+        strike = _pick_strike(spot, call=True, target_delta=target_delta, iv=iv, dte=dte_entry)
+
+        if fire_strat == "TrendPullbackSpread":
+            # Debit spread: long ITM call + short OTM call 2 strikes above
+            short_strike  = strike + 2 * max(1.0, round(spot * 0.02, 0))
+            long_price    = _bs_price(spot, strike, dte_entry, iv, call=True)
+            short_price   = _bs_price(spot, short_strike, dte_entry, iv, call=True)
+            net_debit     = max(0.01, long_price - short_price)
+            max_profit    = (short_strike - strike) - net_debit
+            if max_profit <= 0:
+                continue
+            price = net_debit
+        else:
+            price = _bs_price(spot, strike, dte_entry, iv, call=True)
+            short_strike = None
+            short_price  = None
+            net_debit    = None
+
+        if price <= 0.05:
+            continue
+
+        per_pos_budget = capital / max(1, OPTIONS_MAX_POSITIONS - len(open_positions))
+        contracts      = max(1, int(per_pos_budget // (price * 100)))
+        cost           = price * 100 * contracts
+        if cost <= capital:
+            capital -= cost
+            pos_entry: dict = {
+                "type":         "call",
+                "strike":       strike,
+                "expiry":       today + datetime.timedelta(days=dte_entry),
+                "entry_price":  price,
+                "contracts":    contracts,
+                "cost":         cost,
+                "date_in":      today,
+                "strategy":     fire_strat,
+            }
+            if fire_strat == "TrendPullbackSpread":
+                pos_entry["short_strike"] = short_strike
+                pos_entry["short_entry_price"] = short_price
+            open_positions.append(pos_entry)
 
     # Mark remaining positions as closed at end-date
     for pos in open_positions:
@@ -347,9 +608,15 @@ def backtest_symbol(
         last_spot = float(last_row["Close"])
         dte_now   = max(1, (pos["expiry"] - hist.iloc[-1]["Date"]).days)
         iv        = _iv_proxy(hist["Close"])
-        cur_price = _bs_price(last_spot, pos["strike"], dte_now, iv, call=(pos["type"] == "call"))
-        pnl_pct   = (cur_price - pos["entry_price"]) / max(pos["entry_price"], 0.01) * 100
-        pnl_dollar = (cur_price - pos["entry_price"]) * 100 * pos["contracts"]
+        cur_long  = _bs_price(last_spot, pos["strike"], dte_now, iv, call=True)
+        entry_p   = pos["entry_price"]
+        if pos.get("short_strike") and pos.get("short_entry_price") is not None:
+            cur_short  = _bs_price(last_spot, pos["short_strike"], dte_now, iv, call=True)
+            net_cur    = cur_long - cur_short
+            pnl_pct    = (net_cur - entry_p) / max(entry_p, 0.01) * 100
+        else:
+            pnl_pct    = (cur_long - entry_p) / max(entry_p, 0.01) * 100
+        pnl_dollar = entry_p * 100 * pos["contracts"] * pnl_pct / 100
         trades.append({
             "date_in":   pos["date_in"],
             "date_out":  hist.iloc[-1]["Date"],

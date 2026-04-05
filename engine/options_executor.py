@@ -35,7 +35,7 @@ from .config import (
     PDT_ACCOUNT_MIN, PDT_MAX_TRADES, PDT_OPTIONS_DAY_TRADE_RESERVE,
     API_KEY, API_SECRET, PAPER,
 )
-from .options_strategies import OptionSignal, CONTRACT_SIZE
+from .options_strategies import OptionSignal, CONTRACT_SIZE, record_stop_cooldown
 
 log = logging.getLogger("ApexTrader.Options")
 
@@ -63,9 +63,13 @@ class OptionsPosition:
     strike:      float
     expiry:      datetime.date
     contracts:   int
-    entry_price: float        # per-share premium paid/received
+    entry_price: float        # per-share premium paid/received (net debit for spreads)
     strategy:    str
     entered_at:  datetime.date = field(default_factory=datetime.date.today)
+    # Debit spread: short leg fields (None for single-leg positions)
+    short_occ_symbol:  Optional[str]   = None
+    short_strike:      Optional[float] = None
+    short_entry_price: Optional[float] = None   # credit received per share
 
 
 class OptionsExecutor:
@@ -182,6 +186,12 @@ class OptionsExecutor:
         # Use limit at mid_price (+ small buffer for fills)
         limit_price = round(signal.mid_price * (1.02 if side == OrderSide.BUY else 0.98), 2)
 
+        # For debit spreads the mid_price is the net debit; reconstruct the long-leg limit
+        is_spread = signal.spread_sell_strike is not None and signal.spread_sell_mid is not None
+        if is_spread:
+            long_mid    = signal.mid_price + (signal.spread_sell_mid or 0)
+            limit_price = round(long_mid * 1.02, 2)
+
         try:
             order_req = LimitOrderRequest(
                 symbol=occ_sym,
@@ -191,12 +201,43 @@ class OptionsExecutor:
                 time_in_force=TimeInForce.DAY,
                 limit_price=limit_price,
             )
-            order = self.client.submit_order(order_req)
+            self.client.submit_order(order_req)
             pdt_note = f" [PDT {dt_left}DT left]" if is_small else ""
             log.info(
                 f"OPTIONS ORDER: {signal.action.upper()} {contracts}x {occ_sym} "
                 f"@ ${limit_price:.2f} | {signal.reason} | conf={signal.confidence:.0%}{pdt_note}"
             )
+
+            short_occ = None
+            short_entry = None
+            if is_spread and signal.spread_sell_strike is not None:
+                # Place the short leg (sell the OTM call)
+                short_occ  = _alpaca_option_symbol(
+                    signal.symbol, signal.expiry, "call", signal.spread_sell_strike
+                )
+                short_limit = round((signal.spread_sell_mid or 0) * 0.98, 2)
+                try:
+                    short_req = LimitOrderRequest(
+                        symbol=short_occ,
+                        qty=contracts,
+                        side=OrderSide.SELL,
+                        type="limit",
+                        time_in_force=TimeInForce.DAY,
+                        limit_price=short_limit,
+                    )
+                    self.client.submit_order(short_req)
+                    short_entry = signal.spread_sell_mid
+                    log.info(
+                        f"OPTIONS SPREAD SHORT LEG: SELL {contracts}x {short_occ} "
+                        f"@ ${short_limit:.2f} (credit leg)"
+                    )
+                except Exception as e:
+                    log.warning(
+                        f"Spread short-leg order failed for {short_occ}: {e} "
+                        f"— long leg already placed, monitoring as naked call"
+                    )
+                    short_occ   = None
+                    short_entry = None
 
             self._positions[occ_sym] = OptionsPosition(
                 occ_symbol=occ_sym,
@@ -208,6 +249,9 @@ class OptionsExecutor:
                 contracts=contracts,
                 entry_price=signal.mid_price,
                 strategy=signal.strategy,
+                short_occ_symbol=short_occ,
+                short_strike=signal.spread_sell_strike if is_spread else None,
+                short_entry_price=short_entry,
             )
             return True
 
@@ -237,6 +281,7 @@ class OptionsExecutor:
             return
 
         to_close: List[str] = []
+        stop_symbols: List[str] = []   # underlying symbols closed due to stop loss
         today = datetime.date.today()
 
         # Check if we're on a small account with limited PDT headroom
@@ -287,8 +332,23 @@ class OptionsExecutor:
                 pdt_block_today = pdt_small_account and same_day_entry and dt_left_today <= PDT_OPTIONS_DAY_TRADE_RESERVE
 
                 if pos.action == "buy_to_open":
-                    pnl_pct = (current_price - entry_price) / entry_price * 100
-                    if pnl_pct >= OPTIONS_PROFIT_TARGET_PCT:
+                    # For debit spreads: net P&L = long_gain - short_gain
+                    # entry_price is the net debit (long_mid - short_mid at entry)
+                    if pos.short_occ_symbol and pos.short_entry_price:
+                        short_ap = all_positions.get(pos.short_occ_symbol)
+                        if short_ap is not None:
+                            short_price = float(short_ap.current_price)
+                            net_current = current_price - short_price
+                            # Compare net current value vs net debit (entry cost)
+                            pnl_pct = (net_current - pos.entry_price) / pos.entry_price * 100
+                        else:
+                            pnl_pct = (current_price - entry_price) / entry_price * 100
+                    else:
+                        pnl_pct = (current_price - entry_price) / entry_price * 100
+
+                    # Spread: profit target 50–70% of max gain; use 60% of entry as proxy
+                    profit_target = OPTIONS_PROFIT_TARGET_PCT if not pos.short_occ_symbol else 60.0
+                    if pnl_pct >= profit_target:
                         if pdt_block_today:
                             log.info(
                                 f"OPTIONS: {occ_sym} +{pnl_pct:.1f}% (profit) but entered today — "
@@ -306,6 +366,7 @@ class OptionsExecutor:
                         else:
                             log.warning(f"OPTIONS: {occ_sym} hit stop loss {pnl_pct:.1f}% — closing")
                             to_close.append(occ_sym)
+                            stop_symbols.append(pos.symbol)
                 else:
                     # sell_to_open (covered call) — monitor for buy-to-close
                     # Close when premium decays 75%+ (retain most income) or 3 DTE
@@ -322,8 +383,12 @@ class OptionsExecutor:
         for occ_sym in to_close:
             self._close_option(occ_sym)
 
+        # Record cooldown for any symbols closed due to stop loss
+        for underlying in stop_symbols:
+            record_stop_cooldown(underlying)
+
     def _close_option(self, occ_sym: str) -> None:
-        """Market close an options position."""
+        """Market close an options position (and its spread short leg if applicable)."""
         pos = self._positions.get(occ_sym)
         if pos is None:
             return
@@ -339,9 +404,24 @@ class OptionsExecutor:
             )
             self.client.submit_order(order_req)
             log.info(f"OPTIONS CLOSE: {side.value.upper()} {pos.contracts}x {occ_sym}")
-            del self._positions[occ_sym]
         except Exception as e:
             log.error(f"Options close failed for {occ_sym}: {e}")
+
+        # Close the short leg of a debit spread (buy-to-close the sold OTM call)
+        if pos.short_occ_symbol:
+            try:
+                short_req = MarketOrderRequest(
+                    symbol=pos.short_occ_symbol,
+                    qty=pos.contracts,
+                    side=OrderSide.BUY,   # buy-to-close the short leg
+                    time_in_force=TimeInForce.DAY,
+                )
+                self.client.submit_order(short_req)
+                log.info(f"OPTIONS SPREAD CLOSE SHORT: BUY {pos.contracts}x {pos.short_occ_symbol}")
+            except Exception as e:
+                log.error(f"Spread short-leg close failed for {pos.short_occ_symbol}: {e}")
+
+        del self._positions[occ_sym]
 
     def close_all(self) -> None:
         """Emergency: close all open options positions."""
