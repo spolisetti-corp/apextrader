@@ -149,10 +149,10 @@ def _momentum_call_signal(daily: pd.DataFrame, idx: int) -> bool:
         return False  # sub-$5 options illiquid
     if chg < 5.0:
         return False
-    # Volume surge
+    # Volume surge (RVOL >= 3x — demoted, last-resort strategy)
     avg_vol = float(window["Volume"].iloc[:-1].mean())
     cur_vol = float(window["Volume"].iloc[-1])
-    if avg_vol <= 0 or cur_vol < avg_vol * 2.0:
+    if avg_vol <= 0 or cur_vol < avg_vol * 3.0:
         return False
     # RSI
     closes = window["Close"]
@@ -520,6 +520,13 @@ def backtest_symbol(
         if len(open_positions) >= OPTIONS_MAX_POSITIONS:
             continue
 
+        # Dollar volume quality gate: skip thinly-traded symbols
+        _adv_window = hist.iloc[max(0, i - 20): i + 1]
+        if len(_adv_window) >= 5:
+            _adv = float((_adv_window["Close"] * _adv_window["Volume"]).mean())
+            if _adv < 2_000_000:
+                continue
+
         is_inverse = symbol in _INVERSE_ETFS
 
         # Stop cooldown: skip this symbol if it hit a stop within the last 5 days
@@ -533,9 +540,9 @@ def backtest_symbol(
 
         # ── Signal Priority: first match fires ────────────────────────────────
         # 1. MeanReversion  (rare but highest avg P&L per trade, RSI<35)
-        # 2. MomentumCall   (breakout day: +5%, RVOL 2x)
-        # 3. BreakoutRetest (3% zone, RSI 48-62, vol 1.2x)
-        # 4. TrendPullbackSpread (EMA20 pullback in 50-EMA uptrend)
+        # 2. BreakoutRetest (3% zone, RSI 48-62, vol 1.2x)
+        # 3. MomentumCall   (breakout day: +5%, RVOL 2x)
+        # TrendPullbackSpread DISABLED (negative PF over 6-month backtest)
         #
         # Regime filter: non-inverse stocks require bull regime for calls
         bull_ok = not is_bear
@@ -550,17 +557,13 @@ def backtest_symbol(
             target_delta = 0.65   # ITM call
 
         if fire_strat is None and (bull_ok or is_inverse):
-            if _momentum_call_signal(hist.iloc[:i + 1], i):
-                fire_strat   = "MomentumCall"
-                target_delta = 0.40
-
-            elif _breakout_retest_signal(hist.iloc[:i + 1], i):
+            if _breakout_retest_signal(hist.iloc[:i + 1], i):
                 fire_strat   = "BreakoutRetest"
                 target_delta = 0.50
 
-            elif _trend_pullback_signal(hist.iloc[:i + 1], i):
-                fire_strat   = "TrendPullbackSpread"
-                target_delta = 0.65   # ITM for spread long leg
+            elif _momentum_call_signal(hist.iloc[:i + 1], i):
+                fire_strat   = "MomentumCall"
+                target_delta = 0.40
 
         if fire_strat is None:
             continue

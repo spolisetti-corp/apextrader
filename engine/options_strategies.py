@@ -32,7 +32,7 @@ import pandas as pd
 import pytz
 import yfinance as yf
 
-from .utils import get_bars, calc_rsi
+from .utils import get_bars, calc_rsi, get_option_data_client, ALPACA_AVAILABLE
 from .config import (
     OPTIONS_ENABLED,
     OPTIONS_DTE_MIN,
@@ -48,6 +48,7 @@ from .config import (
     OPTIONS_MIN_STOCK_PRICE,
     OPTIONS_MIN_MOVE_PCT,
     OPTIONS_MIN_RVOL,
+    OPTIONS_MIN_ADV,
     OPTIONS_STOP_COOLDOWN_DAYS,
     OPTIONS_EARNINGS_AVOID_DAYS,
     ATR_STOP_MULTIPLIER,
@@ -167,7 +168,9 @@ def _calc_iv_rank(cur_iv_pct: float, closes: pd.Series) -> float:
 
 
 def _get_options_chain(symbol: str) -> Optional[OptionsChainInfo]:
-    """Fetch the best near-term options chain (7-21 DTE) with full quality metadata."""
+    """Fetch the best near-term options chain (14-30 DTE) with full quality metadata.
+    Alpaca OptionHistoricalDataClient first, yfinance fallback.
+    """
     now = time.monotonic()
     cached = _chain_cache.get(symbol)
     if cached and (now - cached[0]) < _CHAIN_TTL:
@@ -177,69 +180,208 @@ def _get_options_chain(symbol: str) -> Optional[OptionsChainInfo]:
     if len(_chain_cache) >= _CHAIN_MAX:
         _chain_cache.clear()
 
+    # 65-day daily bars for HV, ATR, IV rank (already Alpaca-first in get_bars)
+    hist = get_bars(symbol, period="65d", interval="1d")
+    if hist.empty or len(hist) < 15:
+        return None
+    spot = float(hist["close"].iloc[-1])
+    if spot <= 0:
+        return None
+
+    # ATR-14
+    hi = hist["high"]; lo = hist["low"]; pc = hist["close"].shift(1)
+    tr = pd.concat([(hi - lo), (hi - pc).abs(), (lo - pc).abs()], axis=1).max(axis=1)
+    atr14 = float(tr.rolling(14).mean().iloc[-1])
+
+    # HV-30
+    hv30 = _calc_hv30(hist["close"])
+
+    today = datetime.date.today()
+    exp_gte = today + datetime.timedelta(days=OPTIONS_DTE_MIN)
+    exp_lte = today + datetime.timedelta(days=OPTIONS_DTE_MAX)
+
+    # ── Alpaca option chain ──────────────────────────────────────
+    if ALPACA_AVAILABLE:
+        try:
+            result = _get_chain_alpaca(symbol, spot, exp_gte, exp_lte, hv30, atr14, hist)
+            if result is not None:
+                _chain_cache[symbol] = (now, result)
+                return result
+        except Exception as e:
+            log.debug(f"{symbol}: Alpaca option chain failed, trying yfinance: {e}")
+
+    # ── yfinance fallback ────────────────────────────────────────
     try:
-        ticker = yf.Ticker(symbol)
-        expirations = ticker.options
-        if not expirations:
-            return None
-
-        today = datetime.date.today()
-        target_expiry = None
-        for exp_str in expirations:
-            exp = datetime.date.fromisoformat(exp_str)
-            dte = (exp - today).days
-            if OPTIONS_DTE_MIN <= dte <= OPTIONS_DTE_MAX:
-                target_expiry = exp
-                break
-
-        if target_expiry is None:
-            return None
-
-        chain = ticker.option_chain(target_expiry.isoformat())
-        calls = chain.calls.copy() if not chain.calls.empty else pd.DataFrame()
-        puts  = chain.puts.copy()  if not chain.puts.empty  else pd.DataFrame()
-
-        for df in (calls, puts):
-            df.columns = [c.lower().replace(" ", "_") for c in df.columns]
-
-        # 65-day history for HV, ATR, IV rank
-        hist = ticker.history(period="65d")
-        if hist.empty:
-            return None
-        spot = float(hist["Close"].iloc[-1])
-        if spot <= 0:
-            return None
-
-        # ATR-14
-        hi = hist["High"]; lo = hist["Low"]; pc = hist["Close"].shift(1)
-        tr = pd.concat([(hi - lo), (hi - pc).abs(), (lo - pc).abs()], axis=1).max(axis=1)
-        atr14 = float(tr.rolling(14).mean().iloc[-1])
-
-        # HV-30 and IV rank
-        hv30 = _calc_hv30(hist["Close"])
-        mid_c = calls[(calls["strike"] >= spot * 0.95) & (calls["strike"] <= spot * 1.05)]
-        if not mid_c.empty and "impliedvolatility" in mid_c.columns:
-            cur_iv = float(mid_c["impliedvolatility"].mean()) * 100
-        else:
-            cur_iv = hv30
-        iv_rank = _calc_iv_rank(cur_iv, hist["Close"])
-
-        result = OptionsChainInfo(
-            symbol=symbol,
-            expiry=target_expiry,
-            calls=calls,
-            puts=puts,
-            spot_price=spot,
-            iv_rank=iv_rank,
-            hv_30=hv30,
-            atr14=max(atr14, 0.01),
-        )
-        _chain_cache[symbol] = (now, result)
-        return result
-
+        result = _get_chain_yfinance(symbol, spot, hv30, atr14, hist)
+        if result is not None:
+            _chain_cache[symbol] = (now, result)
+            return result
     except Exception as e:
         log.debug(f"{symbol} options chain error: {e}")
+
+    return None
+
+
+def _parse_occ_symbol(occ: str):
+    """Parse an OCC symbol like AAPL260501C00195000.
+    Returns (underlying, expiry_date, option_type, strike) or None.
+    """
+    import re
+    m = re.match(r'^([A-Z]+)(\d{6})([CP])(\d{8})$', occ)
+    if not m:
         return None
+    underlying = m.group(1)
+    exp_str = m.group(2)  # YYMMDD
+    opt_type = "call" if m.group(3) == "C" else "put"
+    strike = int(m.group(4)) / 1000.0
+    expiry = datetime.date(2000 + int(exp_str[:2]), int(exp_str[2:4]), int(exp_str[4:6]))
+    return underlying, expiry, opt_type, strike
+
+
+def _snapshots_to_df(snapshots: dict, opt_type: str) -> pd.DataFrame:
+    """Convert Alpaca option chain snapshots to a DataFrame matching yfinance column format."""
+    rows = []
+    for occ_sym, snap in snapshots.items():
+        parsed = _parse_occ_symbol(occ_sym)
+        if parsed is None:
+            continue
+        _, expiry, snap_type, strike = parsed
+        if snap_type != opt_type:
+            continue
+
+        bid = getattr(snap.latest_quote, "bid_price", 0) or 0 if snap.latest_quote else 0
+        ask = getattr(snap.latest_quote, "ask_price", 0) or 0 if snap.latest_quote else 0
+        mid = (bid + ask) / 2 if (bid > 0 and ask > 0) else 0
+        last = getattr(snap.latest_trade, "price", 0) or 0 if snap.latest_trade else 0
+        iv = getattr(snap, "implied_volatility", 0) or 0
+        greeks = snap.greeks if snap.greeks else None
+        delta = getattr(greeks, "delta", 0) or 0 if greeks else 0
+        oi = getattr(snap, "open_interest", 0) or 0
+
+        rows.append({
+            "contractsymbol": occ_sym,
+            "strike": strike,
+            "bid": bid,
+            "ask": ask,
+            "mid": mid,
+            "lastprice": last if last > 0 else mid,
+            "impliedvolatility": iv,
+            "iv_pct": iv * 100,
+            "delta": delta,
+            "expiry": expiry,
+        })
+
+    if not rows:
+        return pd.DataFrame()
+    return pd.DataFrame(rows)
+
+
+def _get_chain_alpaca(
+    symbol: str, spot: float,
+    exp_gte: datetime.date, exp_lte: datetime.date,
+    hv30: float, atr14: float, hist: pd.DataFrame,
+) -> Optional[OptionsChainInfo]:
+    """Fetch option chain via Alpaca OptionHistoricalDataClient."""
+    from alpaca.data.requests import OptionChainRequest
+
+    client = get_option_data_client()
+    req = OptionChainRequest(
+        underlying_symbol=symbol,
+        expiration_date_gte=exp_gte,
+        expiration_date_lte=exp_lte,
+    )
+    snapshots = client.get_option_chain(req)
+    if not snapshots:
+        return None
+
+    calls = _snapshots_to_df(snapshots, "call")
+    puts  = _snapshots_to_df(snapshots, "put")
+
+    if calls.empty and puts.empty:
+        return None
+
+    # Pick the closest expiry from the returned data
+    all_expiries = set()
+    if not calls.empty:
+        all_expiries.update(calls["expiry"].unique())
+    if not puts.empty:
+        all_expiries.update(puts["expiry"].unique())
+    target_expiry = min(all_expiries) if all_expiries else exp_gte
+
+    # Filter to just that expiry
+    if not calls.empty:
+        calls = calls[calls["expiry"] == target_expiry].drop(columns=["expiry"])
+    if not puts.empty:
+        puts = puts[puts["expiry"] == target_expiry].drop(columns=["expiry"])
+
+    # IV rank from ATM call IV
+    mid_c = calls[(calls["strike"] >= spot * 0.95) & (calls["strike"] <= spot * 1.05)]
+    if not mid_c.empty and "impliedvolatility" in mid_c.columns:
+        cur_iv = float(mid_c["impliedvolatility"].mean()) * 100
+    else:
+        cur_iv = hv30
+    iv_rank = _calc_iv_rank(cur_iv, hist["close"])
+
+    log.debug(f"{symbol}: Alpaca chain OK — {len(calls)} calls, {len(puts)} puts, exp={target_expiry}")
+    return OptionsChainInfo(
+        symbol=symbol,
+        expiry=target_expiry,
+        calls=calls,
+        puts=puts,
+        spot_price=spot,
+        iv_rank=iv_rank,
+        hv_30=hv30,
+        atr14=max(atr14, 0.01),
+    )
+
+
+def _get_chain_yfinance(
+    symbol: str, spot: float, hv30: float, atr14: float, hist: pd.DataFrame,
+) -> Optional[OptionsChainInfo]:
+    """Fetch option chain via yfinance (fallback)."""
+    ticker = yf.Ticker(symbol)
+    expirations = ticker.options
+    if not expirations:
+        return None
+
+    today = datetime.date.today()
+    target_expiry = None
+    for exp_str in expirations:
+        exp = datetime.date.fromisoformat(exp_str)
+        dte = (exp - today).days
+        if OPTIONS_DTE_MIN <= dte <= OPTIONS_DTE_MAX:
+            target_expiry = exp
+            break
+
+    if target_expiry is None:
+        return None
+
+    chain = ticker.option_chain(target_expiry.isoformat())
+    calls = chain.calls.copy() if not chain.calls.empty else pd.DataFrame()
+    puts  = chain.puts.copy()  if not chain.puts.empty  else pd.DataFrame()
+
+    for df in (calls, puts):
+        df.columns = [c.lower().replace(" ", "_") for c in df.columns]
+
+    # IV rank from ATM call IV
+    mid_c = calls[(calls["strike"] >= spot * 0.95) & (calls["strike"] <= spot * 1.05)]
+    if not mid_c.empty and "impliedvolatility" in mid_c.columns:
+        cur_iv = float(mid_c["impliedvolatility"].mean()) * 100
+    else:
+        cur_iv = hv30
+    iv_rank = _calc_iv_rank(cur_iv, hist["close"])
+
+    log.debug(f"{symbol}: yfinance chain fallback — {len(calls)} calls, {len(puts)} puts")
+    return OptionsChainInfo(
+        symbol=symbol,
+        expiry=target_expiry,
+        calls=calls,
+        puts=puts,
+        spot_price=spot,
+        iv_rank=iv_rank,
+        hv_30=hv30,
+        atr14=max(atr14, 0.01),
+    )
 
 
 def _pick_strike(
@@ -1251,12 +1393,19 @@ def scan_options_universe(
     signals: List[OptionSignal] = []
     momentum_strat      = MomentumCallStrategy()
     retest_strat        = BreakoutRetestCallStrategy()
-    pullback_strat      = TrendPullbackSpreadStrategy()
     mean_rev_strat      = MeanReversionCallStrategy()
     covered_strat       = CoveredCallStrategy()
 
     today = datetime.date.today()
     for symbol in ti_universe:
+        # Dollar volume quality gate: skip thinly-traded names
+        daily = get_bars(symbol, "25d", "1d")
+        if not daily.empty and len(daily) >= 5:
+            adv = float((daily["close"] * daily["volume"]).iloc[-20:].mean())
+            if adv < OPTIONS_MIN_ADV:
+                log.debug(f"Options scan: {symbol} ADV ${adv:,.0f} < ${OPTIONS_MIN_ADV:,.0f} — skip")
+                continue
+
         # Skip symbols still in stop cooldown
         if symbol in _stop_cooldown:
             days_since = (today - _stop_cooldown[symbol]).days
@@ -1264,8 +1413,9 @@ def scan_options_universe(
                 log.debug(f"Options scan: {symbol} in stop cooldown ({days_since}d / {OPTIONS_STOP_COOLDOWN_DAYS}d) — skipping")
                 continue
 
-        # MeanReversion-first; v2 priority order restored.
-        for strat in (mean_rev_strat, momentum_strat, retest_strat, pullback_strat):
+        # MeanReversion-first, then BreakoutRetest, then Momentum.
+        # TrendPullbackSpread disabled (negative PF over 6-month backtest).
+        for strat in (mean_rev_strat, retest_strat, momentum_strat):
             sig = strat.scan(symbol)
             if sig and sig.confidence >= OPTIONS_MIN_SIGNAL_CONFIDENCE:
                 signals.append(sig)

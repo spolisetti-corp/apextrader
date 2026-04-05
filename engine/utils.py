@@ -61,7 +61,8 @@ load_dotenv()
 
 try:
     from alpaca.data.historical import StockHistoricalDataClient
-    from alpaca.data.requests import StockBarsRequest
+    from alpaca.data.historical import OptionHistoricalDataClient
+    from alpaca.data.requests import StockBarsRequest, OptionChainRequest
     from alpaca.data.timeframe import TimeFrame, TimeFrameUnit
     ALPACA_AVAILABLE = True
 except ImportError:
@@ -75,6 +76,7 @@ _ALPACA_MIN_INTERVAL = 0.35  # per-symbol delay to reduce 429s
 _last_alpaca_bar_ts = 0.0
 
 _data_client = None
+_option_data_client = None
 
 
 # ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
@@ -132,6 +134,16 @@ def get_data_client() -> "StockHistoricalDataClient":
             raise ValueError("Alpaca API credentials not found in environment")
         _data_client = StockHistoricalDataClient(API_KEY, API_SECRET)
     return _data_client
+
+
+def get_option_data_client() -> "OptionHistoricalDataClient":
+    global _option_data_client
+    if _option_data_client is None:
+        from engine.config import API_KEY, API_SECRET
+        if not API_KEY or not API_SECRET:
+            raise ValueError("Alpaca API credentials not found in environment")
+        _option_data_client = OptionHistoricalDataClient(API_KEY, API_SECRET)
+    return _option_data_client
 
 
 # ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
@@ -609,10 +621,11 @@ def get_price(symbol: str) -> float:
 
 
 def get_premarket_bars(symbol: str) -> pd.DataFrame:
-    """Fetch today's 1-min OHLCV bars including pre-market (7:00 AM ET onwards).
+    """Fetch today's 1-min OHLCV bars including pre-market (4:00 AM ET onwards).
 
-    Uses yfinance with prepost=True.  Stored in the standard bar cache under
-    a '_prepost' key so it is invalidated by clear_bar_cache() each scan cycle.
+    Alpaca first (includes extended hours data), yfinance fallback.
+    Stored in the standard bar cache under a '_prepost' key so it is
+    invalidated by clear_bar_cache() each scan cycle.
     Returns a DataFrame with a timezone-aware 'time' column (US/Eastern).
     """
     log = logging.getLogger("ApexTrader")
@@ -622,31 +635,65 @@ def get_premarket_bars(symbol: str) -> pd.DataFrame:
             return _bar_cache[cache_key]
 
     result = pd.DataFrame()
-    try:
-        data = yf.Ticker(symbol).history(period="1d", interval="1m", prepost=True)
-        if not data.empty:
-            data = data.reset_index()
-            data.columns = [c.lower() for c in data.columns]
-            for col in ("datetime", "index"):
-                if col in data.columns:
-                    data = data.rename(columns={col: "time"})
-                    break
 
-            # Normalise timestamps to timezone-aware Eastern
-            if "time" in data.columns:
-                col = pd.to_datetime(data["time"])
-                try:
-                    if col.dt.tz is not None:
-                        col = col.dt.tz_convert(ET)
-                    else:
-                        col = col.dt.tz_localize("UTC").dt.tz_convert(ET)
-                except Exception:
-                    pass
-                data["time"] = col
+    # Alpaca: 1-min bars from 4 AM ET today (covers pre-market)
+    if ALPACA_AVAILABLE:
+        try:
+            client = get_data_client()
+            now_et = datetime.datetime.now(ET)
+            start = now_et.replace(hour=4, minute=0, second=0, microsecond=0)
+            tf = TimeFrame(1, TimeFrameUnit.Minute)
+            bars = client.get_stock_bars(StockBarsRequest(
+                symbol_or_symbols=symbol, timeframe=tf, start=start,
+            ))
+            if symbol in bars:
+                data = bars[symbol].df.reset_index()
+                data.columns = [c.lower() for c in data.columns]
+                if "timestamp" in data.columns:
+                    data = data.rename(columns={"timestamp": "time"})
+                if "time" in data.columns:
+                    col = pd.to_datetime(data["time"])
+                    try:
+                        if col.dt.tz is not None:
+                            col = col.dt.tz_convert(ET)
+                        else:
+                            col = col.dt.tz_localize("UTC").dt.tz_convert(ET)
+                    except Exception:
+                        pass
+                    data["time"] = col
+                if not data.empty:
+                    result = data
+                    log.debug(f"get_premarket_bars({symbol}): Alpaca OK ({len(data)} bars)")
+        except Exception as e:
+            log.debug(f"get_premarket_bars({symbol}): Alpaca failed: {e}")
 
-            result = data
-    except Exception as e:
-        log.debug(f"get_premarket_bars({symbol}): {e}")
+    # yfinance fallback
+    if result.empty:
+        try:
+            data = yf.Ticker(symbol).history(period="1d", interval="1m", prepost=True)
+            if not data.empty:
+                data = data.reset_index()
+                data.columns = [c.lower() for c in data.columns]
+                for col in ("datetime", "index"):
+                    if col in data.columns:
+                        data = data.rename(columns={col: "time"})
+                        break
+
+                # Normalise timestamps to timezone-aware Eastern
+                if "time" in data.columns:
+                    col = pd.to_datetime(data["time"])
+                    try:
+                        if col.dt.tz is not None:
+                            col = col.dt.tz_convert(ET)
+                        else:
+                            col = col.dt.tz_localize("UTC").dt.tz_convert(ET)
+                    except Exception:
+                        pass
+                    data["time"] = col
+
+                result = data
+        except Exception as e:
+            log.debug(f"get_premarket_bars({symbol}): yfinance failed: {e}")
 
     with _bar_cache_lock:
         _bar_cache[cache_key] = result
@@ -751,20 +798,21 @@ _SENTIMENT_TTL = 900  # 15 min
 def get_market_sentiment() -> str:
     """Return 'bullish', 'bearish', or 'neutral' based on SPY momentum and VIX.
 
-    Result is cached for _SENTIMENT_TTL seconds to avoid redundant yfinance calls.
+    Result is cached for _SENTIMENT_TTL seconds.
+    Uses Alpaca bars for SPY; yfinance fallback for ^VIX (index not on Alpaca).
     """
     import time as _time
     now = _time.monotonic()
     if now - _sentiment_cache["ts"] < _SENTIMENT_TTL:
         return _sentiment_cache["value"]
     try:
-        spy = yf.Ticker("SPY").history(period="5d", interval="1h")
-        vix = yf.Ticker("^VIX").history(period="5d", interval="1h")
+        spy = get_bars("SPY", period="5d", interval="1h")
+        vix = get_bars("^VIX", period="5d", interval="1h")
         if spy.empty:
             result = "neutral"
         else:
-            spy_mom = ((spy["Close"].iloc[-1] / spy["Close"].iloc[0]) - 1) * 100
-            vix_val = float(vix["Close"].iloc[-1]) if not vix.empty else 20
+            spy_mom = ((spy["close"].iloc[-1] / spy["close"].iloc[0]) - 1) * 100
+            vix_val = float(vix["close"].iloc[-1]) if not vix.empty else 20
             if spy_mom > 1 and vix_val < 20:
                 result = "bullish"
             elif spy_mom < -1 or vix_val > 30:
