@@ -526,8 +526,8 @@ def backtest_symbol(
             continue
 
         # ── Signal Priority: first match fires ────────────────────────────────
-        # 1. MomentumCall (breakout day: +5%, RVOL 2x)
-        # 2. BreakoutRetest (post-breakout retest bounce)
+        # 1. BreakoutRetest (post-breakout retest bounce)
+        # 2. MomentumCall (breakout day: +5%, RVOL 2x)
         # 3. TrendPullbackSpread (EMA20 pullback in 50-EMA uptrend) — debit spread
         # 4. MeanReversion (RSI<32 + lower BB touch)
         #
@@ -539,13 +539,13 @@ def backtest_symbol(
         target_delta = 0.40    # default ATM call
 
         if bull_ok or is_inverse:
-            if _momentum_call_signal(hist.iloc[:i + 1], i):
-                fire_strat   = "MomentumCall"
-                target_delta = 0.40
-
-            elif _breakout_retest_signal(hist.iloc[:i + 1], i):
+            if _breakout_retest_signal(hist.iloc[:i + 1], i):
                 fire_strat   = "BreakoutRetest"
                 target_delta = 0.50
+
+            elif _momentum_call_signal(hist.iloc[:i + 1], i):
+                fire_strat   = "MomentumCall"
+                target_delta = 0.40
 
             elif _trend_pullback_signal(hist.iloc[:i + 1], i):
                 fire_strat   = "TrendPullbackSpread"
@@ -625,7 +625,7 @@ def backtest_symbol(
             "strike":    pos["strike"],
             "expiry":    pos["expiry"],
             "entry_px":  round(pos["entry_price"], 3),
-            "exit_px":   round(cur_price, 3),
+            "exit_px":   round(cur_long, 3),
             "contracts": pos["contracts"],
             "pnl_pct":   round(pnl_pct, 1),
             "pnl_$":     round(pnl_dollar, 2),

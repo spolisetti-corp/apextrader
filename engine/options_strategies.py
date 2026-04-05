@@ -1264,7 +1264,9 @@ def scan_options_universe(
                 log.debug(f"Options scan: {symbol} in stop cooldown ({days_since}d / {OPTIONS_STOP_COOLDOWN_DAYS}d) — skipping")
                 continue
 
-        for strat in (momentum_strat, retest_strat, pullback_strat, mean_rev_strat):
+        # BreakoutRetest-first priority to bias entries toward the strongest
+        # observed performer in recent validation.
+        for strat in (retest_strat, momentum_strat, pullback_strat, mean_rev_strat):
             sig = strat.scan(symbol)
             if sig and sig.confidence >= OPTIONS_MIN_SIGNAL_CONFIDENCE:
                 signals.append(sig)
